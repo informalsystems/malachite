@@ -17,7 +17,8 @@ members = [
   "crates/test",
   "crates/test/mbt",
   "crates/vote",
-  "crates/starknet/*"
+  "crates/abci/*",
+  "crates/starknet/*",
 ]
 
 [workspace.package]
@@ -40,6 +41,7 @@ debug = true
 unused_crate_dependencies = "warn"
 
 [workspace.dependencies]
+malachite-abci             = { version = "0.1.0", path = "crates/abci" }
 malachite-actors           = { version = "0.1.0", path = "crates/actors" }
 malachite-cli              = { version = "0.1.0", path = "crates/cli" }
 malachite-common           = { version = "0.1.0", path = "crates/common" }
@@ -55,6 +57,12 @@ malachite-proto            = { version = "0.1.0", path = "crates/proto" }
 malachite-round            = { version = "0.1.0", path = "crates/round" }
 malachite-test             = { version = "0.1.0", path = "crates/test" }
 malachite-vote             = { version = "0.1.0", path = "crates/vote" }
+
+# ABCI
+malachite-abci-host      = { version = "0.1.0", path = "crates/abci/host" }
+malachite-abci-app       = { version = "0.1.0", path = "crates/abci/app" }
+malachite-abci-p2p-proto = { version = "0.1.0", path = "crates/abci/p2p-proto" }
+malachite-abci-p2p-types = { version = "0.1.0", path = "crates/abci/p2p-types" }
 
 # Starknet
 malachite-starknet-host      = { version = "0.1.0", path = "crates/starknet/host" }
@@ -114,7 +122,11 @@ thiserror          = "1.0"
 time               = "0.3"
 tokio              = "1.40.0"
 tokio-stream       = "0.1"
+tokio-util         = "0.7"
+tendermint         = "0.39.1"
+tendermint-proto   = "0.39.1"
 toml               = "0.8.19"
+tower-abci         = "0.15.0"
 tikv-jemallocator  = "0.6.0"
 tracing            = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

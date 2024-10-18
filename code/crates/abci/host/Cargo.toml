@@ -1,0 +1,38 @@
+[package]
+name                   = "malachite-abci-host"
+version.workspace      = true
+edition.workspace      = true
+repository.workspace   = true
+license.workspace      = true
+publish.workspace      = true
+rust-version.workspace = true
+
+[dependencies]
+malachite-actors.workspace             = true
+malachite-common.workspace             = true
+malachite-metrics.workspace            = true
+# malachite-node.workspace               = true
+malachite-gossip-mempool.workspace     = true
+malachite-proto.workspace              = true
+malachite-abci-p2p-types.workspace = true
+
+bytes.workspace            = true
+starknet-core.workspace    = true
+# async-trait.workspace     = true
+bytesize.workspace         = true
+derive-where.workspace     = true
+eyre.workspace             = true
+prost.workspace            = true
+ractor.workspace           = true
+rand.workspace             = true
+sha3.workspace             = true
+tokio.workspace            = true
+tracing.workspace          = true
+tendermint.workspace       = true
+tendermint-proto.workspace = true
+tokio-util                 = { workspace = true, features = ["codec"] }
+futures-util               = "0.3"
+sha2                       = "0.10"
+
+[lints]
+workspace = true

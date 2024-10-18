@@ -24,7 +24,7 @@ if [[ -z "$NODES_COUNT" ]]; then
     help
     exit 1
 fi
-
+ 
 if [[ -z "$NODES_HOME" ]]; then
     help
     exit 1
@@ -53,7 +53,7 @@ cargo build --release
 for NODE in $(seq 0 $((NODES_COUNT - 1))); do
     mkdir -p "$NODES_HOME/$NODE/logs"
     rm -f "$NODES_HOME/$NODE/logs/*.log"
-
+    export KVSTORE_SOCKET="/tmp/kvstoreplusplus$NODE.sock"
     echo "[Node $NODE] Spawning node..."
     cargo run -q --release -- start --home "$NODES_HOME/$NODE" > "$NODES_HOME/$NODE/logs/node.log" 2>&1 &
     echo $! > "$NODES_HOME/$NODE/node.pid"

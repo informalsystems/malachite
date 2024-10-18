@@ -4,24 +4,18 @@ use libp2p_identity::ecdsa;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use malachite_abci_host::actor::{AbciHost, HostParams};
+use malachite_abci_host::context::AbciContext;
+use malachite_abci_host::types::{Address, BlockHash, Height, PrivateKey, ValidatorSet};
 use malachite_actors::consensus::{Consensus, ConsensusParams, ConsensusRef};
 use malachite_actors::gossip_consensus::{GossipConsensus, GossipConsensusRef};
-use malachite_actors::gossip_mempool::{GossipMempool, GossipMempoolRef};
 use malachite_actors::host::HostRef;
 use malachite_actors::node::{Node, NodeRef};
 use malachite_common::Round;
 use malachite_gossip_consensus::{Config as GossipConsensusConfig, DiscoveryConfig, Keypair};
-use malachite_gossip_mempool::Config as GossipMempoolConfig;
 use malachite_metrics::Metrics;
 use malachite_metrics::SharedRegistry;
-use malachite_node::config::{
-    Config as NodeConfig, MempoolConfig, PubSubProtocol, TestConfig, TransportProtocol,
-};
-use malachite_starknet_host::actor::StarknetHost;
-use malachite_starknet_host::mempool::{Mempool, MempoolRef};
-use malachite_starknet_host::mock::context::MockContext;
-use malachite_starknet_host::mock::host::{MockHost, MockParams};
-use malachite_starknet_host::types::{Address, BlockHash, Height, PrivateKey, ValidatorSet};
+use malachite_node::config::{Config as NodeConfig, PubSubProtocol, TransportProtocol};
 
 use crate::codec::ProtobufCodec;
 
@@ -31,15 +25,11 @@ pub async fn spawn_node_actor(
     private_key: PrivateKey,
     tx_decision: Option<mpsc::Sender<(Height, Round, BlockHash)>>,
 ) -> (NodeRef, JoinHandle<()>) {
-    let ctx = MockContext::new(private_key);
+    let ctx = AbciContext::new(private_key);
 
     let registry = SharedRegistry::global();
     let metrics = Metrics::register(registry);
     let address = Address::from_public_key(private_key.public_key());
-
-    // Spawn mempool and its gossip layer
-    let gossip_mempool = spawn_gossip_mempool_actor(&cfg, &private_key, registry).await;
-    let mempool = spawn_mempool_actor(gossip_mempool.clone(), &cfg.mempool, &cfg.test).await;
 
     // Spawn consensus gossip
     let gossip_consensus = spawn_gossip_consensus_actor(&cfg, &private_key, registry).await;
@@ -49,13 +39,13 @@ pub async fn spawn_node_actor(
         &cfg,
         &address,
         &initial_validator_set,
-        mempool.clone(),
+        // mempool.clone(),
         gossip_consensus.clone(),
         metrics.clone(),
     )
     .await;
 
-    let start_height = Height::new(1, 1);
+    let start_height = Height::new(1);
 
     // Spawn consensus
     let consensus = spawn_consensus_actor(
@@ -76,8 +66,8 @@ pub async fn spawn_node_actor(
         ctx,
         gossip_consensus,
         consensus,
-        Some(gossip_mempool),
-        Some(mempool.get_cell()),
+        None,
+        None,
         host,
         start_height,
     );
@@ -92,13 +82,13 @@ async fn spawn_consensus_actor(
     start_height: Height,
     initial_validator_set: ValidatorSet,
     address: Address,
-    ctx: MockContext,
+    ctx: AbciContext,
     cfg: NodeConfig,
-    gossip_consensus: GossipConsensusRef<MockContext>,
-    host: HostRef<MockContext>,
+    gossip_consensus: GossipConsensusRef<AbciContext>,
+    host: HostRef<AbciContext>,
     metrics: Metrics,
     tx_decision: Option<mpsc::Sender<(Height, Round, BlockHash)>>,
-) -> ConsensusRef<MockContext> {
+) -> ConsensusRef<AbciContext> {
     let consensus_params = ConsensusParams {
         start_height,
         initial_validator_set,
@@ -123,14 +113,10 @@ async fn spawn_gossip_consensus_actor(
     cfg: &NodeConfig,
     private_key: &PrivateKey,
     registry: &SharedRegistry,
-) -> GossipConsensusRef<MockContext> {
+) -> GossipConsensusRef<AbciContext> {
     let config_gossip = GossipConsensusConfig {
         listen_addr: cfg.consensus.p2p.listen_addr.clone(),
         persistent_peers: cfg.consensus.p2p.persistent_peers.clone(),
-        discovery: DiscoveryConfig {
-            enabled: cfg.consensus.p2p.discovery.enabled,
-            ..Default::default()
-        },
         idle_connection_timeout: Duration::from_secs(60),
         transport: match cfg.consensus.p2p.transport {
             TransportProtocol::Tcp => malachite_gossip_consensus::TransportProtocol::Tcp,
@@ -140,6 +126,7 @@ async fn spawn_gossip_consensus_actor(
             PubSubProtocol::GossipSub => malachite_gossip_consensus::PubSubProtocol::GossipSub,
             PubSubProtocol::Broadcast => malachite_gossip_consensus::PubSubProtocol::Broadcast,
         },
+        discovery: DiscoveryConfig::default(),
     };
 
     let keypair = make_keypair(private_key);
@@ -157,62 +144,24 @@ fn make_keypair(private_key: &PrivateKey) -> Keypair {
     Keypair::from(ecdsa_keypair)
 }
 
-async fn spawn_mempool_actor(
-    gossip_mempool: GossipMempoolRef,
-    mempool_config: &MempoolConfig,
-    test_config: &TestConfig,
-) -> MempoolRef {
-    Mempool::spawn(gossip_mempool, mempool_config, test_config)
-        .await
-        .unwrap()
-}
-
-async fn spawn_gossip_mempool_actor(
-    cfg: &NodeConfig,
-    private_key: &PrivateKey,
-    registry: &SharedRegistry,
-) -> GossipMempoolRef {
-    let config_gossip_mempool = GossipMempoolConfig {
-        listen_addr: cfg.mempool.p2p.listen_addr.clone(),
-        persistent_peers: cfg.mempool.p2p.persistent_peers.clone(),
-        idle_connection_timeout: Duration::from_secs(60),
-        transport: match cfg.mempool.p2p.transport {
-            TransportProtocol::Tcp => malachite_gossip_mempool::TransportProtocol::Tcp,
-            TransportProtocol::Quic => malachite_gossip_mempool::TransportProtocol::Quic,
-        },
-    };
-
-    let keypair = make_keypair(private_key);
-    GossipMempool::spawn(keypair, config_gossip_mempool, registry.clone())
-        .await
-        .unwrap()
-}
-
 async fn spawn_host_actor(
     cfg: &NodeConfig,
     address: &Address,
     initial_validator_set: &ValidatorSet,
-    mempool: MempoolRef,
-    gossip_consensus: GossipConsensusRef<MockContext>,
+    gossip_consensus: GossipConsensusRef<AbciContext>,
     metrics: Metrics,
-) -> HostRef<MockContext> {
-    let mock_params = MockParams {
+) -> HostRef<AbciContext> {
+    let params = HostParams {
+        address: address.clone(),
+        initial_validator_set: initial_validator_set.clone(),
         max_block_size: cfg.consensus.max_block_size,
         tx_size: cfg.test.tx_size,
         txs_per_part: cfg.test.txs_per_part,
         time_allowance_factor: cfg.test.time_allowance_factor,
         exec_time_per_tx: cfg.test.exec_time_per_tx,
-        vote_extensions: cfg.test.vote_extensions,
     };
 
-    let mock_host = MockHost::new(
-        mock_params,
-        mempool.clone(),
-        address.clone(),
-        initial_validator_set.clone(),
-    );
-
-    StarknetHost::spawn(mock_host, mempool, gossip_consensus, metrics)
+    AbciHost::spawn(params, /* mempool, */ gossip_consensus, metrics)
         .await
         .unwrap()
 }

@@ -7,9 +7,10 @@ use clap::Parser;
 use color_eyre::eyre::{eyre, Context, Result};
 use tracing::{info, warn};
 
+use malachite_abci_app::node::AbciNode;
 use malachite_node::config::{App, Config, LogFormat, LogLevel, TransportProtocol};
 use malachite_node::Node;
-use malachite_starknet_app::node::StarknetNode;
+// use malachite_starknet_app::node::StarknetNode;
 
 use crate::cmd::testnet::{
     generate_config, generate_genesis, generate_private_keys, RuntimeFlavour,
@@ -42,7 +43,8 @@ impl InitCmd {
         log_format: LogFormat,
     ) -> Result<()> {
         let node = match self.app {
-            App::Starknet => StarknetNode,
+            App::Abci => AbciNode,
+            App::Starknet => unreachable!(), // StarknetNode,
         };
 
         // Save default configuration

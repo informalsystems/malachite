@@ -1,0 +1,49 @@
+syntax = "proto3";
+import "p2p/proto/common.proto";
+import "p2p/proto/receipt.proto";
+
+message ResourceLimits {
+    Felt252 max_amount = 1;
+    Felt252 max_price_per_unit = 2;
+}
+
+message ResourceBounds {
+    ResourceLimits l1_gas = 1;
+    ResourceLimits l2_gas = 2;
+}
+
+message AccountSignature {
+    repeated Felt252 parts = 1;
+}
+
+// This is a transaction that is already accepted in a block. Once we have a mempool, we will define
+// a separate message for BroadcastedTransaction.
+message Transaction
+{
+    bytes bytes = 1;
+    Hash hash = 12;
+}
+
+message TransactionWithReceipt {
+    Transaction transaction = 1;
+    Receipt receipt = 2;
+}
+
+// TBD: can support a flag to return tx hashes only, good for standalone mempool to remove them,
+// or any node that keeps track of transaction streaming in the consensus.
+message TransactionsRequest {
+    Iteration iteration = 1;
+}
+
+// Responses are sent ordered by the order given in the request. The order inside each block is
+// according to the execution order.
+message TransactionsResponse {
+    oneof transaction_message {
+        TransactionWithReceipt transaction_with_receipt = 1;
+        Fin fin = 2; // Fin is sent after the peer sent all the data or when it encountered a block that it doesn't have its transactions.
+    }
+}
+
+message Transactions {
+    repeated Transaction transactions = 1;
+}

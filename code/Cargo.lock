@@ -1136,6 +1136,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "flex-error"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c606d892c9de11507fa0dcffc116434f94e105d0bbdc4e405b61519464c49d7b"
+dependencies = [
+ "paste",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2405,6 +2414,84 @@ dependencies = [
 ]
 
 [[package]]
+name = "malachite-abci-app"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytesize",
+ "libp2p-identity",
+ "malachite-abci-host",
+ "malachite-abci-p2p-proto",
+ "malachite-abci-p2p-types",
+ "malachite-actors",
+ "malachite-common",
+ "malachite-consensus",
+ "malachite-gossip-consensus",
+ "malachite-gossip-mempool",
+ "malachite-metrics",
+ "malachite-node",
+ "malachite-proto",
+ "malachite-test",
+ "prost",
+ "rand",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "malachite-abci-host"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "bytesize",
+ "derive-where",
+ "eyre",
+ "futures-util",
+ "malachite-abci-p2p-types",
+ "malachite-actors",
+ "malachite-common",
+ "malachite-gossip-mempool",
+ "malachite-metrics",
+ "malachite-proto",
+ "prost",
+ "ractor",
+ "rand",
+ "sha2 0.10.8",
+ "sha3",
+ "starknet-core",
+ "tendermint",
+ "tendermint-proto",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "malachite-abci-p2p-proto"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "prost-build",
+]
+
+[[package]]
+name = "malachite-abci-p2p-types"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "malachite-abci-p2p-proto",
+ "malachite-common",
+ "malachite-proto",
+ "rand",
+ "serde",
+ "sha3",
+ "starknet-core",
+ "starknet-crypto",
+]
+
+[[package]]
 name = "malachite-actors"
 version = "0.1.0"
 dependencies = [
@@ -2435,6 +2522,8 @@ dependencies = [
  "config",
  "directories",
  "itertools",
+ "malachite-abci-app",
+ "malachite-abci-host",
  "malachite-common",
  "malachite-metrics",
  "malachite-node",
@@ -3775,6 +3864,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_bytes"
+version = "0.11.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "serde_derive"
 version = "1.0.210"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3816,6 +3914,17 @@ checksum = "af99884400da37c88f5e9146b7f1fd0fbcae8f6eec4e9da38b67d05486f814a6"
 dependencies = [
  "itoa",
  "serde",
+]
+
+[[package]]
+name = "serde_repr"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.77",
 ]
 
 [[package]]
@@ -4130,6 +4239,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "subtle-encoding"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dcb1ed7b8330c5eed5441052651dd7a12c75e2ed88f2ec024ae1fa3a5e59945"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
 name = "subtle-ng"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4212,6 +4330,49 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "tendermint"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f3afea7809ffaaf1e5d9c3c9997cb3a834df7e94fbfab2fad2bc4577f1cde41"
+dependencies = [
+ "bytes",
+ "digest 0.10.7",
+ "ed25519",
+ "ed25519-consensus",
+ "flex-error",
+ "futures",
+ "num-traits",
+ "once_cell",
+ "prost",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "serde_repr",
+ "sha2 0.10.8",
+ "signature",
+ "subtle",
+ "subtle-encoding",
+ "tendermint-proto",
+ "time",
+ "zeroize",
+]
+
+[[package]]
+name = "tendermint-proto"
+version = "0.39.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf3abf34ecf33125621519e9952688e7a59a98232d51538037ba21fbe526a802"
+dependencies = [
+ "bytes",
+ "flex-error",
+ "prost",
+ "serde",
+ "serde_bytes",
+ "subtle-encoding",
+ "time",
 ]
 
 [[package]]

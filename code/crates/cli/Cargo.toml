@@ -7,15 +7,19 @@ license.workspace    = true
 publish.workspace    = true
 
 [lints]
-workspace = true
+# workspace = true
 
 [dependencies]
 malachite-common.workspace        = true
 malachite-metrics.workspace       = true
 malachite-node.workspace          = true
 
+# ABCI
+malachite-abci-host.workspace = true
+malachite-abci-app.workspace  = true
+
 # Starknet
-malachite-starknet-host.workspace  = true
+malachite-starknet-host.workspace = true
 malachite-starknet-app.workspace  = true
 
 axum               = { workspace = true }

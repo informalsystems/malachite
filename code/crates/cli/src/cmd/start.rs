@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use color_eyre::eyre::Result;
+use malachite_abci_app::node::AbciNode;
 use tracing::{info, Instrument};
 
 use malachite_node::config::{App, Config};
 use malachite_node::Node;
-use malachite_starknet_app::node::StarknetNode;
 
 use crate::metrics;
 
@@ -32,7 +32,8 @@ impl StartCmd {
         info!("Node is starting...");
 
         let node = match cfg.app {
-            App::Starknet => StarknetNode,
+            App::Abci => AbciNode,
+            App::Starknet => unreachable!(), // StarknetNode,
         };
 
         let priv_key_file = node.load_private_key_file(private_key_file)?;
@@ -40,9 +41,14 @@ impl StartCmd {
         let genesis = node.load_genesis(genesis_file)?;
 
         let (actor, handle) = match cfg.app {
-            App::Starknet => {
-                use malachite_starknet_app::spawn::spawn_node_actor;
+            App::Abci => {
+                use malachite_abci_app::spawn::spawn_node_actor;
                 spawn_node_actor(cfg, genesis, private_key, None).await
+            }
+            App::Starknet => {
+                unreachable!()
+                // use malachite_starknet_app::spawn::spawn_node_actor;
+                // spawn_node_actor(cfg, genesis, private_key, None).await
             }
         };
 
