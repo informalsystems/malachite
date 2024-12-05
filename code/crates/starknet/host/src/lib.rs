@@ -9,6 +9,7 @@ pub mod actor;
 pub mod block_store;
 pub mod codec;
 pub mod mempool;
+pub mod metrics;
 pub mod mock;
 pub mod node;
 pub mod part_store;
