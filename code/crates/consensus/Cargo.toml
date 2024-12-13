@@ -29,3 +29,5 @@ workspace = true
 
 [dev-dependencies]
 malachite-test = { workspace = true }
+rand = { workspace = true }
+eyre = { workspace = true }

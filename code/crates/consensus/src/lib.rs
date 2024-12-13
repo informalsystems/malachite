@@ -18,6 +18,8 @@ pub use effect::{Effect, Resume};
 mod types;
 pub use types::*;
 
+pub use malachite_metrics::Metrics;
+
 mod full_proposal;
 mod macros;
 mod util;

@@ -14,7 +14,7 @@ use crate::ConsensusMsg;
 ///
 /// [process]: crate::process
 #[must_use]
-#[derive_where(Debug)]
+#[derive_where(Debug, PartialEq, Eq)]
 pub enum Effect<Ctx>
 where
     Ctx: Context,

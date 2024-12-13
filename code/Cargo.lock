@@ -2860,6 +2860,7 @@ version = "0.1.0"
 dependencies = [
  "async-recursion",
  "derive-where",
+ "eyre",
  "genawaiter",
  "malachite-core-driver",
  "malachite-core-types",
@@ -2867,6 +2868,7 @@ dependencies = [
  "malachite-peer",
  "malachite-test",
  "multiaddr",
+ "rand",
  "thiserror 2.0.6",
  "tracing",
 ]
