@@ -283,6 +283,19 @@ impl<State> TestNode<State> {
         self.steps.push(Step::Success);
         self
     }
+
+    pub fn simulate_load(&mut self, transaction_count: u64) {
+        for _ in 0..transaction_count {
+            // Submit a dummy transaction
+            self.submit_transaction(vec![0u8]);
+        }
+    }
+
+    pub fn submit_transaction(&mut self, _tx: Vec<u8>) -> &mut Self {
+        // TODO: Implement actual transaction submission
+        // For now, just return self to maintain builder pattern
+        self
+    }
 }
 
 fn unique_id() -> usize {
