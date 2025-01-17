@@ -5,7 +5,7 @@ use derive_where::derive_where;
 use ractor::{ActorRef, RpcReplyPort};
 
 use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CommitCertificate, Context, Round, SignedExtension, ValueId};
+use malachitebft_core_types::{CommitCertificate, Context, Extension, Round, ValueId};
 use malachitebft_sync::RawDecidedValue;
 
 use crate::consensus::ConsensusRef;
@@ -23,21 +23,14 @@ pub struct LocallyProposedValue<Ctx: Context> {
     pub height: Ctx::Height,
     pub round: Round,
     pub value: Ctx::Value,
-    pub extension: Option<SignedExtension<Ctx>>,
 }
 
 impl<Ctx: Context> LocallyProposedValue<Ctx> {
-    pub fn new(
-        height: Ctx::Height,
-        round: Round,
-        value: Ctx::Value,
-        extension: Option<SignedExtension<Ctx>>,
-    ) -> Self {
+    pub fn new(height: Ctx::Height, round: Round, value: Ctx::Value) -> Self {
         Self {
             height,
             round,
             value,
-            extension,
         }
     }
 }
@@ -64,6 +57,14 @@ pub enum HostMsg<Ctx: Context> {
         round: Round,
         timeout: Duration,
         reply_to: RpcReplyPort<LocallyProposedValue<Ctx>>,
+    },
+
+    /// TODO
+    ExtendVote {
+        height: Ctx::Height,
+        round: Round,
+        value_id: ValueId<Ctx>,
+        reply_to: RpcReplyPort<Option<Extension>>,
     },
 
     /// Request to restream an existing block/value from Driver

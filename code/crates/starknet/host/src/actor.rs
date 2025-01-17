@@ -11,7 +11,9 @@ use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
 use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
+use malachitebft_core_types::{
+    CommitCertificate, Extension, Round, Validity, ValueId, ValueOrigin,
+};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
 use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_engine::network::{NetworkMsg, NetworkRef};
@@ -134,6 +136,13 @@ impl Host {
                 timeout,
                 reply_to,
             } => on_get_value(state, &self.network, height, round, timeout, reply_to).await,
+
+            HostMsg::ExtendVote {
+                height,
+                round,
+                value_id,
+                reply_to,
+            } => on_extend_vote(state, height, round, value_id, reply_to).await,
 
             HostMsg::RestreamValue {
                 height,
@@ -289,7 +298,6 @@ async fn on_get_value(
             value.height,
             value.round,
             value.value,
-            value.extension,
         ))?;
 
         return Ok(());
@@ -347,9 +355,20 @@ async fn on_get_value(
         value.height,
         value.round,
         value.value,
-        value.extension,
     ))?;
 
+    Ok(())
+}
+
+async fn on_extend_vote(
+    state: &mut HostState,
+    height: Height,
+    round: Round,
+    _value_id: ValueId<MockContext>,
+    reply_to: RpcReplyPort<Option<Extension>>,
+) -> Result<(), ActorProcessingErr> {
+    let extension = state.host.generate_vote_extension(height, round);
+    reply_to.send(extension)?;
     Ok(())
 }
 
@@ -442,7 +461,6 @@ fn on_process_synced_value(
             proposer,
             value: block.block_hash,
             validity: Validity::Valid,
-            extension: None,
         };
 
         reply_to.send(proposed_value)?;

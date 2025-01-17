@@ -13,8 +13,8 @@ use malachitebft_core_consensus::{
     Effect, PeerId, Resumable, Resume, SignedConsensusMsg, ValueToPropose,
 };
 use malachitebft_core_types::{
-    Context, Round, SignedExtension, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
-    ValidatorSet, ValueOrigin,
+    Context, Extension, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
+    ValidatorSet, ValueId, ValueOrigin,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -89,7 +89,7 @@ pub enum Msg<Ctx: Context> {
     TimeoutElapsed(TimeoutElapsed<Timeout>),
 
     /// The proposal builder has built a value and can be used in a new proposal consensus message
-    ProposeValue(Ctx::Height, Round, Ctx::Value, Option<SignedExtension<Ctx>>),
+    ProposeValue(Ctx::Height, Round, Ctx::Value),
 
     /// Received and assembled the full value proposed by a validator
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
@@ -281,13 +281,12 @@ where
                 Ok(())
             }
 
-            Msg::ProposeValue(height, round, value, extension) => {
+            Msg::ProposeValue(height, round, value) => {
                 let value_to_propose = ValueToPropose {
                     height,
                     round,
                     valid_round: Round::Nil,
                     value: value.clone(),
-                    extension,
                 };
 
                 let result = self
@@ -683,12 +682,7 @@ where
             },
             myself,
             |proposed: LocallyProposedValue<Ctx>| {
-                Msg::<Ctx>::ProposeValue(
-                    proposed.height,
-                    proposed.round,
-                    proposed.value,
-                    proposed.extension,
-                )
+                Msg::<Ctx>::ProposeValue(proposed.height, proposed.round, proposed.value)
             },
             None,
         )?;
@@ -707,6 +701,21 @@ where
         .map_err(|e| eyre!("Failed to get validator set at height {height}: {e:?}"))?;
 
         Ok(validator_set)
+    }
+
+    async fn extend_vote(
+        &self,
+        height: Ctx::Height,
+        round: Round,
+        value_id: ValueId<Ctx>,
+    ) -> Result<Option<Extension>, ActorProcessingErr> {
+        ractor::call!(self.host, |reply_to| HostMsg::ExtendVote {
+            height,
+            round,
+            value_id,
+            reply_to
+        })
+        .map_err(|e| eyre!("Failed to get earliest block height: {e:?}").into())
     }
 
     async fn get_history_min_height(&self) -> Result<Ctx::Height, ActorProcessingErr> {
@@ -868,6 +877,16 @@ where
                 );
 
                 Ok(r.resume_with(valid))
+            }
+
+            Effect::ExtendVote(height, round, value_id, r) => {
+                if let Some(extension) = self.extend_vote(height, round, value_id).await? {
+                    let signer = self.ctx.signing_provider();
+                    let signed_extension = signer.sign_vote_extension(extension);
+                    Ok(r.resume_with(Some(signed_extension)))
+                } else {
+                    Ok(r.resume_with(None))
+                }
             }
 
             Effect::Publish(msg, r) => {
