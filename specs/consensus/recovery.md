@@ -39,13 +39,28 @@ recovered process.
 Notice that the recovered process is expected, except if instructed otherwise,
 to produce the same actions or outputs it has produced before it crashed.
 This behavior is not _per se_ a problem, as (i) it does not constitute a
-misbehavior, and (ii) in some cases it is even desirable.
+misbehavior and (ii) in some cases it is even desirable.
 
 > Regarding (i), the algorithm is expected to properly handle duplicated
-> messages, a situation that may also be produced by the network.
+> messages, a situation that may also arise from the network behavior.
 > As an example of (ii), assume that a process has broadcast a message just
-> before crashing; there is no guarantee that the message is received by
-> correct processes, which can be amended by broadcasting it again.
+> before crashing: there is no guarantee that the message is received by any
+> correct process, a situation that can be amended by broadcasting it again.
+
+What does constitute a misbehavior is when processes signs and broadcasts a
+message `m` in a given round step, crashes, then upon recovery, while or after
+replaying the WAL, the process produces a conflicting message `m' != m` for the
+same round step.
+This is an equivocation, a Byzantine behavior, that may compromise the
+algorithm correctness and result in
+[penalties](./misbehavior.md#accountability) for the process.
+
+The main reasons that may lead a recovered process to misbehave, covered in the
+following, are:
+
+1. Non-determinism in the implementation of the consensus algorithm;
+2. Issues when persisting events and inputs to the WAL or while replaying them
+   from the WAL.
 
 WIP, main reference: https://github.com/informalsystems/malachite/issues/469.
 
