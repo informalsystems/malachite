@@ -14,6 +14,7 @@ use malachitebft_app_channel::app::consensus::ProposedValue;
 use malachitebft_app_channel::app::host::LocallyProposedValue;
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
+use malachitebft_app_channel::app::types::config::Config; // TODO: Move into test app
 use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
 use malachitebft_app_channel::app::types::PeerId;
 use malachitebft_test::codec::proto::ProtobufCodec;
@@ -25,20 +26,24 @@ use malachitebft_test::{
 use crate::store::{DecidedValue, Store};
 use crate::streaming::{PartStreamsMap, ProposalParts};
 
+/// Number of historical values to keep in the store
+const HISTORY_LENGTH: u64 = 100;
+
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
 pub struct State {
-    ctx: TestContext,
-    address: Address,
-    stream_id: u64,
-    streams_map: PartStreamsMap,
-    rng: StdRng,
-
-    pub store: Store,
+    pub ctx: TestContext,
+    pub config: Config,
+    pub address: Address,
     pub current_height: Height,
     pub current_round: Round,
     pub current_proposer: Option<Address>,
     pub peers: HashSet<PeerId>,
+    pub store: Store,
+
+    stream_id: u64,
+    streams_map: PartStreamsMap,
+    rng: StdRng,
 }
 
 // Make up a seed for the rng based on our address in
@@ -55,14 +60,21 @@ fn seed_from_address(address: &Address) -> u64 {
 
 impl State {
     /// Creates a new State instance with the given validator address and starting height
-    pub fn new(ctx: TestContext, address: Address, height: Height, store: Store) -> Self {
+    pub fn new(
+        ctx: TestContext,
+        config: Config,
+        address: Address,
+        height: Height,
+        store: Store,
+    ) -> Self {
         Self {
             ctx,
+            config,
+            address,
+            store,
             current_height: height,
             current_round: Round::new(0),
             current_proposer: None,
-            address,
-            store,
             stream_id: 0,
             streams_map: PartStreamsMap::new(),
             rng: StdRng::seed_from_u64(seed_from_address(&address)),
@@ -142,14 +154,22 @@ impl State {
             .store_decided_value(&certificate, proposal.value)
             .await?;
 
-        // Prune the store, keep the last 5 heights
-        let retain_height = Height::new(certificate.height.as_u64().saturating_sub(5));
+        // Prune the store, keep the last HISTORY_LENGTH values
+        let retain_height = Height::new(certificate.height.as_u64().saturating_sub(HISTORY_LENGTH));
         self.store.prune(retain_height).await?;
 
         // Move to next height
         self.current_height = self.current_height.increment();
         self.current_round = Round::new(0);
 
+        Ok(())
+    }
+
+    pub async fn store_synced_value(
+        &mut self,
+        proposal: ProposedValue<TestContext>,
+    ) -> eyre::Result<()> {
+        self.store.store_undecided_proposal(proposal).await?;
         Ok(())
     }
 
@@ -209,6 +229,22 @@ impl State {
     fn make_value(&mut self) -> Value {
         let value = self.rng.gen_range(100..=100000);
         Value::new(value)
+    }
+
+    pub async fn get_proposal(
+        &self,
+        height: Height,
+        round: Round,
+        _valid_round: Round,
+        _proposer: Address,
+        value_id: ValueId,
+    ) -> Option<LocallyProposedValue<TestContext>> {
+        Some(LocallyProposedValue::new(
+            height,
+            round,
+            Value::new(value_id.as_u64()),
+            None,
+        ))
     }
 
     /// Creates a new proposal value for the given height
@@ -300,22 +336,6 @@ impl State {
         }
 
         parts
-    }
-
-    pub async fn get_proposal(
-        &self,
-        height: Height,
-        round: Round,
-        _valid_round: Round,
-        _proposer: Address,
-        value_id: ValueId,
-    ) -> Option<LocallyProposedValue<TestContext>> {
-        Some(LocallyProposedValue::new(
-            height,
-            round,
-            Value::new(value_id.as_u64()),
-            None,
-        ))
     }
 }
 

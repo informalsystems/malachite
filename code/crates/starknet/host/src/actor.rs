@@ -135,14 +135,14 @@ impl Host {
                 reply_to,
             } => on_get_value(state, &self.network, height, round, timeout, reply_to).await,
 
-            HostMsg::RestreamValue {
+            HostMsg::RestreamProposal {
                 height,
                 round,
                 valid_round,
                 address,
                 value_id,
             } => {
-                on_restream_value(
+                on_restream_proposal(
                     state,
                     &self.network,
                     height,
@@ -180,6 +180,7 @@ impl Host {
                 value_bytes,
                 reply_to,
             } => on_process_synced_value(value_bytes, height, round, validator_address, reply_to),
+
             HostMsg::PeerJoined { peer_id } => {
                 debug!(%peer_id, "Peer joined the network");
                 Ok(())
@@ -372,7 +373,7 @@ async fn find_previously_built_value(
     Ok(proposed_value)
 }
 
-async fn on_restream_value(
+async fn on_restream_proposal(
     state: &mut HostState,
     network: &NetworkRef<MockContext>,
     height: Height,

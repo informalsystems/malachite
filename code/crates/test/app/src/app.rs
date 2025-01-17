@@ -33,7 +33,7 @@ pub async fn run(
                 let start_height = latest_height.increment();
 
                 // We can simply respond by telling the engine to start consensus
-                // at the current height, which is initially 1
+                // at the next height, and provide it with the genesis validator set
                 if reply
                     .send(ConsensusMsg::StartHeight(
                         start_height,
@@ -95,6 +95,10 @@ pub async fn run(
                 // Send it to consensus
                 if reply.send(proposal.clone()).is_err() {
                     error!("Failed to send GetValue reply");
+                }
+
+                if !state.config.consensus.value_payload.include_parts() {
+                    return Ok(());
                 }
 
                 // Now what's left to do is to break down the value to propose into parts,
@@ -189,19 +193,19 @@ pub async fn run(
                 info!(%height, %round, "Processing synced value");
 
                 let value = decode_value(value_bytes);
+                let proposal = ProposedValue {
+                    height,
+                    round,
+                    valid_round: Round::Nil,
+                    proposer,
+                    value,
+                    validity: Validity::Valid,
+                    extension: None,
+                };
 
-                if reply
-                    .send(ProposedValue {
-                        height,
-                        round,
-                        valid_round: Round::Nil,
-                        proposer,
-                        value,
-                        validity: Validity::Valid,
-                        extension: None,
-                    })
-                    .is_err()
-                {
+                state.store_synced_value(proposal.clone()).await?;
+
+                if reply.send(proposal).is_err() {
                     error!("Failed to send ProcessSyncedValue reply");
                 }
             }
@@ -244,18 +248,22 @@ pub async fn run(
                 address,
                 value_id,
             } => {
-                info!(%height, %round, "Restreaming existing proposal...");
+                if !state.config.consensus.value_payload.include_parts() {
+                    return Ok(());
+                }
+
+                info!(%height, %round, %value_id, "Restreaming existing proposal...");
 
                 let Some(proposal) = state
                     .get_proposal(height, round, valid_round, address, value_id)
                     .await
                 else {
-                    error!(%height, %round, "Failed to find proposal to restream");
+                    error!(%height, %round, %value_id, "Failed to find proposal to restream");
                     return Ok(());
                 };
 
                 for stream_message in state.stream_proposal(proposal) {
-                    info!(%height, %round, "Publishing proposal part: {stream_message:?}");
+                    info!(%height, %round, %value_id, "Publishing proposal part: {stream_message:?}");
 
                     channels
                         .network
