@@ -4,14 +4,14 @@ use std::time::Duration;
 use derive_where::derive_where;
 use ractor::{ActorRef, RpcReplyPort};
 
-use malachitebft_core_consensus::PeerId;
+use malachitebft_core_consensus::types::PeerId;
 use malachitebft_core_types::{CommitCertificate, Context, Round, ValueId};
 use malachitebft_sync::RawDecidedValue;
 
 use crate::consensus::ConsensusRef;
 use crate::util::streaming::StreamMessage;
 
-pub use malachitebft_core_consensus::{LocallyProposedValue, ProposedValue};
+pub use malachitebft_core_consensus::types::{LocallyProposedValue, ProposedValue};
 
 /// A reference to the host actor.
 pub type HostRef<Ctx> = ActorRef<HostMsg<Ctx>>;

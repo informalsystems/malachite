@@ -1,10 +1,6 @@
 use derive_where::derive_where;
 
-use malachitebft_core_types::*;
-
-use crate::input::RequestId;
-use crate::types::SignedConsensusMsg;
-use crate::ConsensusMsg;
+use crate::types::*;
 
 /// Provides a way to construct the appropriate [`Resume`] value to
 /// resume execution after handling an [`Effect`].
@@ -204,10 +200,10 @@ where
     SignatureValidity(bool),
 
     /// Resume execution with the signed vote
-    SignedVote(SignedMessage<Ctx, Ctx::Vote>),
+    SignedVote(SignedVote<Ctx>),
 
     /// Resume execution with the signed proposal
-    SignedProposal(SignedMessage<Ctx, Ctx::Proposal>),
+    SignedProposal(SignedProposal<Ctx>),
 
     /// Resume execution with the result of the verification of the [`CommitCertificate`]
     CertificateValidity(Result<(), CertificateError<Ctx>>),

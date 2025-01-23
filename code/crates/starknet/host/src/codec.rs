@@ -2,17 +2,15 @@ use bytes::Bytes;
 use prost::Message;
 
 use malachitebft_codec::Codec;
-use malachitebft_core_types::{
-    AggregatedSignature, CommitCertificate, CommitSignature, Extension, Round, SignedExtension,
-    SignedProposal, SignedVote, Validity,
+use malachitebft_core_consensus::types::{
+    AggregatedSignature, CommitCertificate, CommitSignature, Extension, PeerId, ProposedValue,
+    Round, SignedConsensusMsg, SignedExtension, SignedProposal, SignedVote, Validity,
 };
 use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
+use malachitebft_starknet_p2p_proto::ConsensusMessage;
 use malachitebft_sync::{
     self as sync, ValueRequest, ValueResponse, VoteSetRequest, VoteSetResponse,
 };
-
-use malachitebft_core_consensus::{PeerId, ProposedValue, SignedConsensusMsg};
-use malachitebft_starknet_p2p_proto::ConsensusMessage;
 
 use crate::proto::consensus_message::Messages;
 use crate::proto::{self as proto, Error as ProtoError, Protobuf};

@@ -3,7 +3,7 @@ use malachitebft_core_types::Context;
 
 pub use malachitebft_core_driver::ThresholdParams;
 
-use crate::ValuePayload;
+use crate::types::ValuePayload;
 
 /// Consensus parameters.
 #[derive_where(Clone, Debug)]

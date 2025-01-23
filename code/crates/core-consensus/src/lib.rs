@@ -15,10 +15,9 @@ pub use params::{Params, ThresholdParams};
 mod effect;
 pub use effect::{Effect, Resumable, Resume};
 
-mod types;
-pub use types::*;
+pub mod full_proposal;
+pub mod types;
 
-mod full_proposal;
 mod macros;
 mod util;
 
@@ -30,10 +29,6 @@ pub mod gen;
 mod handle;
 #[doc(hidden)]
 pub use handle::handle;
-
-// Only used internally, but needs to be exposed for tests
-#[doc(hidden)]
-pub use full_proposal::{FullProposal, FullProposalKeeper};
 
 // Used in macros
 #[doc(hidden)]

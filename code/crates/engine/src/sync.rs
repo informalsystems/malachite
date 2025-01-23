@@ -12,8 +12,9 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use malachitebft_codec as codec;
-use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Height, Round};
+use malachitebft_core_consensus::types::{
+    CertificateError, CommitCertificate, Context, Height, PeerId, Round,
+};
 use malachitebft_sync::{self as sync, InboundRequestId, OutboundRequestId, Response};
 use malachitebft_sync::{RawDecidedValue, Request};
 

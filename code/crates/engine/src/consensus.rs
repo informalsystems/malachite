@@ -9,7 +9,8 @@ use tracing::{debug, error, info, warn};
 
 use malachitebft_codec as codec;
 use malachitebft_config::TimeoutConfig;
-use malachitebft_core_consensus::{Effect, PeerId, Resumable, Resume, SignedConsensusMsg};
+use malachitebft_core_consensus::types::{PeerId, SignedConsensusMsg};
+use malachitebft_core_consensus::{Effect, Resumable, Resume};
 use malachitebft_core_types::{
     Context, Round, SignedExtension, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
     ValidatorSet, ValueOrigin,
@@ -833,7 +834,7 @@ where
             }
 
             Effect::VerifySignature(msg, pk, r) => {
-                use malachitebft_core_consensus::ConsensusMsg as Msg;
+                use malachitebft_core_consensus::types::ConsensusMsg as Msg;
 
                 let start = Instant::now();
 

@@ -4,7 +4,7 @@ use eyre::bail;
 use tracing::info;
 
 use malachitebft_config::ValuePayload;
-use malachitebft_core_consensus::LocallyProposedValue;
+use malachitebft_core_consensus::types::LocallyProposedValue;
 use malachitebft_core_types::SignedVote;
 use malachitebft_engine::util::events::Event;
 use malachitebft_starknet_host::types::MockContext;

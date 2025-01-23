@@ -8,8 +8,9 @@ use tokio::time::Instant;
 use tracing::{debug, Instrument};
 
 use malachitebft_config::VoteExtensionsConfig;
-use malachitebft_core_consensus::ValuePayload;
-use malachitebft_core_types::{CommitCertificate, Extension, Round, SignedExtension, SignedVote};
+use malachitebft_core_consensus::types::{
+    CommitCertificate, Extension, Round, SignedExtension, SignedVote, ValuePayload,
+};
 
 use crate::host::Host;
 use crate::mempool::MempoolRef;

@@ -1,12 +1,10 @@
 use derive_where::derive_where;
 
-use malachitebft_core_types::{
-    Context, Proposal, Round, Signature, SignedExtension, SignedProposal, SignedVote, Validity,
-    Vote,
-};
-
+pub use malachitebft_core_types::*;
 pub use malachitebft_peer::PeerId;
 pub use multiaddr::Multiaddr;
+
+pub type RequestId = String;
 
 /// A signed consensus message, ie. a signed vote or a signed proposal.
 #[derive_where(Clone, Debug, PartialEq, Eq)]

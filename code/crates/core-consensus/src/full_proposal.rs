@@ -3,11 +3,10 @@ use std::collections::BTreeMap;
 use derive_where::derive_where;
 use tracing::debug;
 
-use malachitebft_core_types::{
-    Context, Height, Proposal, Round, SignedExtension, SignedProposal, Validity, Value,
+use crate::types::{
+    Context, Height, Proposal, ProposedValue, Round, SignedExtension, SignedProposal, Validity,
+    Value,
 };
-
-use crate::ProposedValue;
 
 /// A full proposal, ie. a proposal together with its value and validity.
 #[derive_where(Clone, Debug)]

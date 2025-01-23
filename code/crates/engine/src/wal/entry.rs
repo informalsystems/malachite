@@ -4,8 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BE};
 use derive_where::derive_where;
 
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::SignedConsensusMsg;
-use malachitebft_core_types::{Context, Round, Timeout};
+use malachitebft_core_consensus::types::{Context, Round, SignedConsensusMsg, Timeout};
 
 /// Codec for encoding and decoding WAL entries.
 ///

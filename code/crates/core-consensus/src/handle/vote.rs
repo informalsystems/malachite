@@ -3,9 +3,8 @@ use crate::handle::signature::verify_signature;
 use crate::handle::validator_set::get_validator_set;
 use crate::input::Input;
 use crate::prelude::*;
-use crate::types::ConsensusMsg;
+use crate::types::{ConsensusMsg, SignedConsensusMsg};
 use crate::util::pretty::PrettyVote;
-use crate::SignedConsensusMsg;
 
 pub async fn on_vote<Ctx>(
     co: &Co<Ctx>,
