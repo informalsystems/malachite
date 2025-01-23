@@ -1,46 +1,3 @@
-use async_trait::async_trait;
-use thiserror::Error;
-
-use malachitebft_core_consensus::types::Timeout;
-use tokio::sync::broadcast;
-use tracing::trace;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Error)]
-pub enum Never {}
-
-pub struct TimeoutHandler {
-    scheduler: TimerScheduler<Timeout>,
-}
-
-#[async_trait]
-impl crate::handlers::timeout::TimeoutHandler for TimeoutHandler {
-    type Error = Never;
-
-    /// Reset all timeouts to their initial values
-    async fn reset_timeouts(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    /// Cancel all outstanding timeouts
-    async fn cancel_all_timeouts(&mut self) -> Result<(), Self::Error> {
-        self.scheduler.cancel_all();
-        Ok(())
-    }
-
-    /// Cancel a given timeout
-    async fn cancel_timeout(&mut self, timeout: Timeout) -> Result<(), Self::Error> {
-        self.scheduler.cancel(&timeout);
-        Ok(())
-    }
-
-    /// Schedule a timeout
-    async fn schedule_timeout(&mut self, timeout: Timeout) -> Result<(), Self::Error> {
-        let duration = Duration::from_secs(1);
-        self.scheduler.start_timer(timeout, duration);
-        Ok(())
-    }
-}
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -49,7 +6,9 @@ use std::ops::RangeFrom;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
+use tracing::trace;
 
 #[derive(Debug)]
 struct Timer<Key> {
@@ -92,6 +51,10 @@ where
             timers: HashMap::new(),
             generations: 1..,
         }
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<TimeoutElapsed<Key>> {
+        self.tx.subscribe()
     }
 
     /// Start a timer that will send `msg` once to the actor after the given `timeout`.
@@ -207,6 +170,15 @@ where
     }
 }
 
+impl<Key> Default for TimerScheduler<Key>
+where
+    Key: Clone + Eq + Hash + Send + 'static,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<Key> Drop for TimerScheduler<Key>
 where
     Key: Clone + Eq + Hash + Send + 'static,
@@ -216,140 +188,101 @@ where
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     use ractor::{Actor, ActorRef};
-//     use std::time::Duration;
-//     use tokio::time::sleep;
-//
-//     #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
-//     struct TestKey(&'static str);
-//
-//     #[derive(Debug)]
-//     struct TestMsg(TimeoutElapsed<TestKey>);
-//
-//     impl From<TimeoutElapsed<TestKey>> for TestMsg {
-//         fn from(timer_msg: TimeoutElapsed<TestKey>) -> Self {
-//             TestMsg(timer_msg)
-//         }
-//     }
-//
-//     struct TestActor;
-//
-//     #[async_trait::async_trait]
-//     impl Actor for TestActor {
-//         type State = ();
-//         type Arguments = ();
-//         type Msg = TestMsg;
-//
-//         async fn pre_start(
-//             &self,
-//             _myself: ActorRef<TestMsg>,
-//             _args: (),
-//         ) -> Result<(), ractor::ActorProcessingErr> {
-//             Ok(())
-//         }
-//
-//         async fn handle(
-//             &self,
-//             _myself: ActorRef<TestMsg>,
-//             TestMsg(elapsed): TestMsg,
-//             _state: &mut (),
-//         ) -> Result<(), ractor::ActorProcessingErr> {
-//             println!("Received timer message: {elapsed:?}");
-//             Ok(())
-//         }
-//     }
-//
-//     async fn spawn() -> TimerScheduler<TestKey> {
-//         let actor_ref = TestActor::spawn(None, TestActor, ()).await.unwrap().0;
-//         // let subscriber: OutputPortSubscriber<TimeoutElapsed<TestKey>> = ;
-//         TimerScheduler::new(Box::new(actor_ref))
-//     }
-//
-//     #[tokio::test]
-//     async fn test_start_timer() {
-//         let mut scheduler = spawn().await;
-//         let key = TestKey("timer1");
-//
-//         scheduler.start_timer(key, Duration::from_millis(100));
-//         assert!(scheduler.is_timer_active(&key));
-//
-//         sleep(Duration::from_millis(150)).await;
-//         let elapsed_key = scheduler.intercept_timer_msg(TimeoutElapsed { key, generation: 1 });
-//         assert_eq!(elapsed_key, Some(key));
-//
-//         assert!(!scheduler.is_timer_active(&key));
-//     }
-//
-//     #[tokio::test]
-//     async fn test_cancel_timer() {
-//         let mut scheduler = spawn().await;
-//         let key = TestKey("timer1");
-//
-//         scheduler.start_timer(key, Duration::from_millis(100));
-//         scheduler.cancel(&key);
-//
-//         assert!(!scheduler.is_timer_active(&key));
-//     }
-//
-//     #[tokio::test]
-//     async fn test_cancel_all_timers() {
-//         let mut scheduler = spawn().await;
-//
-//         scheduler.start_timer(TestKey("timer1"), Duration::from_millis(100));
-//         scheduler.start_timer(TestKey("timer2"), Duration::from_millis(200));
-//
-//         scheduler.cancel_all();
-//
-//         assert!(!scheduler.is_timer_active(&TestKey("timer1")));
-//         assert!(!scheduler.is_timer_active(&TestKey("timer2")));
-//     }
-//
-//     #[tokio::test]
-//     async fn test_intercept_timer_msg_valid() {
-//         let mut scheduler = spawn().await;
-//         let key = TestKey("timer1");
-//
-//         scheduler.start_timer(key, Duration::from_millis(100));
-//         sleep(Duration::from_millis(150)).await;
-//
-//         let timer_msg = TimeoutElapsed { key, generation: 1 };
-//
-//         let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
-//
-//         assert_eq!(intercepted_msg, Some(key));
-//     }
-//
-//     #[tokio::test]
-//     async fn test_intercept_timer_msg_invalid_generation() {
-//         let mut scheduler = spawn().await;
-//         let key = TestKey("timer1");
-//
-//         scheduler.start_timer(key, Duration::from_millis(100));
-//         scheduler.start_timer(key, Duration::from_millis(200));
-//
-//         let timer_msg = TimeoutElapsed { key, generation: 1 };
-//
-//         let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
-//
-//         assert_eq!(intercepted_msg, None);
-//     }
-//
-//     #[tokio::test]
-//     async fn test_intercept_timer_msg_cancelled() {
-//         let mut scheduler = spawn().await;
-//         let key = TestKey("timer1");
-//
-//         scheduler.start_timer(key, Duration::from_millis(100));
-//         scheduler.cancel(&key);
-//
-//         let timer_msg = TimeoutElapsed { key, generation: 1 };
-//
-//         let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
-//
-//         assert_eq!(intercepted_msg, None);
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
+    struct TestKey(&'static str);
+
+    async fn scheduler() -> TimerScheduler<TestKey> {
+        TimerScheduler::new()
+    }
+
+    #[tokio::test]
+    async fn test_start_timer() {
+        let mut scheduler = scheduler().await;
+        let key = TestKey("timer1");
+
+        scheduler.start_timer(key, Duration::from_millis(100));
+        assert!(scheduler.is_timer_active(&key));
+
+        sleep(Duration::from_millis(150)).await;
+        let elapsed_key = scheduler.intercept_timer_msg(TimeoutElapsed { key, generation: 1 });
+        assert_eq!(elapsed_key, Some(key));
+
+        assert!(!scheduler.is_timer_active(&key));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_timer() {
+        let mut scheduler = scheduler().await;
+        let key = TestKey("timer1");
+
+        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.cancel(&key);
+
+        assert!(!scheduler.is_timer_active(&key));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_all_timers() {
+        let mut scheduler = scheduler().await;
+
+        scheduler.start_timer(TestKey("timer1"), Duration::from_millis(100));
+        scheduler.start_timer(TestKey("timer2"), Duration::from_millis(200));
+
+        scheduler.cancel_all();
+
+        assert!(!scheduler.is_timer_active(&TestKey("timer1")));
+        assert!(!scheduler.is_timer_active(&TestKey("timer2")));
+    }
+
+    #[tokio::test]
+    async fn test_intercept_timer_msg_valid() {
+        let mut scheduler = scheduler().await;
+        let key = TestKey("timer1");
+
+        scheduler.start_timer(key, Duration::from_millis(100));
+        sleep(Duration::from_millis(150)).await;
+
+        let timer_msg = TimeoutElapsed { key, generation: 1 };
+
+        let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
+
+        assert_eq!(intercepted_msg, Some(key));
+    }
+
+    #[tokio::test]
+    async fn test_intercept_timer_msg_invalid_generation() {
+        let mut scheduler = scheduler().await;
+        let key = TestKey("timer1");
+
+        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.start_timer(key, Duration::from_millis(200));
+
+        let timer_msg = TimeoutElapsed { key, generation: 1 };
+
+        let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
+
+        assert_eq!(intercepted_msg, None);
+    }
+
+    #[tokio::test]
+    async fn test_intercept_timer_msg_cancelled() {
+        let mut scheduler = scheduler().await;
+        let key = TestKey("timer1");
+
+        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.cancel(&key);
+
+        let timer_msg = TimeoutElapsed { key, generation: 1 };
+
+        let intercepted_msg = scheduler.intercept_timer_msg(timer_msg);
+
+        assert_eq!(intercepted_msg, None);
+    }
+}
