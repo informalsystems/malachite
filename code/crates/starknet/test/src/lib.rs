@@ -17,7 +17,7 @@ use malachitebft_config::{
     Config as NodeConfig, Config, DiscoveryConfig, LoggingConfig, PubSubProtocol, SyncConfig,
     TestConfig, TransportProtocol,
 };
-use malachitebft_core_consensus::{LocallyProposedValue, SignedConsensusMsg};
+use malachitebft_core_consensus::types::{LocallyProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{SignedVote, VotingPower};
 use malachitebft_engine::util::events::{Event, RxEvent, TxEvent};
 use malachitebft_starknet_host::spawn::spawn_node_actor;

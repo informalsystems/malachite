@@ -3,10 +3,9 @@ use prost::Message;
 
 use malachitebft_app::streaming::{StreamContent, StreamMessage};
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::{ProposedValue, SignedConsensusMsg};
-use malachitebft_core_types::{
-    AggregatedSignature, CommitCertificate, CommitSignature, Extension, Round, SignedExtension,
-    SignedProposal, SignedVote, Validity, VoteSet,
+use malachitebft_core_consensus::types::{
+    AggregatedSignature, CommitCertificate, CommitSignature, Extension, ProposedValue, Round,
+    SignedConsensusMsg, SignedExtension, SignedProposal, SignedVote, Validity, VoteSet,
 };
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_signing_ed25519::Signature;

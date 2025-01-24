@@ -11,6 +11,7 @@ members = [
   "crates/core-state-machine",
   "crates/core-types",
   "crates/core-votekeeper",
+  "crates/consensus-async",
   "crates/engine",
   "crates/metrics",
   "crates/network",
@@ -72,6 +73,7 @@ malachitebft-core-driver        = { version = "0.0.1", package = "informalsystem
 malachitebft-core-state-machine = { version = "0.0.1", package = "informalsystems-malachitebft-core-state-machine", path = "crates/core-state-machine" }
 malachitebft-core-types         = { version = "0.0.1", package = "informalsystems-malachitebft-core-types", path = "crates/core-types" }
 malachitebft-core-votekeeper    = { version = "0.0.1", package = "informalsystems-malachitebft-core-votekeeper", path = "crates/core-votekeeper" }
+malachitebft-consensus-async    = { version = "0.0.1", package = "informalsystems-malachitebft-consensus-async", path = "crates/consensus-async" }
 malachitebft-discovery          = { version = "0.0.1", package = "informalsystems-malachitebft-discovery", path = "crates/discovery" }
 malachitebft-network            = { version = "0.0.1", package = "informalsystems-malachitebft-network", path = "crates/network" }
 malachitebft-metrics            = { version = "0.0.1", package = "informalsystems-malachitebft-metrics", path = "crates/metrics" }

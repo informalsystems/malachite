@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BinaryHeap, HashSet};
 
 use derive_where::derive_where;
 
-use malachitebft_core_consensus::PeerId;
+use malachitebft_core_consensus::types::PeerId;
 use malachitebft_core_types::Round;
 use malachitebft_engine::util::streaming::{Sequence, StreamId, StreamMessage};
 

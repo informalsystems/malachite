@@ -16,8 +16,7 @@ use malachitebft_sync::{
 };
 
 use malachitebft_codec as codec;
-use malachitebft_core_consensus::SignedConsensusMsg;
-use malachitebft_core_types::{Context, SignedProposal, SignedVote};
+use malachitebft_core_consensus::types::{Context, SignedConsensusMsg, SignedProposal, SignedVote};
 use malachitebft_metrics::SharedRegistry;
 use malachitebft_network::handle::CtrlHandle;
 use malachitebft_network::{Channel, Config, Event, Multiaddr, PeerId};

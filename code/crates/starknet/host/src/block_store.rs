@@ -9,8 +9,7 @@ use thiserror::Error;
 use tracing::error;
 
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::{CommitCertificate, Round};
+use malachitebft_core_consensus::types::{CommitCertificate, ProposedValue, Round};
 use malachitebft_proto::Protobuf;
 
 use crate::codec::{self, ProtobufCodec};

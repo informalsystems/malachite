@@ -3,8 +3,10 @@ use core::fmt;
 use derive_where::derive_where;
 use tokio::sync::broadcast;
 
-use malachitebft_core_consensus::{LocallyProposedValue, ProposedValue, SignedConsensusMsg};
-use malachitebft_core_types::{CommitCertificate, Context, Round, Timeout, ValueOrigin};
+use malachitebft_core_consensus::types::{
+    CommitCertificate, Context, LocallyProposedValue, ProposedValue, Round, SignedConsensusMsg,
+    Timeout, ValueOrigin,
+};
 
 pub type RxEvent<Ctx> = broadcast::Receiver<Event<Ctx>>;
 

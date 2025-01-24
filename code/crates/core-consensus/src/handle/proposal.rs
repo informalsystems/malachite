@@ -3,9 +3,8 @@ use crate::handle::signature::verify_signature;
 use crate::handle::validator_set::get_validator_set;
 use crate::input::Input;
 use crate::prelude::*;
-use crate::types::ConsensusMsg;
+use crate::types::{ConsensusMsg, ProposedValue, SignedConsensusMsg};
 use crate::util::pretty::PrettyProposal;
-use crate::{ProposedValue, SignedConsensusMsg};
 
 pub async fn on_proposal<Ctx>(
     co: &Co<Ctx>,
@@ -168,7 +167,7 @@ where
     };
 
     let signed_msg = signed_proposal.clone().map(ConsensusMsg::Proposal);
-    if !verify_signature(co, signed_msg, proposer).await? {
+    if !verify_signature(co, signed_msg, proposer).await?.is_valid() {
         warn!(
             consensus.height = %consensus_height,
             proposal.height = %proposal_height,

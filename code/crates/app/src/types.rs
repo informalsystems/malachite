@@ -1,6 +1,6 @@
 //! Re-export of all types required to build a Malachite application.
 
-pub use malachitebft_core_consensus::{
+pub use malachitebft_core_consensus::types::{
     ConsensusMsg, ProposedValue, SignedConsensusMsg, ValuePayload,
 };
 pub use malachitebft_engine::host::LocallyProposedValue;

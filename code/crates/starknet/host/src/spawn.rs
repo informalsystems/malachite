@@ -2,19 +2,19 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use libp2p_identity::ecdsa;
-use malachitebft_engine::util::events::TxEvent;
-use malachitebft_engine::wal::{Wal, WalRef};
 use tokio::task::JoinHandle;
 
 use malachitebft_config::{
     self as config, Config as NodeConfig, MempoolConfig, SyncConfig, TestConfig, TransportProtocol,
 };
-use malachitebft_core_consensus::ValuePayload;
+use malachitebft_core_consensus::types::ValuePayload;
 use malachitebft_engine::consensus::{Consensus, ConsensusParams, ConsensusRef};
 use malachitebft_engine::host::HostRef;
 use malachitebft_engine::network::{Network, NetworkRef};
 use malachitebft_engine::node::{Node, NodeRef};
 use malachitebft_engine::sync::{Params as SyncParams, Sync, SyncRef};
+use malachitebft_engine::util::events::TxEvent;
+use malachitebft_engine::wal::{Wal, WalRef};
 use malachitebft_metrics::Metrics;
 use malachitebft_metrics::SharedRegistry;
 use malachitebft_network::Keypair;

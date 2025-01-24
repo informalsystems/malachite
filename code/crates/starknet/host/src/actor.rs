@@ -10,8 +10,7 @@ use rand::SeedableRng;
 use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
-use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
+use malachitebft_core_consensus::types::{CommitCertificate, PeerId, Round, Validity, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
 use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_engine::network::{NetworkMsg, NetworkRef};

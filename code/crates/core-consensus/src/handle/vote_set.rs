@@ -1,6 +1,6 @@
 use crate::handle::vote::on_vote;
-use crate::input::RequestId;
 use crate::prelude::*;
+use crate::types::RequestId;
 
 pub async fn on_vote_set_request<Ctx>(
     co: &Co<Ctx>,

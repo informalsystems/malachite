@@ -57,3 +57,9 @@ impl Validity {
         }
     }
 }
+
+impl From<bool> for Validity {
+    fn from(valid: bool) -> Self {
+        Validity::from_bool(valid)
+    }
+}

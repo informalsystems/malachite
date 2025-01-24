@@ -1,12 +1,10 @@
 use derive_where::derive_where;
+
 use malachitebft_core_types::{
     CommitCertificate, Context, Round, SignedProposal, SignedVote, Timeout, ValueOrigin, VoteSet,
 };
 
-use crate::types::ProposedValue;
-use crate::LocallyProposedValue;
-
-pub type RequestId = String;
+use crate::types::{LocallyProposedValue, ProposedValue, RequestId};
 
 /// Inputs to be handled by the consensus process.
 #[derive_where(Clone, Debug, PartialEq, Eq)]

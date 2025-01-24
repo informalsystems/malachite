@@ -1,10 +1,8 @@
+#![allow(rustdoc::private_intra_doc_links)]
+
 use derive_where::derive_where;
 
-use malachitebft_core_types::*;
-
-use crate::input::RequestId;
-use crate::types::SignedConsensusMsg;
-use crate::ConsensusMsg;
+use crate::types::*;
 
 /// Provides a way to construct the appropriate [`Resume`] value to
 /// resume execution after handling an [`Effect`].
@@ -16,16 +14,17 @@ use crate::ConsensusMsg;
 ///
 /// ```rust,ignore
 /// fn effect_handler(effect: Effect<Ctx>) -> Result<Resume<Ctx>, Error> {
-/// match effect {
-///    Effect::ResetTimeouts(r) => {
-///      reset_timeouts();
-///      Ok(r.resume_with(()))
-///    }
-///    Effect::GetValidatorSet(height, r) => {)
-///        let validator_set = get_validator_set(height);
-///        Ok(r.resume_with(validator_set))
-///    }
-///    // ...
+///   match effect {
+///      Effect::ResetTimeouts(r) => {
+///        reset_timeouts();
+///        Ok(r.resume_with(()))
+///      }
+///      Effect::GetValidatorSet(height, r) => {
+///          let validator_set = get_validator_set(height);
+///          Ok(r.resume_with(validator_set))
+///      }
+///      // ...
+///   }
 /// }
 /// ```
 pub trait Resumable<Ctx: Context> {
@@ -84,7 +83,7 @@ where
     /// Because this operation may be asynchronous, this effect does not expect a resumption
     /// with a value, rather the application is expected to propose a value within the timeout duration.
     ///
-    /// The application MUST eventually feed a [`ProposeValue`][crate::input::Input::ProposeValue]
+    /// The application MUST eventually feed a [`Propose`][crate::input::Input::Propose]
     /// input to consensus within the specified timeout duration.
     ///
     /// Resume with: [`resume::Continue`]
@@ -201,13 +200,13 @@ where
     ValidatorSet(Option<Ctx::ValidatorSet>),
 
     /// Resume execution with the validity of the signature
-    SignatureValidity(bool),
+    SignatureValidity(Validity),
 
     /// Resume execution with the signed vote
-    SignedVote(SignedMessage<Ctx, Ctx::Vote>),
+    SignedVote(SignedVote<Ctx>),
 
     /// Resume execution with the signed proposal
-    SignedProposal(SignedMessage<Ctx, Ctx::Proposal>),
+    SignedProposal(SignedProposal<Ctx>),
 
     /// Resume execution with the result of the verification of the [`CommitCertificate`]
     CertificateValidity(Result<(), CertificateError<Ctx>>),
@@ -242,7 +241,7 @@ pub mod resume {
     pub struct SignatureValidity;
 
     impl<Ctx: Context> Resumable<Ctx> for SignatureValidity {
-        type Value = bool;
+        type Value = Validity;
 
         fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
             Resume::SignatureValidity(value)
