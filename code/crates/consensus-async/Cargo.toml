@@ -10,10 +10,11 @@ rust-version.workspace = true
 readme = "../../../README.md"
 
 [package.metadata.docs.rs]
-all-features = true
+all-features = false
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-timers = []
+serde = ["dep:serde", "dep:humantime-serde"]
 
 [dependencies]
 malachitebft-core-types = { workspace = true }
@@ -23,6 +24,8 @@ malachitebft-sync = { workspace = true }
 async-trait = { workspace = true }
 derive-where = { workspace = true }
 tokio = { workspace = true }
+serde = { workspace = true, optional = true }
+humantime-serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

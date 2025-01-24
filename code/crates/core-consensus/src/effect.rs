@@ -1,3 +1,5 @@
+#![allow(rustdoc::private_intra_doc_links)]
+
 use derive_where::derive_where;
 
 use crate::types::*;
@@ -12,16 +14,17 @@ use crate::types::*;
 ///
 /// ```rust,ignore
 /// fn effect_handler(effect: Effect<Ctx>) -> Result<Resume<Ctx>, Error> {
-/// match effect {
-///    Effect::ResetTimeouts(r) => {
-///      reset_timeouts();
-///      Ok(r.resume_with(()))
-///    }
-///    Effect::GetValidatorSet(height, r) => {)
-///        let validator_set = get_validator_set(height);
-///        Ok(r.resume_with(validator_set))
-///    }
-///    // ...
+///   match effect {
+///      Effect::ResetTimeouts(r) => {
+///        reset_timeouts();
+///        Ok(r.resume_with(()))
+///      }
+///      Effect::GetValidatorSet(height, r) => {
+///          let validator_set = get_validator_set(height);
+///          Ok(r.resume_with(validator_set))
+///      }
+///      // ...
+///   }
 /// }
 /// ```
 pub trait Resumable<Ctx: Context> {
@@ -80,7 +83,7 @@ where
     /// Because this operation may be asynchronous, this effect does not expect a resumption
     /// with a value, rather the application is expected to propose a value within the timeout duration.
     ///
-    /// The application MUST eventually feed a [`ProposeValue`][crate::input::Input::ProposeValue]
+    /// The application MUST eventually feed a [`Propose`][crate::input::Input::Propose]
     /// input to consensus within the specified timeout duration.
     ///
     /// Resume with: [`resume::Continue`]
@@ -197,7 +200,7 @@ where
     ValidatorSet(Option<Ctx::ValidatorSet>),
 
     /// Resume execution with the validity of the signature
-    SignatureValidity(bool),
+    SignatureValidity(Validity),
 
     /// Resume execution with the signed vote
     SignedVote(SignedVote<Ctx>),
@@ -238,7 +241,7 @@ pub mod resume {
     pub struct SignatureValidity;
 
     impl<Ctx: Context> Resumable<Ctx> for SignatureValidity {
-        type Value = bool;
+        type Value = Validity;
 
         fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
             Resume::SignatureValidity(value)

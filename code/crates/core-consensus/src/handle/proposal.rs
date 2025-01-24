@@ -167,7 +167,7 @@ where
     };
 
     let signed_msg = signed_proposal.clone().map(ConsensusMsg::Proposal);
-    if !verify_signature(co, signed_msg, proposer).await? {
+    if !verify_signature(co, signed_msg, proposer).await?.is_valid() {
         warn!(
             consensus.height = %consensus_height,
             proposal.height = %proposal_height,

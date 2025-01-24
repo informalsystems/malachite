@@ -1,26 +1,9 @@
 use derive_where::derive_where;
 use tokio::sync::oneshot;
 
-pub use malachitebft_core_consensus::types::*;
+use malachitebft_core_consensus::types::*;
 
 pub type Reply<A> = oneshot::Sender<A>;
-
-#[cfg(not(feature = "timers"))]
-#[must_use]
-#[derive(Debug)]
-pub enum TimersQuery {
-    /// Reset all timeouts to their initial values
-    ResetTimeouts(Reply<()>),
-
-    /// Cancel all outstanding timeouts
-    CancelAllTimeouts(Reply<()>),
-
-    /// Cancel a given timeout
-    CancelTimeout(Timeout, Reply<()>),
-
-    /// Schedule a timeout
-    ScheduleTimeout(Timeout, Reply<()>),
-}
 
 #[must_use]
 #[derive_where(Debug)]
@@ -28,17 +11,42 @@ pub enum Query<Ctx>
 where
     Ctx: Context,
 {
-    #[cfg(not(feature = "timers"))]
-    Timers(TimersQuery),
-
     Consensus(ConsensusQuery<Ctx>),
-
-    Signing(SigningQuery<Ctx>),
-
     Sync(SyncQuery<Ctx>),
-
     Wal(WalQuery<Ctx>),
+    // Timers(TimersQuery),
+    // Signing(SigningQuery<Ctx>),
 }
+
+impl<Ctx: Context> From<ConsensusQuery<Ctx>> for Query<Ctx> {
+    fn from(query: ConsensusQuery<Ctx>) -> Self {
+        Self::Consensus(query)
+    }
+}
+
+impl<Ctx: Context> From<SyncQuery<Ctx>> for Query<Ctx> {
+    fn from(query: SyncQuery<Ctx>) -> Self {
+        Self::Sync(query)
+    }
+}
+
+impl<Ctx: Context> From<WalQuery<Ctx>> for Query<Ctx> {
+    fn from(query: WalQuery<Ctx>) -> Self {
+        Self::Wal(query)
+    }
+}
+
+// impl<Ctx: Context> From<TimersQuery> for Query<Ctx> {
+//     fn from(query: TimersQuery) -> Self {
+//         Self::Timers(query)
+//     }
+// }
+//
+// impl<Ctx: Context> From<SigningQuery<Ctx>> for Query<Ctx> {
+//     fn from(query: SigningQuery<Ctx>) -> Self {
+//         Self::Signing(query)
+//     }
+// }
 
 #[must_use]
 #[derive_where(Debug)]
@@ -60,7 +68,7 @@ where
     /// Because this operation may be asynchronous, this effect does not expect a resumption
     /// with a value, rather the application is expected to propose a value within the timeout duration.
     ///
-    /// The application MUST eventually feed a [`ProposeValue`][crate::input::Input::ProposeValue]
+    /// The application MUST eventually feed a [`Propose`][crate::Input::Propose]
     /// input to consensus within the specified timeout duration.
     GetValue(Ctx::Height, Round, Timeout, Reply<()>),
 
@@ -93,34 +101,6 @@ where
 
 #[must_use]
 #[derive_where(Debug)]
-pub enum SigningQuery<Ctx>
-where
-    Ctx: Context,
-{
-    /// Sign a vote with this node's private key
-    SignVote(Ctx::Vote, Reply<SignedVote<Ctx>>),
-
-    /// Sign a proposal with this node's private key
-    SignProposal(Ctx::Proposal, Reply<SignedProposal<Ctx>>),
-
-    /// Verify a signature
-    VerifySignature(
-        SignedMessage<Ctx, ConsensusMsg<Ctx>>,
-        PublicKey<Ctx>,
-        Reply<Validity>,
-    ),
-
-    /// Verify a commit certificate
-    VerifyCertificate(
-        CommitCertificate<Ctx>,
-        Ctx::ValidatorSet,
-        ThresholdParams,
-        Reply<Result<(), CertificateError<Ctx>>>,
-    ),
-}
-
-#[must_use]
-#[derive_where(Debug)]
 pub enum SyncQuery<Ctx>
 where
     Ctx: Context,
@@ -139,8 +119,52 @@ where
     Ctx: Context,
 {
     /// Append a consensus message to the Write-Ahead Log for crash recovery
-    WalAppendMessage(SignedConsensusMsg<Ctx>, Reply<()>),
+    AppendMessage(SignedConsensusMsg<Ctx>, Reply<()>),
 
     /// Append a timeout to the Write-Ahead Log for crash recovery
-    WalAppendTimeout(Timeout, Reply<()>),
+    AppendTimeout(Timeout, Reply<()>),
 }
+
+// #[must_use]
+// #[derive(Debug)]
+// pub enum TimersQuery {
+//     /// Reset all timeouts to their initial values
+//     ResetTimeouts(Reply<()>),
+//
+//     /// Cancel all outstanding timeouts
+//     CancelAllTimeouts(Reply<()>),
+//
+//     /// Cancel a given timeout
+//     CancelTimeout(Timeout, Reply<()>),
+//
+//     /// Schedule a timeout
+//     ScheduleTimeout(Timeout, Reply<()>),
+// }
+
+// #[must_use]
+// #[derive_where(Debug)]
+// pub enum SigningQuery<Ctx>
+// where
+//     Ctx: Context,
+// {
+//     /// Sign a vote with this node's private key
+//     SignVote(Ctx::Vote, Reply<SignedVote<Ctx>>),
+//
+//     /// Sign a proposal with this node's private key
+//     SignProposal(Ctx::Proposal, Reply<SignedProposal<Ctx>>),
+//
+//     /// Verify a signature
+//     VerifySignature(
+//         SignedMessage<Ctx, ConsensusMsg<Ctx>>,
+//         PublicKey<Ctx>,
+//         Reply<Validity>,
+//     ),
+//
+//     /// Verify a commit certificate
+//     VerifyCertificate(
+//         CommitCertificate<Ctx>,
+//         Ctx::ValidatorSet,
+//         ThresholdParams,
+//         Reply<Result<(), CertificateError<Ctx>>>,
+//     ),
+// }

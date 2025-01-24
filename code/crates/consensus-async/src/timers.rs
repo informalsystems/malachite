@@ -100,11 +100,6 @@ where
         );
     }
 
-    /// Check if a timer with a given `key` is active, ie. it hasn't been canceled nor has it elapsed yet.
-    pub fn is_timer_active(&self, key: &Key) -> bool {
-        self.timers.contains_key(key)
-    }
-
     /// Cancel a timer with a given `key`.
     ///
     /// If canceling a timer that was already canceled, or key never was used to start a timer
@@ -185,6 +180,17 @@ where
 {
     fn drop(&mut self) {
         self.cancel_all();
+    }
+}
+
+#[cfg(test)]
+impl<Key> Timers<Key>
+where
+    Key: Clone + Eq + Hash + Send + 'static,
+{
+    /// Check if a timer with a given `key` is active, ie. it hasn't been canceled nor has it elapsed yet.
+    fn is_timer_active(&self, key: &Key) -> bool {
+        self.timers.contains_key(key)
     }
 }
 
