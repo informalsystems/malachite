@@ -100,9 +100,18 @@ where
 
         loop {
             tokio::select! {
-                _ = timer_elapsed.recv() => {
-                    // TODO
+                Ok(elapsed) = timer_elapsed.recv() => {
+                    let Some(timeout) = self.timers.intercept_timer_msg(elapsed) else {
+                        continue;
+                    };
+
+                    let (tx_query, _) = mpsc::channel(1);
+                    let input = Input::TimeoutElapsed(timeout);
+                    if let Err(e) = self.process(input, tx_query).await {
+                        tracing::error!("Error: {e}");
+                    }
                 }
+
                 input = self.rx_input.recv() => {
                     match input {
                         Some((input, tx_query)) => {
@@ -248,18 +257,21 @@ where
             // query!(tx_query, resume, |reply| SigningQuery::SignVote(
             //     vote, reply
             // ))
+
             Ok(resume.resume_with(ctx.signing_provider().sign_vote(vote)))
         }
         Effect::SignProposal(proposal, resume) => {
             // query!(tx_query, resume, |reply| SigningQuery::SignProposal(
             //     proposal, reply
             // ))
+
             Ok(resume.resume_with(ctx.signing_provider().sign_proposal(proposal)))
         }
         Effect::VerifySignature(msg, public_key, resume) => {
             // query!(tx_query, resume, |reply| {
             //     SigningQuery::VerifySignature(msg, public_key, reply)
             // })
+
             match msg.message {
                 ConsensusMsg::Vote(vote) => {
                     let valid = ctx.signing_provider().verify_signed_vote(
@@ -288,13 +300,14 @@ where
             //     threshold_params,
             //     reply
             // ))
-            Ok(
-                resume.resume_with(ctx.signing_provider().verify_certificate(
-                    &certificate,
-                    &validator_set,
-                    threshold_params,
-                )),
-            )
+
+            let result = ctx.signing_provider().verify_certificate(
+                &certificate,
+                &validator_set,
+                threshold_params,
+            );
+
+            Ok(resume.resume_with(result))
         }
     }
 }
