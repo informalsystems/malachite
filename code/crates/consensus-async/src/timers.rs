@@ -30,7 +30,7 @@ pub struct TimeoutElapsed<Key> {
 }
 
 #[derive(Debug)]
-pub struct TimerScheduler<Key>
+pub struct Timers<Key>
 where
     Key: Clone + Eq + Hash + Send + 'static,
 {
@@ -39,7 +39,7 @@ where
     generations: RangeFrom<u64>,
 }
 
-impl<Key> TimerScheduler<Key>
+impl<Key> Timers<Key>
 where
     Key: Clone + Eq + Hash + Send + 'static,
 {
@@ -69,7 +69,7 @@ where
     /// When the actor receives a timeout message for timer from the scheduler, it should
     /// check if the timer is still active by calling [`TimerScheduler::intercept_timer_msg`]
     /// and ignore the message otherwise.
-    pub fn start_timer(&mut self, key: Key, timeout: Duration)
+    pub fn start(&mut self, key: Key, timeout: Duration)
     where
         Key: Clone + Send + 'static,
     {
@@ -170,7 +170,7 @@ where
     }
 }
 
-impl<Key> Default for TimerScheduler<Key>
+impl<Key> Default for Timers<Key>
 where
     Key: Clone + Eq + Hash + Send + 'static,
 {
@@ -179,7 +179,7 @@ where
     }
 }
 
-impl<Key> Drop for TimerScheduler<Key>
+impl<Key> Drop for Timers<Key>
 where
     Key: Clone + Eq + Hash + Send + 'static,
 {
@@ -198,8 +198,8 @@ mod tests {
     #[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
     struct TestKey(&'static str);
 
-    async fn scheduler() -> TimerScheduler<TestKey> {
-        TimerScheduler::new()
+    async fn scheduler() -> Timers<TestKey> {
+        Timers::new()
     }
 
     #[tokio::test]
@@ -207,7 +207,7 @@ mod tests {
         let mut scheduler = scheduler().await;
         let key = TestKey("timer1");
 
-        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.start(key, Duration::from_millis(100));
         assert!(scheduler.is_timer_active(&key));
 
         sleep(Duration::from_millis(150)).await;
@@ -222,7 +222,7 @@ mod tests {
         let mut scheduler = scheduler().await;
         let key = TestKey("timer1");
 
-        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.start(key, Duration::from_millis(100));
         scheduler.cancel(&key);
 
         assert!(!scheduler.is_timer_active(&key));
@@ -232,8 +232,8 @@ mod tests {
     async fn test_cancel_all_timers() {
         let mut scheduler = scheduler().await;
 
-        scheduler.start_timer(TestKey("timer1"), Duration::from_millis(100));
-        scheduler.start_timer(TestKey("timer2"), Duration::from_millis(200));
+        scheduler.start(TestKey("timer1"), Duration::from_millis(100));
+        scheduler.start(TestKey("timer2"), Duration::from_millis(200));
 
         scheduler.cancel_all();
 
@@ -246,7 +246,7 @@ mod tests {
         let mut scheduler = scheduler().await;
         let key = TestKey("timer1");
 
-        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.start(key, Duration::from_millis(100));
         sleep(Duration::from_millis(150)).await;
 
         let timer_msg = TimeoutElapsed { key, generation: 1 };
@@ -261,8 +261,8 @@ mod tests {
         let mut scheduler = scheduler().await;
         let key = TestKey("timer1");
 
-        scheduler.start_timer(key, Duration::from_millis(100));
-        scheduler.start_timer(key, Duration::from_millis(200));
+        scheduler.start(key, Duration::from_millis(100));
+        scheduler.start(key, Duration::from_millis(200));
 
         let timer_msg = TimeoutElapsed { key, generation: 1 };
 
@@ -276,7 +276,7 @@ mod tests {
         let mut scheduler = scheduler().await;
         let key = TestKey("timer1");
 
-        scheduler.start_timer(key, Duration::from_millis(100));
+        scheduler.start(key, Duration::from_millis(100));
         scheduler.cancel(&key);
 
         let timer_msg = TimeoutElapsed { key, generation: 1 };

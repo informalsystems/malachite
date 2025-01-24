@@ -2152,6 +2152,7 @@ name = "informalsystems-malachitebft-consensus-async"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "derive-where",
  "informalsystems-malachitebft-core-consensus",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-sync",

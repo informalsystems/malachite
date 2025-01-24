@@ -6,6 +6,12 @@ pub use multiaddr::Multiaddr;
 
 pub type RequestId = String;
 
+#[cfg(feature = "metrics")]
+pub use malachitebft_metrics::Metrics;
+
+#[cfg(not(feature = "metrics"))]
+pub type Metrics = ();
+
 /// A signed consensus message, ie. a signed vote or a signed proposal.
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum SignedConsensusMsg<Ctx: Context> {

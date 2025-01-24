@@ -14,7 +14,7 @@
 ///     // Metrics
 ///     metrics: &metrics,
 ///    // Effect handler
-///     on: effect => handle_effect(effect).await
+///     with: effect => handle_effect(effect).await
 /// )
 /// ```
 #[macro_export]
@@ -23,7 +23,7 @@ macro_rules! process {
         let mut gen = $crate::gen::Gen::new(|co| $crate::handle(co, $state, $metrics, $input));
         let mut co_result = gen.resume_with($crate::Resume::Start);
 
-        loop {
+        'process: loop {
             match co_result {
                 $crate::gen::CoResult::Yielded($effect) => {
                     let resume = match $handle {
@@ -36,7 +36,7 @@ macro_rules! process {
                     co_result = gen.resume_with(resume)
                 }
                 $crate::gen::CoResult::Complete(result) => {
-                    return result.map_err(Into::into);
+                    break 'process result.map_err(Into::into);
                 }
             }
         }
