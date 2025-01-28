@@ -180,7 +180,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
 
                 // Simplified value creation. In a real application, use the whole hash.
                 let mut block_hash_short = [0; 8];
-                block_hash_short.copy_from_slice(block.block_hash.as_bytes());
+                block_hash_short.copy_from_slice(&block.block_hash.as_bytes()[0..8]);
                 let value = Value::new(u64::from_be_bytes(block_hash_short));
 
                 if reply
