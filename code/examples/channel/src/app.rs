@@ -10,7 +10,7 @@ use malachitebft_app_channel::{AppMsg, Channels, ConsensusMsg, NetworkMsg};
 use malachitebft_test::codec::proto::ProtobufCodec;
 use malachitebft_test::TestContext;
 
-use crate::state::{decode_value, State};
+use crate::state::{decode_block, State};
 
 pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyre::Result<()> {
     while let Some(msg) = channels.consensus.recv().await {
@@ -176,7 +176,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
             } => {
                 info!(%height, %round, "Processing synced value");
 
-                let value = decode_value(value_bytes);
+                let block = decode_block(value_bytes);
+                let value = block.block_hash;
 
                 if reply
                     .send(ProposedValue {

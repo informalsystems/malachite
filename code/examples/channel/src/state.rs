@@ -7,6 +7,7 @@ use bytes::Bytes;
 use eyre::eyre;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use rand::distributions::Alphanumeric;
 use sha3::Digest;
 use tracing::{debug, error};
 
@@ -15,12 +16,15 @@ use malachitebft_app_channel::app::streaming::{StreamContent, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
+use malachitebft_proto::Protobuf;
 use malachitebft_test::codec::proto::ProtobufCodec;
 use malachitebft_test::{
     Address, Genesis, Height, ProposalData, ProposalFin, ProposalInit, ProposalPart, TestContext,
     ValidatorSet, Value,
 };
-
+use malachitebft_test::hash::BlockHash;
+use malachitebft_test::transaction::{Transaction, Transactions};
+use malachitebft_test::types::Block;
 use crate::store::{DecidedValue, Store};
 use crate::streaming::{PartStreamsMap, ProposalParts};
 
@@ -223,7 +227,8 @@ impl State {
         assert_eq!(round, self.current_round);
 
         // We create a new value.
-        let value = self.make_value();
+        let block = self.fetch_block(height);
+        let value = Value::new(block.height.as_u64()); // Todo: use a hash of the block as value.
 
         let proposal = ProposedValue {
             height,
@@ -243,13 +248,25 @@ impl State {
         Ok(proposal)
     }
 
-    /// Make up a new value to propose
+    /// Fetch a new block to propose
     /// A real application would have a more complex logic here,
     /// typically reaping transactions from a mempool and executing them against its state,
     /// before computing the merkle root of the new app state.
-    fn make_value(&mut self) -> Value {
-        let value = self.rng.gen_range(100..=100000);
-        Value::new(value)
+    fn fetch_block(&mut self, height: Height) -> Block {
+        let mut transactions = Vec::new();
+        for _ in 0..self.rng.gen_range(1..=10) {
+            let mempool_retrieved_key = self.rng.clone().sample_iter(&Alphanumeric).take(5).map(char::from).collect::<String>();
+            let mempool_retrieved_value = self.rng.gen_range(100..=100000);
+            let transaction = Transaction::new(Bytes::from(format!("{}={}", mempool_retrieved_key, mempool_retrieved_value)));
+            transactions.push(transaction);
+        }
+        let transactions = Transactions::new(transactions);
+        let block_hash = BlockHash::new(self.rng.gen::<[u8; 32]>()); // Todo: create block hash from transactions.
+        Block{
+            height,
+            transactions,
+            block_hash,
+        }
     }
 
     /// Creates a new proposal value for the given height
@@ -414,8 +431,8 @@ fn assemble_value_from_parts(parts: ProposalParts) -> ProposedValue<TestContext>
     }
 }
 
-/// Decodes a Value from its byte representation using ProtobufCodec
-pub fn decode_value(bytes: Bytes) -> Value {
+/// Decodes a Block from its byte representation using ProtobufCodec
+pub fn decode_block(bytes: Bytes) -> Block {
     ProtobufCodec.decode(bytes).unwrap()
 }
 
