@@ -1,7 +1,11 @@
 use std::io::Result;
 
 fn main() -> Result<()> {
-    let protos = &["proto/consensus.proto", "proto/sync.proto", "proto/transaction.proto"];
+    let protos = &[
+        "proto/consensus.proto",
+        "proto/sync.proto",
+        "proto/transaction.proto",
+    ];
 
     for proto in protos {
         println!("cargo:rerun-if-changed={proto}");

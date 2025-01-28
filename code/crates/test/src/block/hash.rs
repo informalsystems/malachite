@@ -86,7 +86,7 @@ impl str::FromStr for Hash {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let hash: [u8;32] = hex::decode(s)?[0..32].try_into()?;
+        let hash: [u8; 32] = hex::decode(s)?[0..32].try_into()?;
         Ok(Self(hash))
     }
 }

@@ -834,7 +834,11 @@ Once again, this method is quite self-explanatory, so let's move on.
         assert_eq!(round, self.current_round);
 
         // We create a new value.
-        let value = self.make_value();
+        let block = self.fetch_block(height);
+        // Simplified value creation. In a real application, use the whole hash.
+        let mut block_hash_short = [0; 8];
+        block_hash_short.copy_from_slice(block.block_hash.as_bytes());
+        let value = Value::new(u64::from_be_bytes(block_hash_short));
 
         let proposal = ProposedValue {
             height,
@@ -861,13 +865,38 @@ in case we need it at a later stage, as we will soon see.
 Let's look at the helper method it uses to actually create the new value:
 
 ```rust
-    /// Make up a new value to propose
+    /// Fetch a new block to propose
     /// A real application would have a more complex logic here,
     /// typically reaping transactions from a mempool and executing them against its state,
     /// before computing the merkle root of the new app state.
-    fn make_value(&mut self) -> Value {
-        let value = self.rng.gen_range(100..=100_000);
-        Value::new(value)
+    fn fetch_block(&mut self, height: Height) -> Block {
+        let mut transactions = Vec::new();
+        // add 1-10 new random transactions to the block
+        for _ in 0..self.rng.gen_range(1..=10) {
+            // fake a key-value pair that came from the hypothetical mempool
+            let retrieved_key = self
+                .rng
+                .clone()
+                .sample_iter(&Alphanumeric)
+                .take(5)
+                .map(char::from)
+                .collect::<String>();
+            let retrieved_value = self.rng.gen_range(100..=100000);
+            let transaction = Transaction::new(Bytes::from(format!(
+                "{}={}",
+                retrieved_key, retrieved_value
+            )));
+            transactions.push(transaction);
+        }
+        let transactions = Transactions::new(transactions);
+        // Let's put a fake block_hash in there for the example.
+        // Todo: create block hash from transactions.
+        let block_hash = BlockHash::new(self.rng.gen::<[u8; 32]>());
+        Block {
+            height,
+            transactions,
+            block_hash,
+        }
     }
 ```
 

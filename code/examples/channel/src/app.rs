@@ -8,7 +8,7 @@ use malachitebft_app_channel::app::types::sync::RawDecidedValue;
 use malachitebft_app_channel::app::types::ProposedValue;
 use malachitebft_app_channel::{AppMsg, Channels, ConsensusMsg, NetworkMsg};
 use malachitebft_test::codec::proto::ProtobufCodec;
-use malachitebft_test::TestContext;
+use malachitebft_test::{TestContext, Value};
 
 use crate::state::{decode_block, State};
 
@@ -177,7 +177,11 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 info!(%height, %round, "Processing synced value");
 
                 let block = decode_block(value_bytes);
-                let value = block.block_hash;
+
+                // Simplified value creation. In a real application, use the whole hash.
+                let mut block_hash_short = [0; 8];
+                block_hash_short.copy_from_slice(block.block_hash.as_bytes());
+                let value = Value::new(u64::from_be_bytes(block_hash_short));
 
                 if reply
                     .send(ProposedValue {

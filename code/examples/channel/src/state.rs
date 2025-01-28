@@ -5,28 +5,27 @@ use std::collections::HashSet;
 
 use bytes::Bytes;
 use eyre::eyre;
+use rand::distributions::Alphanumeric;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use rand::distributions::Alphanumeric;
 use sha3::Digest;
 use tracing::{debug, error};
 
+use crate::store::{DecidedValue, Store};
+use crate::streaming::{PartStreamsMap, ProposalParts};
 use malachitebft_app_channel::app::consensus::ProposedValue;
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
-use malachitebft_proto::Protobuf;
 use malachitebft_test::codec::proto::ProtobufCodec;
+use malachitebft_test::hash::BlockHash;
+use malachitebft_test::transaction::{Transaction, Transactions};
+use malachitebft_test::types::Block;
 use malachitebft_test::{
     Address, Genesis, Height, ProposalData, ProposalFin, ProposalInit, ProposalPart, TestContext,
     ValidatorSet, Value,
 };
-use malachitebft_test::hash::BlockHash;
-use malachitebft_test::transaction::{Transaction, Transactions};
-use malachitebft_test::types::Block;
-use crate::store::{DecidedValue, Store};
-use crate::streaming::{PartStreamsMap, ProposalParts};
 
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
@@ -228,7 +227,10 @@ impl State {
 
         // We create a new value.
         let block = self.fetch_block(height);
-        let value = Value::new(block.height.as_u64()); // Todo: use a hash of the block as value.
+        // Simplified value creation. In a real application, use the whole hash.
+        let mut block_hash_short = [0; 8];
+        block_hash_short.copy_from_slice(block.block_hash.as_bytes());
+        let value = Value::new(u64::from_be_bytes(block_hash_short));
 
         let proposal = ProposedValue {
             height,
@@ -254,15 +256,28 @@ impl State {
     /// before computing the merkle root of the new app state.
     fn fetch_block(&mut self, height: Height) -> Block {
         let mut transactions = Vec::new();
+        // add 1-10 new random transactions to the block
         for _ in 0..self.rng.gen_range(1..=10) {
-            let mempool_retrieved_key = self.rng.clone().sample_iter(&Alphanumeric).take(5).map(char::from).collect::<String>();
-            let mempool_retrieved_value = self.rng.gen_range(100..=100000);
-            let transaction = Transaction::new(Bytes::from(format!("{}={}", mempool_retrieved_key, mempool_retrieved_value)));
+            // fake a key-value pair that came from the hypothetical mempool
+            let retrieved_key = self
+                .rng
+                .clone()
+                .sample_iter(&Alphanumeric)
+                .take(5)
+                .map(char::from)
+                .collect::<String>();
+            let retrieved_value = self.rng.gen_range(100..=100000);
+            let transaction = Transaction::new(Bytes::from(format!(
+                "{}={}",
+                retrieved_key, retrieved_value
+            )));
             transactions.push(transaction);
         }
         let transactions = Transactions::new(transactions);
-        let block_hash = BlockHash::new(self.rng.gen::<[u8; 32]>()); // Todo: create block hash from transactions.
-        Block{
+        // Let's put a fake block_hash in there for the example.
+        // Todo: create block hash from transactions.
+        let block_hash = BlockHash::new(self.rng.gen::<[u8; 32]>());
+        Block {
             height,
             transactions,
             block_hash,

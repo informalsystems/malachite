@@ -1,5 +1,8 @@
-use crate::{hash::BlockHash, Height, transaction::Transactions};
+use crate::{hash::BlockHash, transaction::Transactions, Height};
+use bytes::Bytes;
+use malachitebft_codec::Codec;
 
+use crate::codec::proto::ProtobufCodec;
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 
 #[derive(Clone, Debug)]
@@ -34,5 +37,17 @@ impl Protobuf for Block {
             transactions: Some(self.transactions.to_proto()?),
             block_hash: Some(self.block_hash.to_proto()?),
         })
+    }
+}
+
+impl Codec<Block> for ProtobufCodec {
+    type Error = ProtoError;
+
+    fn decode(&self, bytes: Bytes) -> Result<Block, Self::Error> {
+        Protobuf::from_bytes(&bytes)
+    }
+
+    fn encode(&self, msg: &Block) -> Result<Bytes, Self::Error> {
+        Protobuf::to_bytes(msg)
     }
 }
