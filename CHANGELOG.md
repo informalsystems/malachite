@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-### `malachitebft-core-consensus`
+### Breaking Changes
 
-#### Breaking Changes
+#### `malachitebft-core-consensus`
 
 - `ValuePayload` enum moved from `malachitebft_core_consensus` to `malachitebft_core_types`
 - Added new variants to `Effect` enum:
@@ -16,21 +16,15 @@
   - Use `LocallyProposedValue` instead
 - Removed field `extension` from struct `ProposedValue`
 
-### `malachitebft-app`
-
-#### Breaking Changes
+#### `malachitebft-app`
 
 - Merged `host` module into `types`
 
-### `malachitebft-app-channel`
-
-#### Breaking Changes
+#### `malachitebft-app-channel`
 
 - Added `PeerJoined` and `PeerLeft` variants to `AppMsg` enum
 
-### `malachitebft-engine`
-
-#### Breaking Changes
+#### `malachitebft-engine`
 
 - Added `PeerJoined ` and `PeerLeft` variants to `HostMsg` enum
 
