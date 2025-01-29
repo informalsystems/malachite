@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+import "consensus.proto";
+
+package test;
+
+// This is a transaction that is already accepted in a block.
+message Transaction
+{
+    message Dummy {
+        bytes bytes = 1;
+    }
+
+    message DeclareV0 {
+        Address sender = 1;
+        Signature signature = 3;
+        Hash class_hash = 4;
+    }
+
+    oneof txn {
+        Dummy dummy = 42;
+
+        DeclareV0 declare_v0 = 1;
+    }
+    Hash transaction_hash = 41;
+}
+
+message Transactions {
+    repeated Transaction transactions = 1;
+}
+
+message Hash {
+    bytes elements = 1;
+}
+
+message Block {
+    uint64 block_number = 1;
+    Transactions transactions = 2;
+    Hash block_hash = 3;
+}
