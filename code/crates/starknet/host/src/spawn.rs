@@ -74,7 +74,8 @@ pub async fn spawn_node_actor(
         ctx,
         network.clone(),
         host.clone(),
-        &cfg.sync,
+        &cfg.value_sync,
+        &cfg.vote_set_sync,
         &registry,
         &span,
     )
@@ -138,21 +139,27 @@ async fn spawn_sync_actor(
     ctx: MockContext,
     network: NetworkRef<MockContext>,
     host: HostRef<MockContext>,
-    config: &SyncConfig,
+    value_config: &SyncConfig,
+    vote_set_config: &SyncConfig,
     registry: &SharedRegistry,
     span: &tracing::Span,
 ) -> Option<SyncRef<MockContext>> {
-    if !config.enabled {
+    if !value_config.enabled & !vote_set_config.enabled {
         return None;
     }
 
-    let params = SyncParams {
-        status_update_interval: config.status_update_interval,
-        request_timeout: config.request_timeout,
+    let value_params = SyncParams {
+        status_update_interval: value_config.status_update_interval,
+        request_timeout: value_config.request_timeout,
+    };
+
+    let vote_set_params = SyncParams {
+        status_update_interval: vote_set_config.status_update_interval,
+        request_timeout: vote_set_config.request_timeout,
     };
 
     let metrics = sync::Metrics::register(registry);
-    let actor_ref = Sync::spawn(ctx, network, host, params, metrics, span.clone())
+    let actor_ref = Sync::spawn(ctx, network, host, value_params, vote_set_params, metrics, span.clone())
         .await
         .unwrap();
 

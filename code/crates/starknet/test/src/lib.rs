@@ -61,7 +61,8 @@ impl fmt::Display for Expected {
 }
 
 pub struct TestParams {
-    pub enable_sync: bool,
+    pub enable_value_sync: bool,
+    pub enable_vote_set_sync: bool,
     pub protocol: PubSubProtocol,
     pub block_size: ByteSize,
     pub tx_size: ByteSize,
@@ -75,7 +76,8 @@ pub struct TestParams {
 impl Default for TestParams {
     fn default() -> Self {
         Self {
-            enable_sync: false,
+            enable_value_sync: false,
+            enable_vote_set_sync: false,
             protocol: PubSubProtocol::default(),
             block_size: ByteSize::mib(1),
             tx_size: ByteSize::kib(1),
@@ -90,7 +92,8 @@ impl Default for TestParams {
 
 impl TestParams {
     fn apply_to_config(&self, config: &mut Config) {
-        config.sync.enabled = self.enable_sync;
+        config.value_sync.enabled = self.enable_value_sync;
+        config.vote_set_sync.enabled = self.enable_vote_set_sync;
         config.consensus.p2p.protocol = self.protocol;
         config.consensus.max_block_size = self.block_size;
         config.consensus.value_payload = self.value_payload;
@@ -736,7 +739,12 @@ pub fn make_node_config<S>(test: &Test<S>, i: usize) -> NodeConfig {
             max_tx_count: 10000,
             gossip_batch_size: 100,
         },
-        sync: SyncConfig {
+        value_sync: SyncConfig {
+            enabled: true,
+            status_update_interval: Duration::from_secs(2),
+            request_timeout: Duration::from_secs(5),
+        },
+        vote_set_sync: SyncConfig {
             enabled: true,
             status_update_interval: Duration::from_secs(2),
             request_timeout: Duration::from_secs(5),

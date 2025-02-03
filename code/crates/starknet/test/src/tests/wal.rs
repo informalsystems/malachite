@@ -96,7 +96,8 @@ async fn proposer_crashes_after_proposing(params: TestParams) {
         .run_with_custom_config(
             Duration::from_secs(60),
             TestParams {
-                enable_sync: false,
+                enable_value_sync: false,
+                enable_vote_set_sync: false,
                 ..params
             },
         )
@@ -186,7 +187,8 @@ async fn non_proposer_crashes_after_voting(params: TestParams) {
         .run_with_custom_config(
             Duration::from_secs(60),
             TestParams {
-                enable_sync: false,
+                enable_value_sync: false,
+                enable_vote_set_sync: false,
                 ..params
             },
         )

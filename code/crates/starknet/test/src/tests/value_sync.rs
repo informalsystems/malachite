@@ -48,7 +48,8 @@ pub async fn crash_restart_from_start(params: TestParams) {
         .run_with_custom_config(
             Duration::from_secs(60), // Timeout for the whole test
             TestParams {
-                enable_sync: true, // Enable Sync
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 ..params
             },
         )
@@ -118,7 +119,8 @@ pub async fn crash_restart_from_latest() {
         .run_with_custom_config(
             Duration::from_secs(60),
             TestParams {
-                enable_sync: true,
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 ..Default::default()
             },
         )
@@ -159,7 +161,8 @@ pub async fn aggressive_pruning() {
         .run_with_custom_config(
             Duration::from_secs(60), // Timeout for the whole test
             TestParams {
-                enable_sync: true,     // Enable Sync
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 max_retain_blocks: 10, // Prune blocks older than 10
                 ..Default::default()
             },
@@ -195,7 +198,8 @@ pub async fn start_late() {
         .run_with_custom_config(
             Duration::from_secs(30),
             TestParams {
-                enable_sync: true,
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 ..Default::default()
             },
         )

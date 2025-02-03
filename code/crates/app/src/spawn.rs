@@ -114,24 +114,30 @@ pub async fn spawn_sync_actor<Ctx>(
     ctx: Ctx,
     network: NetworkRef<Ctx>,
     host: HostRef<Ctx>,
-    config: &SyncConfig,
+    value_config: &SyncConfig,
+    vote_set_config: &SyncConfig,
     registry: &SharedRegistry,
 ) -> Result<Option<SyncRef<Ctx>>>
 where
     Ctx: Context,
 {
-    if !config.enabled {
+    if !value_config.enabled && !vote_set_config.enabled {
         return Ok(None);
     }
 
-    let params = SyncParams {
-        status_update_interval: config.status_update_interval,
-        request_timeout: config.request_timeout,
+    let value_params = SyncParams {
+        status_update_interval: value_config.status_update_interval,
+        request_timeout: value_config.request_timeout,
+    };
+
+    let vote_set_params = SyncParams {
+        status_update_interval: vote_set_config.status_update_interval,
+        request_timeout: vote_set_config.request_timeout,
     };
 
     let metrics = sync::Metrics::register(registry);
 
-    let actor_ref = Sync::spawn(ctx, network, host, params, metrics, Span::current()).await?;
+    let actor_ref = Sync::spawn(ctx, network, host, value_params, vote_set_params, metrics, Span::current()).await?;
 
     Ok(Some(actor_ref))
 }

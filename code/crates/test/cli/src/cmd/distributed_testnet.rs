@@ -293,7 +293,12 @@ fn generate_distributed_config(
             max_tx_count: 10000,
             gossip_batch_size: 0,
         },
-        sync: SyncConfig {
+        value_sync: SyncConfig {
+            enabled: false,
+            status_update_interval: Duration::from_secs(0),
+            request_timeout: Duration::from_secs(0),
+        },
+        vote_set_sync: SyncConfig {
             enabled: false,
             status_update_interval: Duration::from_secs(0),
             request_timeout: Duration::from_secs(0),

@@ -138,8 +138,11 @@ pub struct State<Ctx: Context> {
     /// In-flight requests
     inflight: InflightRequests<Ctx>,
 
-    /// Task for sending status updates
-    ticker: JoinHandle<()>,
+    /// Task for sending value status updates
+    value_ticker: JoinHandle<()>,
+
+    /// Task for sending vote set status updates
+    vote_set_ticker: JoinHandle<()>,
 }
 
 #[allow(dead_code)]
@@ -147,7 +150,8 @@ pub struct Sync<Ctx: Context> {
     ctx: Ctx,
     gossip: NetworkRef<Ctx>,
     host: HostRef<Ctx>,
-    params: Params,
+    value_params: Params,
+    vote_set_params: Params,
     metrics: sync::Metrics,
     span: tracing::Span,
 }
@@ -160,7 +164,8 @@ where
         ctx: Ctx,
         gossip: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
-        params: Params,
+        value_params: Params,
+        vote_set_params: Params,
         metrics: sync::Metrics,
         span: tracing::Span,
     ) -> Self {
@@ -168,7 +173,8 @@ where
             ctx,
             gossip,
             host,
-            params,
+            value_params,
+            vote_set_params,
             metrics,
             span,
         }
@@ -178,11 +184,12 @@ where
         ctx: Ctx,
         gossip: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
-        params: Params,
+        value_params: Params,
+        vote_set_params: Params,
         metrics: sync::Metrics,
         span: tracing::Span,
     ) -> Result<SyncRef<Ctx>, ractor::SpawnErr> {
-        let actor = Self::new(ctx, gossip, host, params, metrics, span);
+        let actor = Self::new(ctx, gossip, host, value_params, vote_set_params, metrics, span);
         let (actor_ref, _) = Actor::spawn(None, actor, ()).await?;
         Ok(actor_ref)
     }
@@ -241,7 +248,7 @@ where
 
                         timers.start_timer(
                             Timeout::Request(request_id.clone()),
-                            self.params.request_timeout,
+                            self.value_params.request_timeout,
                         );
 
                         inflight.insert(
@@ -290,7 +297,7 @@ where
                     Ok(request_id) => {
                         timers.start_timer(
                             Timeout::Request(request_id.clone()),
-                            self.params.request_timeout,
+                            self.vote_set_params.request_timeout,
                         );
 
                         inflight.insert(
@@ -490,8 +497,14 @@ where
         self.gossip
             .cast(NetworkMsg::Subscribe(Box::new(myself.clone())))?;
 
-        let ticker = tokio::spawn(ticker(
-            self.params.status_update_interval,
+        let value_ticker = tokio::spawn(ticker(
+            self.value_params.status_update_interval,
+            myself.clone(),
+            || Msg::Tick,
+        ));
+
+        let vote_set_ticker = tokio::spawn(ticker(
+            self.vote_set_params.status_update_interval,
             myself.clone(),
             || Msg::Tick,
         ));
@@ -502,7 +515,8 @@ where
             sync: sync::State::new(rng),
             timers: Timers::new(Box::new(myself.clone())),
             inflight: HashMap::new(),
-            ticker,
+            value_ticker,
+            vote_set_ticker,
         })
     }
 
@@ -533,7 +547,8 @@ where
         _myself: ActorRef<Self::Msg>,
         state: &mut Self::State,
     ) -> Result<(), ActorProcessingErr> {
-        state.ticker.abort();
+        state.value_ticker.abort();
+        state.vote_set_ticker.abort();
         Ok(())
     }
 }

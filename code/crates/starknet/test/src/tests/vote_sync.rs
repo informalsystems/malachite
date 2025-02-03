@@ -38,7 +38,8 @@ pub async fn crash_restart_from_start(params: TestParams) {
         .run_with_custom_config(
             Duration::from_secs(60), // Timeout for the whole test
             TestParams {
-                enable_sync: true, // Enable Sync
+                enable_value_sync: false, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 timeout_step: Duration::from_secs(5),
                 ..params
             },
@@ -101,7 +102,8 @@ pub async fn crash_restart_from_latest() {
         .run_with_custom_config(
             Duration::from_secs(60),
             TestParams {
-                enable_sync: true,
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 timeout_step: Duration::from_secs(5),
                 ..Default::default()
             },
@@ -129,7 +131,8 @@ pub async fn start_late() {
         .run_with_custom_config(
             Duration::from_secs(60),
             TestParams {
-                enable_sync: true,
+                enable_value_sync: true, // Enable value sync
+                enable_vote_set_sync: true, // Enable vote set sync
                 timeout_step: Duration::from_secs(5),
                 ..Default::default()
             },

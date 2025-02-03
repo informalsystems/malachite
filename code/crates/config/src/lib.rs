@@ -25,8 +25,11 @@ pub struct Config {
     /// Mempool configuration options
     pub mempool: MempoolConfig,
 
-    /// Sync configuration options
-    pub sync: SyncConfig,
+    /// Value sync configuration options for value
+    pub value_sync: SyncConfig,
+
+    /// Vote set sync configuration options
+    pub vote_set_sync: SyncConfig,
 
     /// Metrics configuration options
     pub metrics: MetricsConfig,
