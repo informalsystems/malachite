@@ -189,7 +189,15 @@ where
         metrics: sync::Metrics,
         span: tracing::Span,
     ) -> Result<SyncRef<Ctx>, ractor::SpawnErr> {
-        let actor = Self::new(ctx, gossip, host, value_params, vote_set_params, metrics, span);
+        let actor = Self::new(
+            ctx,
+            gossip,
+            host,
+            value_params,
+            vote_set_params,
+            metrics,
+            span,
+        );
         let (actor_ref, _) = Actor::spawn(None, actor, ()).await?;
         Ok(actor_ref)
     }

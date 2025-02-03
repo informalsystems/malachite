@@ -159,9 +159,17 @@ async fn spawn_sync_actor(
     };
 
     let metrics = sync::Metrics::register(registry);
-    let actor_ref = Sync::spawn(ctx, network, host, value_params, vote_set_params, metrics, span.clone())
-        .await
-        .unwrap();
+    let actor_ref = Sync::spawn(
+        ctx,
+        network,
+        host,
+        value_params,
+        vote_set_params,
+        metrics,
+        span.clone(),
+    )
+    .await
+    .unwrap();
 
     Some(actor_ref)
 }

@@ -137,7 +137,16 @@ where
 
     let metrics = sync::Metrics::register(registry);
 
-    let actor_ref = Sync::spawn(ctx, network, host, value_params, vote_set_params, metrics, Span::current()).await?;
+    let actor_ref = Sync::spawn(
+        ctx,
+        network,
+        host,
+        value_params,
+        vote_set_params,
+        metrics,
+        Span::current(),
+    )
+    .await?;
 
     Ok(Some(actor_ref))
 }
