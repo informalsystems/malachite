@@ -16,13 +16,15 @@ use crate::app::types::metrics::Metrics;
 use crate::connector::Connector;
 use crate::{AppMsg, NetworkMsg};
 
+const CHANNEL_CAPACITY: usize = 1024;
+
 pub async fn spawn_host_actor<Ctx>(
     metrics: Metrics,
 ) -> Result<(HostRef<Ctx>, mpsc::Receiver<AppMsg<Ctx>>)>
 where
     Ctx: Context,
 {
-    let (tx, rx) = mpsc::channel(128);
+    let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
     let actor_ref = Connector::spawn(tx, metrics).await?;
     Ok((actor_ref, rx))
 }
@@ -38,7 +40,7 @@ where
     Codec: ConsensusCodec<Ctx>,
     Codec: SyncCodec<Ctx>,
 {
-    let (tx, mut rx) = mpsc::channel::<NetworkMsg<Ctx>>(1);
+    let (tx, mut rx) = mpsc::channel::<NetworkMsg<Ctx>>(CHANNEL_CAPACITY);
 
     let actor_ref = malachitebft_app::spawn_network_actor(cfg, keypair, registry, codec).await?;
 
