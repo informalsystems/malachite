@@ -25,6 +25,9 @@ pub struct Config {
     /// Mempool configuration options
     pub mempool: MempoolConfig,
 
+    /// Mempool load configuration options
+    pub mempool_load: MempoolLoadConfig,
+
     /// Sync configuration options
     pub sync: SyncConfig,
 
@@ -337,6 +340,100 @@ mod gossipsub {
             )
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "load_type", rename_all = "snake_case")]
+pub enum MempoolLoadType {
+    UniformLoad(UniformLoadConfig),
+    NoLoad,
+    NonUniformLoad(NonUniformLoadConfig),
+}
+
+impl Default for MempoolLoadType {
+    fn default() -> Self {
+        Self::UniformLoad(UniformLoadConfig::default())
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+pub struct NonUniformLoadConfig {
+    /// Base transaction count
+    pub base_count: i32,
+
+    /// Base transaction size
+    pub base_size: i32,
+
+    /// How much the transaction count can vary
+    pub count_variation: std::ops::Range<i32>,
+
+    pub size_variation: std::ops::Range<i32>,
+
+    /// Chance of generating a spike.
+    /// e.g. 0.1 = 10% chance of spike
+    pub spike_probability: f64,
+
+    /// Multiplier for spike transactions
+    /// e.g. 10 = 10x more transactions during spike
+    pub spike_multiplier: usize,
+
+    /// Range of intervals between generating load, in milliseconds
+    pub sleep_interval: std::ops::Range<u64>,
+}
+impl Default for NonUniformLoadConfig {
+    fn default() -> Self {
+        Self::new(1000, 256, -500..500, -64..128, 0.10, 2, 100..1000)
+    }
+}
+
+impl NonUniformLoadConfig {
+    pub fn new(
+        base_count: i32,
+        base_size: i32,
+        count_variation: std::ops::Range<i32>,
+        size_variation: std::ops::Range<i32>,
+        spike_probability: f64,
+        spike_multiplier: usize,
+        sleep_interval: std::ops::Range<u64>,
+    ) -> Self {
+        Self {
+            base_count,
+            base_size,
+            count_variation,
+            size_variation,
+            spike_probability,
+            spike_multiplier,
+            sleep_interval,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, serde::Deserialize)]
+pub struct UniformLoadConfig {
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+    pub count: usize,
+    pub size: usize,
+}
+impl UniformLoadConfig {
+    fn new(interval: Duration, count: usize, size: usize) -> Self {
+        Self {
+            interval,
+            count,
+            size,
+        }
+    }
+}
+impl Default for UniformLoadConfig {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(3), 10000, 256)
+    }
+}
+
+/// Mempool configuration options
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MempoolLoadConfig {
+    /// Mempool loading type
+    pub load_type: MempoolLoadType,
 }
 
 /// Mempool configuration options

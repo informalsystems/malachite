@@ -149,6 +149,9 @@ pub fn generate_config(
             max_tx_count: 10000,
             gossip_batch_size: 0,
         },
+        mempool_load: MempoolLoadConfig {
+            load_type: MempoolLoadType::default(),
+        },
         sync: Default::default(),
         metrics: MetricsConfig {
             enabled: true,

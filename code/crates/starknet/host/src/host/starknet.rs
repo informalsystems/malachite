@@ -14,6 +14,7 @@ use malachitebft_core_types::{CommitCertificate, Round, SignedVote, VoteExtensio
 
 use crate::host::Host;
 use crate::mempool::MempoolRef;
+use crate::mempool_load::MempoolLoadRef;
 use crate::part_store::PartStore;
 use crate::types::*;
 
@@ -34,6 +35,7 @@ pub struct StarknetParams {
 pub struct StarknetHost {
     pub params: StarknetParams,
     pub mempool: MempoolRef,
+    pub mempool_load: MempoolLoadRef,
     pub address: Address,
     pub private_key: PrivateKey,
     pub validator_set: ValidatorSet,
@@ -45,6 +47,7 @@ impl StarknetHost {
     pub fn new(
         params: StarknetParams,
         mempool: MempoolRef,
+        mempool_load: MempoolLoadRef,
         address: Address,
         private_key: PrivateKey,
         validator_set: ValidatorSet,
@@ -52,6 +55,7 @@ impl StarknetHost {
         Self {
             params,
             mempool,
+            mempool_load,
             address,
             private_key,
             validator_set,
