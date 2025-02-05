@@ -1,0 +1,18 @@
+[package]
+name = "informalsystems-malachitebft-test-utils"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+surge-ping = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net", "process"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "process", "macros", "rt"] }
