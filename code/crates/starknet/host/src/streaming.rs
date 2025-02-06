@@ -1,3 +1,5 @@
+/// The most of algorithm logic is explained in '/malachite/code/crates/starknet/host/src/actor.rs'
+/// Above 'on_received_proposal_part'
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 
@@ -8,8 +10,14 @@ use malachitebft_core_types::Round;
 use malachitebft_engine::util::streaming::{Sequence, StreamId, StreamMessage};
 
 use crate::types::{Address, Height, ProposalInit, ProposalPart};
+use std::fmt::Debug;
 
-struct MinSeq<T>(StreamMessage<T>);
+// Wraps StreamMessage to implement custom ordering for a BinaryHeap
+// The default BinaryHeap is a max-heap, so we reverse the ordering
+// by implementing Ord in reverse to make it min-heap, which suits the purpose of efficiently
+// providing available proposal part with smallest sequence number
+#[derive(Debug)]
+pub struct MinSeq<T>(pub StreamMessage<T>);
 
 impl<T> PartialEq for MinSeq<T> {
     fn eq(&self, other: &Self) -> bool {
@@ -31,7 +39,8 @@ impl<T> PartialOrd for MinSeq<T> {
     }
 }
 
-struct MinHeap<T>(BinaryHeap<MinSeq<T>>);
+#[derive(Debug)]
+pub struct MinHeap<T>(pub BinaryHeap<MinSeq<T>>);
 
 impl<T> Default for MinHeap<T> {
     fn default() -> Self {
@@ -40,11 +49,11 @@ impl<T> Default for MinHeap<T> {
 }
 
 impl<T> MinHeap<T> {
-    fn push(&mut self, msg: StreamMessage<T>) {
+    pub fn push(&mut self, msg: StreamMessage<T>) {
         self.0.push(MinSeq(msg));
     }
 
-    fn pop(&mut self) -> Option<StreamMessage<T>> {
+    pub fn pop(&mut self) -> Option<StreamMessage<T>> {
         self.0.pop().map(|msg| msg.0)
     }
 
@@ -52,16 +61,16 @@ impl<T> MinHeap<T> {
         self.0.peek().map(|msg| &msg.0)
     }
 }
-
+#[derive(Debug)]
 #[derive_where(Default)]
-struct StreamState<T> {
-    buffer: MinHeap<T>,
-    init_info: Option<ProposalInit>,
-    seen_sequences: HashSet<Sequence>,
-    next_sequence: Sequence,
-    total_messages: usize,
-    fin_received: bool,
-    emitted_messages: usize,
+pub struct StreamState<T> {
+    pub buffer: MinHeap<T>,
+    pub init_info: Option<ProposalInit>,
+    pub seen_sequences: HashSet<Sequence>,
+    pub next_sequence: Sequence,
+    pub total_messages: usize,
+    pub fin_received: bool,
+    pub emitted_messages: usize,
 }
 
 impl<T> StreamState<T> {
@@ -78,6 +87,7 @@ impl<T> StreamState<T> {
         self.emitted_messages += 1;
     }
 
+    // Emits all buffered successive parts if they are next in sequence
     fn emit_eligible_messages(&mut self, to_emit: &mut Vec<T>) {
         while let Some(msg) = self.buffer.peek() {
             if msg.sequence == self.next_sequence {
@@ -100,7 +110,7 @@ pub struct ProposalParts {
 
 #[derive(Default)]
 pub struct PartStreamsMap {
-    streams: BTreeMap<(PeerId, StreamId), StreamState<ProposalPart>>,
+    pub streams: BTreeMap<(PeerId, StreamId), StreamState<ProposalPart>>,
 }
 
 impl PartStreamsMap {
