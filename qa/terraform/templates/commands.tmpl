@@ -256,6 +256,8 @@ _is_cc() {
 }
 
 _keyscan_cc() {
+  mkdir -p "$HOME/.ssh"
+  touch "$HOME/.ssh/known_hosts"
   ssh-keygen -R "$CANDC" > /dev/null
   ssh-keyscan -t ed25519 "$CANDC" >> "$HOME/.ssh/known_hosts"
 }
