@@ -24,11 +24,13 @@ use malachitebft_sync::RawDecidedValue;
 use crate::host::state::HostState;
 use crate::host::{Host as _, StarknetHost};
 use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::mempool_load::MempoolLoadRef;
 use crate::proto::Protobuf;
 use crate::types::*;
 
 pub struct Host {
     mempool: MempoolRef,
+    mempool_load: MempoolLoadRef,
     network: NetworkRef<MockContext>,
     metrics: Metrics,
     span: tracing::Span,
@@ -42,6 +44,7 @@ impl Host {
         home_dir: PathBuf,
         host: StarknetHost,
         mempool: MempoolRef,
+        mempool_load: MempoolLoadRef,
         network: NetworkRef<MockContext>,
         metrics: Metrics,
         span: tracing::Span,
@@ -54,7 +57,7 @@ impl Host {
 
         let (actor_ref, _) = Actor::spawn(
             None,
-            Self::new(mempool, network, metrics, span),
+            Self::new(mempool, mempool_load, network, metrics, span),
             HostState::new(ctx, host, db_path, &mut StdRng::from_entropy()),
         )
         .await?;
@@ -64,12 +67,14 @@ impl Host {
 
     pub fn new(
         mempool: MempoolRef,
+        mempool_load: MempoolLoadRef,
         network: NetworkRef<MockContext>,
         metrics: Metrics,
         span: tracing::Span,
     ) -> Self {
         Self {
             mempool,
+            mempool_load,
             network,
             metrics,
             span,
@@ -89,6 +94,7 @@ impl Actor for Host {
         initial_state: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
         self.mempool.link(myself.get_cell());
+        self.mempool_load.link(myself.get_cell());
 
         Ok(initial_state)
     }
@@ -626,6 +632,7 @@ async fn on_received_proposal_part(
     Ok(())
 }
 
+//TODO
 async fn on_decided(
     state: &mut HostState,
     consensus: &ConsensusRef<MockContext>,

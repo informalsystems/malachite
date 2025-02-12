@@ -145,6 +145,7 @@ pub fn generate_config(
             },
             max_tx_count: 10000,
             gossip_batch_size: 0,
+            load: MempoolLoadConfig::default(),
         },
         sync: Default::default(),
         metrics: MetricsConfig {

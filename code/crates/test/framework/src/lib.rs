@@ -16,8 +16,8 @@ use tokio::time::{sleep, Duration};
 use tracing::{debug, error, error_span, info, Instrument};
 
 use malachitebft_config::{
-    Config as NodeConfig, Config, DiscoveryConfig, LoggingConfig, PubSubProtocol, SyncConfig,
-    TestConfig, TransportProtocol,
+    Config as NodeConfig, Config, DiscoveryConfig, LoggingConfig, MempoolLoadConfig,
+    PubSubProtocol, SyncConfig, TestConfig, TransportProtocol,
 };
 use malachitebft_core_consensus::{LocallyProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{SignedVote, VotingPower};
@@ -761,6 +761,7 @@ pub fn make_node_config<S>(test: &Test<S>, i: usize) -> NodeConfig {
             },
             max_tx_count: 10000,
             gossip_batch_size: 100,
+            load: MempoolLoadConfig::default(),
         },
         sync: SyncConfig {
             enabled: true,
