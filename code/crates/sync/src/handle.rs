@@ -427,7 +427,7 @@ where
     Ctx: Context,
 {
     if state.has_pending_vote_set_request(height, round) {
-        debug!(%height, %round, "Vote set request pending for this height and round");
+        info!(%height, %round, "Vote set request pending for this height and round");
         return Ok(());
     }
 
@@ -452,7 +452,7 @@ async fn request_vote_set_from_peer<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%height, %round, %peer, "Requesting vote set from peer");
+    info!(%height, %round, %peer, "Requesting vote set from peer");
 
     perform!(
         co,
