@@ -47,6 +47,11 @@ where
     // a) In parts-only mode, where we do not get a Proposal message but only the proposal parts
     // b) In any mode if the proposed value was provided by Sync, where we do net get a Proposal message but only the full value and the certificate
     if state.params.value_payload.parts_only() || origin == ValueOrigin::Sync {
+        info!(
+            height = %proposed_value.height,
+            round = %proposed_value.round,
+            "Received full value from Sync, generating internal proposal"
+        );
         let proposal = Ctx::new_proposal(
             proposed_value.height,
             proposed_value.round,

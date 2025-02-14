@@ -208,7 +208,7 @@ pub async fn on_value_request<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(height = %request.height, %peer, "Received request for value");
+    info!(height = %request.height, peer = %peer, "Received request for value");
 
     metrics.decided_value_request_received(request.height.as_u64());
 
@@ -229,7 +229,7 @@ pub async fn on_value_response<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(height = %response.height, %request_id, %peer, "Received response");
+    info!(height = %response.height, %request_id, %peer, "Received response");
 
     metrics.decided_value_response_received(response.height.as_u64());
 
@@ -299,7 +299,7 @@ where
             None
         }
         Some(value) => {
-            debug!(%height, "Received decided value");
+            info!(%height, "Received decided value");
             Some(value)
         }
     };
@@ -357,7 +357,7 @@ where
     let sync_height = state.sync_height;
 
     if state.has_pending_decided_value_request(&sync_height) {
-        debug!(sync.height = %sync_height, "Already have a pending value request for this height");
+        info!(sync.height = %sync_height, "Already have a pending value request for this height");
         return Ok(());
     }
 
@@ -478,7 +478,7 @@ pub async fn on_vote_set_request<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(height = %request.height, round = %request.round, %request_id, %peer, "Received request for vote set");
+    info!(height = %request.height, round = %request.round, %request_id, %peer, "Received request for vote set");
 
     metrics.vote_set_request_received(request.height.as_u64(), request.round.as_i64());
 
@@ -496,7 +496,7 @@ pub async fn on_vote_set_response_sent<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%height, %round, %request_id, "Vote set response sent");
+    info!(%height, %round, %request_id, "Vote set response sent");
 
     metrics.vote_set_response_sent(height.as_u64(), round.as_i64());
 

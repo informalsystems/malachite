@@ -351,7 +351,7 @@ where
                         peer,
                         sync::Response::ValueResponse(ValueResponse { height, value }),
                     ) => {
-                        debug!(%height, %request_id, "Received sync response");
+                        info!(%height, %request_id, "Received sync response");
 
                         let Some(value) = value else {
                             error!(%height, %request_id, "Received empty value sync response");

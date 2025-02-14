@@ -230,6 +230,11 @@ where
             }
 
             Effect::SendValueRequest(peer_id, value_request) => {
+                info!(
+                    height = %value_request.height, peer = %peer_id,
+                    "Send the value request to peer"
+                );
+
                 let request = Request::ValueRequest(value_request);
                 let result = ractor::call!(self.gossip, |reply_to| {
                     NetworkMsg::OutgoingRequest(peer_id, request.clone(), reply_to)
@@ -260,6 +265,11 @@ where
             }
 
             Effect::SendValueResponse(request_id, value_response) => {
+                info!(
+                    height = %value_response.height, request = %request_id,
+                    "Sending the value response"
+                );
+
                 let response = Response::ValueResponse(value_response);
                 self.gossip
                     .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
