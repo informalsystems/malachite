@@ -31,7 +31,7 @@ impl Channel {
     pub fn as_str(&self) -> &'static str {
         match self {
             Channel::Consensus => "/consensus",
-            Channel::ProposalParts => "/proposal_parts",
+            Channel::ProposalParts => "/consensus_proposals",
             Channel::Sync => "/sync",
         }
     }
@@ -50,8 +50,8 @@ impl Channel {
 
     pub fn from_gossipsub_topic_hash(topic: &gossipsub::TopicHash) -> Option<Self> {
         match topic.as_str() {
-            "/consensus" => Some(Channel::Consensus),
-            "/proposal_parts" => Some(Channel::ProposalParts),
+            "/consensus_votes" => Some(Channel::Consensus),
+            "/consensus_proposals" => Some(Channel::ProposalParts),
             "/sync" => Some(Channel::Sync),
             _ => None,
         }
@@ -59,8 +59,8 @@ impl Channel {
 
     pub fn from_broadcast_topic(topic: &broadcast::Topic) -> Option<Self> {
         match topic.as_ref() {
-            b"/consensus" => Some(Channel::Consensus),
-            b"/proposal_parts" => Some(Channel::ProposalParts),
+            b"/consensus_votes" => Some(Channel::Consensus),
+            b"/consensus_proposals" => Some(Channel::ProposalParts),
             b"/sync" => Some(Channel::Sync),
             _ => None,
         }
