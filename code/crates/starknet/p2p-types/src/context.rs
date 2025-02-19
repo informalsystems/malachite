@@ -40,7 +40,7 @@ impl Context for MockContext {
             let height = height.as_u64() as usize;
             let round = round.as_i64() as usize;
 
-            (height - 1 + round) % validator_set.count()
+            (height + round) % validator_set.count()
         };
 
         validator_set
