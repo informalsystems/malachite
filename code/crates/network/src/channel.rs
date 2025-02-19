@@ -30,7 +30,7 @@ impl Channel {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Channel::Consensus => "/consensus",
+            Channel::Consensus => "/consensus_votes",
             Channel::ProposalParts => "/consensus_proposals",
             Channel::Sync => "/sync",
         }
