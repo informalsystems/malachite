@@ -217,9 +217,11 @@ async fn on_consensus_ready(
     state: &mut HostState,
     consensus: ConsensusRef<MockContext>,
 ) -> Result<(), ActorProcessingErr> {
-    let latest_block_height = state.block_store.last_height().unwrap_or_default();
-    let start_height = latest_block_height.increment();
-
+    let mut start_height = malachitebft_core_types::Height::INITIAL;
+    if state.block_store.last_height().is_some() {
+        let latest_block_height = state.block_store.last_height().unwrap_or_default();
+        start_height = latest_block_height.increment();
+    }
     state.consensus = Some(consensus.clone());
 
     tokio::time::sleep(Duration::from_millis(200)).await;
