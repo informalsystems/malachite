@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use malachitebft_test_framework::TestParams;
+
 use crate::TestBuilder;
 
 #[tokio::test]
@@ -12,5 +14,13 @@ pub async fn all_correct_nodes() {
     test.add_node().start().wait_until(HEIGHT).success();
     test.add_node().start().wait_until(HEIGHT).success();
 
-    test.build().run(Duration::from_secs(30)).await
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30), // Timeout for the whole test
+            TestParams {
+                enable_sync: false, // Enable Sync
+                ..Default::default()
+            },
+        )
+        .await
 }
