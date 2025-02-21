@@ -8,6 +8,7 @@ use tracing::warn;
 use malachitebft_config::{
     self as config, Config as NodeConfig, MempoolConfig, SyncConfig, TestConfig, TransportProtocol,
 };
+use malachitebft_core_consensus::VoteSyncMode;
 use malachitebft_core_types::ValuePayload;
 use malachitebft_engine::consensus::{Consensus, ConsensusParams, ConsensusRef};
 use malachitebft_engine::host::HostRef;
@@ -171,6 +172,10 @@ async fn spawn_consensus_actor(
         address,
         threshold_params: Default::default(),
         value_payload: ValuePayload::PartsOnly,
+        vote_sync_mode: match cfg.consensus.vote_sync.mode {
+            config::VoteSyncMode::RequestResponse => VoteSyncMode::RequestResponse,
+            config::VoteSyncMode::Rebroadcast => VoteSyncMode::Rebroadcast,
+        },
     };
 
     Consensus::spawn(
