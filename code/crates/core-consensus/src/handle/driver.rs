@@ -8,6 +8,7 @@ use crate::handle::vote::on_vote;
 use crate::prelude::*;
 use crate::types::SignedConsensusMsg;
 use crate::util::pretty::PrettyVal;
+use crate::VoteSyncMode;
 
 #[async_recursion]
 pub async fn apply_driver_input<Ctx>(
@@ -50,11 +51,6 @@ where
 
                 return Ok(());
             }
-
-            perform!(
-                co,
-                Effect::CancelTimeout(Timeout::propose(proposal.round()), Default::default())
-            );
         }
 
         DriverInput::Vote(vote) => {
@@ -117,6 +113,13 @@ where
 
     if prev_step != new_step {
         if state.driver.step_is_prevote() {
+            // Cancel the Propose timeout since we have moved from Propose to Prevote
+            perform!(
+                co,
+                Effect::CancelTimeout(Timeout::propose(state.driver.round()), Default::default())
+            );
+
+            // Schedule the Prevote time limit timeout
             perform!(
                 co,
                 Effect::ScheduleTimeout(
@@ -249,6 +252,7 @@ where
 
             // Only sign and publish if we're in the validator set
             if state.is_validator() {
+                let vote_type = vote.vote_type();
                 let extended_vote = extend_vote(co, vote).await?;
                 let signed_vote = sign_vote(co, extended_vote).await?;
 
@@ -262,14 +266,17 @@ where
                     )
                 );
 
-                let timeout = match signed_vote.vote_type() {
-                    VoteType::Prevote => Timeout::prevote_rebroadcast(state.driver.round()),
-                    VoteType::Precommit => Timeout::precommit_rebroadcast(state.driver.round()),
-                };
+                state.set_last_vote(signed_vote);
 
-                state.set_last_sent_vote(signed_vote);
+                // Schedule rebroadcast timer if necessary
+                if state.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    let timeout = match vote_type {
+                        VoteType::Prevote => Timeout::prevote_rebroadcast(state.driver.round()),
+                        VoteType::Precommit => Timeout::precommit_rebroadcast(state.driver.round()),
+                    };
 
-                perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
+                    perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
+                }
             }
 
             Ok(())

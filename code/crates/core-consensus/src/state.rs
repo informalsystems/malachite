@@ -89,6 +89,13 @@ where
             .address()
     }
 
+    pub fn set_last_vote(&mut self, vote: SignedVote<Ctx>) {
+        match vote.vote_type() {
+            VoteType::Prevote => self.last_prevote = Some(vote),
+            VoteType::Precommit => self.last_precommit = Some(vote),
+        }
+    }
+
     pub fn store_signed_precommit(&mut self, precommit: SignedVote<Ctx>) {
         assert_eq!(precommit.vote_type(), VoteType::Precommit);
 
@@ -234,16 +241,5 @@ where
         self.validator_set()
             .get_by_address(self.address())
             .is_some()
-    }
-
-    /// Store the vote that is broadcasted by this node
-    pub fn set_last_sent_vote(&mut self, vote: SignedVote<Ctx>) {
-        assert_eq!(vote.height(), self.height());
-        if vote.round() == self.round() {
-            match vote.vote_type() {
-                VoteType::Prevote => self.last_prevote = Some(vote),
-                VoteType::Precommit => self.last_precommit = Some(vote),
-            }
-        }
     }
 }
