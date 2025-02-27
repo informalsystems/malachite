@@ -4,7 +4,7 @@ use libp2p::{
     request_response::{OutboundRequestId, ResponseChannel},
     Multiaddr, PeerId, Swarm,
 };
-use tracing::{error, info, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     behaviour::{self, Response},
@@ -44,7 +44,7 @@ where
             self.metrics.increment_total_peer_requests();
         }
 
-        info!(
+        debug!(
             "Requesting peers from peer {}, retry #{}",
             request_data.peer_id(),
             request_data.retry.count()

@@ -1,5 +1,5 @@
 use libp2p::swarm;
-use tracing::info;
+use tracing::debug;
 
 use crate::{Discovery, DiscoveryClient, State};
 
@@ -13,7 +13,7 @@ where
         // to avoid multiple queries in a short period of time).
         // Here, we only consider the first bootstrap query to determine the status of the discovery process.
         if self.state == State::Bootstrapping {
-            info!(
+            debug!(
                 "Discovery bootstrap done in {}ms, found {} peers",
                 self.metrics.elapsed().as_millis(),
                 self.active_connections_len()
@@ -22,7 +22,7 @@ where
             self.metrics.initial_bootstrap_finished();
 
             if self.active_connections_len() < self.config.num_outbound_peers {
-                info!(
+                debug!(
                     "Not enough active connections (got {}, expected {}) to select outbound peers",
                     self.active_connections_len(),
                     self.config.num_outbound_peers
@@ -30,7 +30,7 @@ where
 
                 self.initiate_extension_with_target(swarm, self.config.num_outbound_peers);
             } else {
-                info!(
+                debug!(
                     "Discovery found {} peers (expected {}) in {}ms",
                     self.discovered_peers.len(),
                     self.config.num_outbound_peers,

@@ -1,5 +1,5 @@
 use libp2p::{identify, swarm::ConnectionId, PeerId, Swarm};
-use tracing::{info, warn};
+use tracing::debug;
 
 use crate::config::BootstrapProtocol;
 use crate::{request::RequestData, Discovery, DiscoveryClient, OutboundConnection, State};
@@ -43,10 +43,10 @@ where
 
         match self.discovered_peers.insert(peer_id, info.clone()) {
             Some(_) => {
-                info!("New connection from known peer {peer_id}");
+                debug!("New connection from known peer {peer_id}");
             }
             None => {
-                info!("Discovered peer {peer_id}");
+                debug!("Discovered peer {peer_id}");
 
                 self.metrics.increment_total_discovered();
 
@@ -62,7 +62,7 @@ where
         }
 
         if let Some(connection_ids) = self.active_connections.get_mut(&peer_id) {
-            warn!(
+            debug!(
                 "Additional connection {connection_id} to peer {peer_id}, total connections: {}",
                 connection_ids.len() + 1
             );
@@ -81,7 +81,7 @@ where
                 // This case happens when the peer was selected to be part of the outbound connections
                 // but no connection was established yet. No need to trigger a connect request, it
                 // was already done during the selection process.
-                info!("Connection {connection_id} from peer {peer_id} is outbound (pending connect request)");
+                debug!("Connection {connection_id} from peer {peer_id} is outbound (pending connect request)");
 
                 if let Some(out_conn) = self.outbound_connections.get_mut(&peer_id) {
                     out_conn.connection_id = Some(connection_id);
@@ -94,7 +94,7 @@ where
                 // If the initial discovery process is done and did not find enough peers,
                 // the connection is outbound, otherwise it is ephemeral, except if later
                 // the connection is requested to be persistent (inbound).
-                info!("Connection {connection_id} from peer {peer_id} is outbound (incomplete initial discovery)");
+                debug!("Connection {connection_id} from peer {peer_id} is outbound (incomplete initial discovery)");
 
                 self.outbound_connections.insert(
                     peer_id,
@@ -109,10 +109,10 @@ where
                     .add_to_queue(RequestData::new(peer_id), None);
 
                 if self.outbound_connections.len() >= self.config.num_outbound_peers {
-                    info!("Minimum number of peers reached");
+                    debug!("Minimum number of peers reached");
                 }
             } else {
-                info!("Connection {connection_id} from peer {peer_id} is ephemeral");
+                debug!("Connection {connection_id} from peer {peer_id} is ephemeral");
 
                 self.controller.close.add_to_queue(
                     (peer_id, connection_id),
@@ -135,7 +135,7 @@ where
             // and all other connections are ephemeral, except if later the connections
             // are requested to be persistent (inbound).
             if self.is_bootstrap_node(&peer_id) {
-                info!("Connection {connection_id} from bootstrap node {peer_id} is outbound, requesting persistent connection");
+                debug!("Connection {connection_id} from bootstrap node {peer_id} is outbound, requesting persistent connection");
 
                 self.outbound_connections.insert(
                     peer_id,
@@ -149,7 +149,7 @@ where
                     .connect_request
                     .add_to_queue(RequestData::new(peer_id), None);
             } else {
-                info!("Connection {connection_id} from peer {peer_id} is ephemeral");
+                debug!("Connection {connection_id} from peer {peer_id} is ephemeral");
 
                 self.controller.close.add_to_queue(
                     (peer_id, connection_id),

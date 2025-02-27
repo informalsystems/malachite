@@ -1,4 +1,4 @@
-use tracing::info;
+use tracing::debug;
 
 use crate::{Discovery, DiscoveryClient};
 
@@ -20,7 +20,7 @@ where
         let num_ephemeral_connections = num_active_connections
             .saturating_sub(num_outbound_connections + num_inbound_connections);
 
-        info!(
+        debug!(
             "Active connections: {} (duplicates: {}), Outbound connections: {}, Inbound connections: {}, Ephemeral connections: {}",
             num_active_connections,
             self.active_connections_num_duplicates(),
