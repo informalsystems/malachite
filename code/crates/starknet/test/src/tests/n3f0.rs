@@ -17,10 +17,7 @@ pub async fn all_correct_nodes() {
     test.build()
         .run_with_params(
             Duration::from_secs(30), // Timeout for the whole test
-            TestParams {
-                enable_sync: false, // Enable Sync
-                ..Default::default()
-            },
+            TestParams::default(),
         )
         .await
 }
