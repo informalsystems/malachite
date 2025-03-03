@@ -121,6 +121,28 @@ impl State {
     ) -> eyre::Result<Option<ProposedValue<TestContext>>> {
         let sequence = part.sequence;
 
+        if let Some(proposal) = part
+            .content
+            .clone()
+            .into_data()
+            .as_ref()
+            .and_then(|data| data.as_init())
+        {
+            // Check if the proposal is outdated
+            if proposal.height < self.current_height {
+                debug!(
+                    height = %self.current_height,
+                    round = %self.current_round,
+                    part.height = %proposal.height,
+                    part.round = %proposal.round,
+                    part.sequence = %sequence,
+                    "Received outdated proposal part, ignoring"
+                );
+
+                return Ok(None);
+            }
+        }
+
         // Check if we have a full proposal
         let Some(parts) = self.streams_map.insert(from, part) else {
             return Ok(None);
