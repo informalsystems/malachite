@@ -33,7 +33,7 @@ pub use channel::Channel;
 use behaviour::{Behaviour, NetworkEvent};
 use handle::Handle;
 
-const PROTOCOL: &str = "/malachitebft-core-consensus/v1beta1";
+const PROTOCOL: &str = "/staknet/identify/0.1.0-rc.0"; // Typo is from the sequencer code
 const METRICS_PREFIX: &str = "malachitebft_network";
 const DISCOVERY_METRICS_PREFIX: &str = "malachitebft_discovery";
 
