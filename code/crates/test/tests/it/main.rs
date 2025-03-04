@@ -58,6 +58,7 @@ fn temp_dir(id: NodeId) -> PathBuf {
 pub struct NodeInfo {
     start_height: Height,
     home_dir: PathBuf,
+    is_byzantine_proposer: bool,
 }
 
 #[async_trait]
@@ -78,6 +79,7 @@ impl NodeRunner<TestContext> for TestRunner {
                     NodeInfo {
                         start_height: node.start_height,
                         home_dir: temp_dir(node.id),
+                        is_byzantine_proposer: node.is_byzantine_proposer,
                     },
                 )
             })
@@ -176,7 +178,10 @@ impl TestRunner {
                     .unwrap(),
             },
             runtime: RuntimeConfig::single_threaded(),
-            test: TestConfig::default(),
+            test: TestConfig {
+                is_byzantine_proposer: self.nodes_info[&node].is_byzantine_proposer,
+                ..TestConfig::default()
+            },
         }
     }
 }
