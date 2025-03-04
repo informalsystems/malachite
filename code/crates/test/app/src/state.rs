@@ -46,18 +46,6 @@ pub struct State {
     rng: StdRng,
 }
 
-// Make up a seed for the rng based on our address in
-// order for each node to likely propose different values at
-// each round.
-fn seed_from_address(address: &Address) -> u64 {
-    address.into_inner().chunks(8).fold(0u64, |acc, chunk| {
-        let term = chunk.iter().fold(0u64, |acc, &x| {
-            acc.wrapping_shl(8).wrapping_add(u64::from(x))
-        });
-        acc.wrapping_add(term)
-    })
-}
-
 impl State {
     /// Creates a new State instance with the given validator address and starting height
     pub fn new(
@@ -80,7 +68,7 @@ impl State {
             current_round: Round::new(0),
             current_proposer: None,
             streams_map: PartStreamsMap::new(),
-            rng: StdRng::seed_from_u64(seed_from_address(&address)),
+            rng: StdRng::from_entropy(),
             peers: HashSet::new(),
         }
     }
