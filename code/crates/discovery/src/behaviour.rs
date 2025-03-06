@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::BootstrapProtocol;
 use crate::Config;
 
-const DISCOVERY_KAD_PROTOCOL: &str = "/malachitebft-discovery/kad/v1beta1";
+const DISCOVERY_KAD_PROTOCOL: &str = "/starknet/kad/MY_CUSTOM_CHAIN_ID/1.0.0";
 const DISCOVERY_REQRES_PROTOCOL: &str = "/malachitebft-discovery/reqres/v1beta1";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

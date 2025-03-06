@@ -46,7 +46,7 @@ impl fmt::Display for Height {
 
 impl malachitebft_core_types::Height for Height {
     const ZERO: Self = Self::new(0, 0);
-    const INITIAL: Self = Self::new(1, 0);
+    const INITIAL: Self = Self::new(0, 0);
 
     fn increment_by(&self, n: u64) -> Self {
         Self {
