@@ -871,7 +871,6 @@ where
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn handle_effect(
         &self,
         myself: &ActorRef<Msg<Ctx>>,
