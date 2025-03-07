@@ -1143,24 +1143,8 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::WalAppendMessage(msg, r) => {
-                self.wal_append(state.height, WalEntry::ConsensusMsg(msg), state.phase)
-                    .await?;
-
-                Ok(r.resume_with(()))
-            }
-
-            Effect::WalAppendTimeout(timeout, r) => {
-                self.wal_append(state.height, WalEntry::Timeout(timeout), state.phase)
-                    .await?;
-
-                Ok(r.resume_with(()))
-            }
-
-            Effect::WalAppendProposedValue(value, r) => {
-                self.wal_append(state.height, WalEntry::ProposedValue(value), state.phase)
-                    .await?;
-
+            Effect::WalAppend(entry, r) => {
+                self.wal_append(state.height, entry, state.phase).await?;
                 Ok(r.resume_with(()))
             }
         }

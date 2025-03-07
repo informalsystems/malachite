@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, WalEntry};
 
 use crate::handle::driver::apply_driver_input;
 use crate::types::{LocallyProposedValue, ProposedValue};
@@ -46,7 +46,7 @@ where
 
     perform!(
         co,
-        Effect::WalAppendProposedValue(value.clone(), Default::default())
+        Effect::WalAppend(WalEntry::ProposedValue(value.clone()), Default::default())
     );
 
     apply_driver_input(
