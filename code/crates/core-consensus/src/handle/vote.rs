@@ -2,10 +2,10 @@ use crate::handle::driver::apply_driver_input;
 use crate::handle::signature::verify_signature;
 use crate::handle::validator_set::get_validator_set;
 use crate::input::Input;
-use crate::prelude::*;
 use crate::types::ConsensusMsg;
 use crate::util::pretty::PrettyVote;
 use crate::SignedConsensusMsg;
+use crate::{prelude::*, WalEntry};
 
 pub async fn on_vote<Ctx>(
     co: &Co<Ctx>,
@@ -80,8 +80,8 @@ where
         // Append the vote to the Write-ahead Log
         perform!(
             co,
-            Effect::WalAppendMessage(
-                SignedConsensusMsg::Vote(signed_vote.clone()),
+            Effect::WalAppend(
+                WalEntry::ConsensusMsg(SignedConsensusMsg::Vote(signed_vote.clone())),
                 Default::default()
             )
         );
