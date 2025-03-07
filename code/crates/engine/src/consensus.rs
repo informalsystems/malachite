@@ -205,6 +205,14 @@ where
     }
 }
 
+struct HandlerState<'a, Ctx: Context> {
+    phase: Phase,
+    height: Ctx::Height,
+    timers: &'a mut Timers,
+    timeouts: &'a mut Timeouts,
+    wal_proposed_value: Option<&'a LocallyProposedValue<Ctx>>,
+}
+
 impl<Ctx> Consensus<Ctx>
 where
     Ctx: Context,
@@ -254,15 +262,15 @@ where
             state: &mut state.consensus,
             metrics: &self.metrics,
             with: effect => {
-                self.handle_effect(
-                    myself,
+                let handler_state = HandlerState {
+                    phase: state.phase,
                     height,
-                    &mut state.timers,
-                    &mut state.timeouts,
-                    state.wal_proposed_value.as_ref(),
-                    state.phase,
-                    effect
-                ).await
+                    timers: &mut state.timers,
+                    timeouts: &mut state.timeouts,
+                    wal_proposed_value: state.wal_proposed_value.as_ref(),
+                };
+
+                self.handle_effect(myself, handler_state, effect).await
             }
         )
     }
@@ -867,38 +875,34 @@ where
     async fn handle_effect(
         &self,
         myself: &ActorRef<Msg<Ctx>>,
-        height: Ctx::Height,
-        timers: &mut Timers,
-        timeouts: &mut Timeouts,
-        wal_proposed_value: Option<&LocallyProposedValue<Ctx>>,
-        phase: Phase,
+        state: HandlerState<'_, Ctx>,
         effect: Effect<Ctx>,
     ) -> Result<Resume<Ctx>, ActorProcessingErr> {
         match effect {
             Effect::ResetTimeouts(r) => {
-                timeouts.reset(self.timeout_config);
+                state.timeouts.reset(self.timeout_config);
                 Ok(r.resume_with(()))
             }
 
             Effect::CancelAllTimeouts(r) => {
-                timers.cancel_all();
+                state.timers.cancel_all();
                 Ok(r.resume_with(()))
             }
 
             Effect::CancelTimeout(timeout, r) => {
-                timers.cancel(&timeout);
+                state.timers.cancel(&timeout);
                 Ok(r.resume_with(()))
             }
 
             Effect::ScheduleTimeout(timeout, r) => {
-                let duration = timeouts.duration_for(timeout.kind);
-                timers.start_timer(timeout, duration);
+                let duration = state.timeouts.duration_for(timeout.kind);
+                state.timers.start_timer(timeout, duration);
 
                 Ok(r.resume_with(()))
             }
 
             Effect::StartRound(height, round, proposer, r) => {
-                self.wal_flush(phase).await?;
+                self.wal_flush(state.phase).await?;
 
                 self.host.cast(HostMsg::StartedRound {
                     height,
@@ -998,7 +1002,7 @@ where
             Effect::Publish(msg, r) => {
                 // Sync the WAL to disk before we broadcast the message
                 // NOTE: The message has already been append to the WAL by the `WalAppendMessage` effect.
-                self.wal_flush(phase).await?;
+                self.wal_flush(state.phase).await?;
 
                 // Notify any subscribers that we are about to publish a message
                 self.tx_event.send(|| Event::Published(msg.clone()));
@@ -1026,7 +1030,7 @@ where
             }
 
             Effect::GetValue(height, round, timeout, r) => {
-                match wal_proposed_value {
+                match state.wal_proposed_value {
                     Some(value) if value.height == height && value.round == round => {
                         info!("Using proposed value found in WAL: {value:?}");
 
@@ -1035,7 +1039,7 @@ where
                         })?;
                     }
                     _ => {
-                        let timeout_duration = timeouts.duration_for(timeout.kind);
+                        let timeout_duration = state.timeouts.duration_for(timeout.kind);
 
                         self.get_value(myself, height, round, timeout_duration)
                             .map_err(|e| {
@@ -1072,7 +1076,7 @@ where
             }
 
             Effect::Decide(certificate, extensions, r) => {
-                self.wal_flush(phase).await?;
+                self.wal_flush(state.phase).await?;
 
                 self.tx_event.send(|| Event::Decided(certificate.clone()));
 
@@ -1140,21 +1144,21 @@ where
             }
 
             Effect::WalAppendMessage(msg, r) => {
-                self.wal_append(height, WalEntry::ConsensusMsg(msg), phase)
+                self.wal_append(state.height, WalEntry::ConsensusMsg(msg), state.phase)
                     .await?;
 
                 Ok(r.resume_with(()))
             }
 
             Effect::WalAppendTimeout(timeout, r) => {
-                self.wal_append(height, WalEntry::Timeout(timeout), phase)
+                self.wal_append(state.height, WalEntry::Timeout(timeout), state.phase)
                     .await?;
 
                 Ok(r.resume_with(()))
             }
 
             Effect::WalAppendProposedValue(value, r) => {
-                self.wal_append(height, WalEntry::ProposedValue(value), phase)
+                self.wal_append(state.height, WalEntry::ProposedValue(value), state.phase)
                     .await?;
 
                 Ok(r.resume_with(()))
