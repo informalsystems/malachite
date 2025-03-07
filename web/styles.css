@@ -1,14 +1,79 @@
+/* General Styling */
 body {
     font-family: Arial, sans-serif;
+    color: #333;
+    background-color: #f8f9fa;
+    margin: 0;
+    padding: 0;
 }
 
+/* Banner Styling */
+.banner-container {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.banner-container img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Welcome Text */
+.welcome-text {
+    font-size: 18px;
+    text-align: center;
+    color: #333;
+    margin-top: 20px;
+}
+
+/* Section Styling */
 .section {
-    margin-top: 40px;
-    padding-top: 20px;
-    border-top: 2px solid #ccc;
+    margin-top: 30px;
+    padding: 20px;
+    border-radius: 8px;
+    background-color: #ffffff;
+    box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.dropdown-content {
-    display: none;
-    margin-top: 10px;
+.section h2 {
+    font-size: 24px;
+    font-weight: bold;
+    border-bottom: 2px solid #ddd;
+    padding-bottom: 5px;
+    margin-bottom: 15px;
+}
+
+/* Toggle Button */
+#toggle-button {
+    font-size: 14px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    transition: 0.3s;
+}
+
+#toggle-button:hover {
+    background-color: #0056b3;
+}
+
+/* Figure Styling */
+.figure-container {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.figure img {
+    max-width: 70%;
+    border: 2px solid #ccc;
+    border-radius: 5px;
+    padding: 5px;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.figure-caption {
+    font-size: 14px;
+    font-style: italic;
+    color: #555;
+    margin-top: 5px;
 }
