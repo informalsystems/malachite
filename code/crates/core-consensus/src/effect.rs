@@ -4,7 +4,7 @@ use malachitebft_core_types::*;
 
 use crate::input::RequestId;
 use crate::types::SignedConsensusMsg;
-use crate::{ConsensusMsg, VoteExtensionError};
+use crate::{ConsensusMsg, LocallyProposedValue, VoteExtensionError};
 
 /// Provides a way to construct the appropriate [`Resume`] value to
 /// resume execution after handling an [`Effect`].
@@ -169,6 +169,11 @@ where
     ///
     /// Resume with: [`resume::Continue`]`
     WalAppendTimeout(Timeout, resume::Continue),
+
+    /// Append a locally proposed value to the Write-Ahead Log for crash recovery
+    ///
+    /// Resume with: [`resume::Continue`]`
+    WalAppendProposedValue(LocallyProposedValue<Ctx>, resume::Continue),
 
     /// Sign a vote with this node's private key
     ///

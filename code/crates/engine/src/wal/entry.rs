@@ -4,7 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BE};
 use derive_where::derive_where;
 
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::SignedConsensusMsg;
+use malachitebft_core_consensus::{LocallyProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{Context, Round, Timeout};
 
 /// Codec for encoding and decoding WAL entries.
@@ -15,6 +15,7 @@ pub trait WalCodec<Ctx>
 where
     Ctx: Context,
     Self: Codec<SignedConsensusMsg<Ctx>>,
+    Self: Codec<LocallyProposedValue<Ctx>>,
 {
 }
 
@@ -22,6 +23,7 @@ impl<Ctx, C> WalCodec<Ctx> for C
 where
     Ctx: Context,
     C: Codec<SignedConsensusMsg<Ctx>>,
+    C: Codec<LocallyProposedValue<Ctx>>,
 {
 }
 
@@ -29,6 +31,7 @@ where
 pub enum WalEntry<Ctx: Context> {
     ConsensusMsg(SignedConsensusMsg<Ctx>),
     Timeout(Timeout),
+    ProposedValue(LocallyProposedValue<Ctx>),
 }
 
 impl<Ctx> WalEntry<Ctx>
@@ -41,6 +44,7 @@ where
                 SignedConsensusMsg::Vote(_) => "Consensus(Vote)",
                 SignedConsensusMsg::Proposal(_) => "Consensus(Proposal)",
             },
+            Self::ProposedValue(_) => "ProposedValue",
             Self::Timeout(_) => "Timeout",
         }
     }
@@ -52,6 +56,7 @@ where
 {
     const TAG_CONSENSUS: u8 = 0x01;
     const TAG_TIMEOUT: u8 = 0x02;
+    const TAG_PROPOSED_VALUE: u8 = 0x04;
 
     pub fn encode<C, W>(&self, codec: &C, mut buf: W) -> io::Result<()>
     where
@@ -85,6 +90,26 @@ where
 
                 Ok(())
             }
+
+            WalEntry::ProposedValue(value) => {
+                let bytes = codec.encode(value).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("failed to encode consensus message: {e}"),
+                    )
+                })?;
+
+                // Write tag
+                buf.write_u8(Self::TAG_PROPOSED_VALUE)?;
+
+                // Write encoded length
+                buf.write_u64::<BE>(bytes.len() as u64)?;
+
+                // Write encoded bytes
+                buf.write_all(&bytes)?;
+
+                Ok(())
+            }
         }
     }
 
@@ -114,6 +139,21 @@ where
             Self::TAG_TIMEOUT => {
                 let timeout = decode_timeout(&mut buf)?;
                 Ok(WalEntry::Timeout(timeout))
+            }
+
+            Self::TAG_PROPOSED_VALUE => {
+                let len = buf.read_u64::<BE>()?;
+                let mut bytes = vec![0; len as usize];
+                buf.read_exact(&mut bytes)?;
+
+                let value = codec.decode(bytes.into()).map_err(|e| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("failed to decode proposed value: {e}"),
+                    )
+                })?;
+
+                Ok(WalEntry::ProposedValue(value))
             }
 
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "invalid tag")),
