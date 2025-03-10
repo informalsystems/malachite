@@ -27,8 +27,8 @@ of Tendermint are detailed.
 
 ## Heights
 
-The algorithm presented in the [pseudo-code][pseudo-code] represent the
-operation of an instance of consensus in a process `p`.
+The algorithm presented in the [pseudo-code][pseudo-code] represents the
+operation of the consensus algorithm running in a process `p`.
 
 Each instance or **height** of the consensus algorithm is identified by an
 integer, represented by the `h_p` variable in the pseudo-code.
@@ -39,7 +39,7 @@ A this point, the process increases `h_p` (line 52) and starts the next height
 of consensus, in which the same algorithm is executed again.
 
 For the sake of the operation of the consensus algorithm, heights are
-completely independent executions.
+communication-closed, that is, a message from some height `H` does not influence a process that is in height `H' != H`.
 For this reason, in the remainder of this document we consider and discuss the
 execution of a **single height of consensus**.
 
@@ -73,7 +73,7 @@ processes during that round step.
 The current round step of a process `p` is stored in the `step_p` variable.
 In general terms, when entering a round step, a process performs one or more
 **actions**.
-And the reception a given set of **events** while in a round step, leads the
+And the reception of a given set of **events** while in a round step, leads the
 process to move to the next round step.
 
 ### Propose
@@ -83,7 +83,7 @@ A process `p` sets its `step_p` to `propose` in the `StartRound(round)`
 function, where it also increases `round_p` to the started `round` number.
 The `propose` step is the only round step that is asymmetric: different
 processes perform different actions when starting it.
-More specifically, the proposer of the round has a distinguish role in this round step.
+More specifically, the proposer of the round has a distinguished role in this round step.
 
 In the `propose` round step, the **proposer** of the current round selects the
 value to be the proposed in that round and **broadcast**s the proposed value to all
@@ -97,7 +97,7 @@ The `prevote` round step has the role of validating the value proposed in the
 `propose` step.
 The value proposed for the round can be accepted (lines 24 or 30) or rejected
 (lines 26 or 32) by the process.
-The proposed value can be also rejected if not received when the timeout
+The proposed value can also be rejected if not received before the timeout
 scheduled in the `propose` step expires (line 59).
 
 The action taken by a process when it moves from the `propose` to the `prevote`
@@ -166,9 +166,9 @@ The Tendermint consensus algorithm defines three message types, each type
 associated to a [round step](#round-steps):
 
 - `⟨PROPOSAL, h, r, v, vr⟩`: broadcast by the process returned by the proposer
-  selection function `proposer(h, r)` function when entering the
+  selection function [`proposer(h, r)`](#proposer-selection) when entering the
   [`propose`](#propose) step of round `r` of height `h`.
-  Carries the proposed value `v` for height `h` of consensus.
+  It carries the proposed value `v` for height `h` of consensus.
   Since only proposed values can be decided, the success of round `r` depends
   on the reception of this message.
 - `⟨PREVOTE, h, r, *⟩` broadcast by all processes when entering the
@@ -180,7 +180,7 @@ associated to a [round step](#round-steps):
   [`precommit`](#precommit) step of round `r` of height `h`.
   The last field can be either the unique identifier `id(v)` of a proposed
   value `v` for which the process has received `⟨PREVOTE, h, r, id(v)⟩`
-  messages from a super-majority of processes, or the special `nil` value otherwise.
+  messages from a [super-majority](#voting-power) of processes, or the special `nil` value otherwise.
 
 Before discussing in detail the role of each message in the protocol, it is
 worth highlighting a main aspect that differentiate the adopted messages.
@@ -215,10 +215,10 @@ The success of round `r` results in `v` being the decision value for height `h`.
 The proposer of a round `r` defines which value `v` it will propose based on
 the values of the two state variables `validValue_p` and `validRound_p`.
 They are initialized to `nil` and `-1` at the beginning of each height, meaning
-that the process is not aware of any proposed value that has became **valid**
+that the process is not aware of any proposed value that has become **valid**
 in a previous round.
-A value `v` becomes **valid** at round `r` when a `PROPOSAL` for `v` and an
-enough number of `PREVOTE` messages for `id(v)` are received during round `r`.
+A value `v` becomes **valid** at round `r` when a `PROPOSAL` for `v` and
+`PREVOTE` messages for `id(v)` are received from a super-majority of processes during round `r`.
 This logic is part of the pseudo-code block from line 36, where `validValue_p`
 and `validRound_p` are updated.
 
@@ -257,20 +257,23 @@ be a priori known by all consensus processes.
 Attacks 2. and 3. are constitute forms of the **amnesia attack** and are harder
 to identify.
 Notice, however, that correct processes check whether they can accept a proposed
-value `v` with valid round `vr` based in the content of its state variables
+value `v` with a valid round `vr` based on the content of its state variables
 `lockedValue_p` and `lockedRound_p` (lines 23 and 29) and are likely to reject
 such proposals.
 
 Attack 4. constitutes a double-signing or **equivocation** attack.
-The most common approach for a correct process is to only consider the first
+A correct process can only consider the first
 `⟨PROPOSAL, h, r, v, *⟩` received in the `propose` step, which can be accepted
 or rejected.
+sounds like they can also act in a different way}
 However, it is possible that a different `⟨PROPOSAL, h, r, v', *⟩` with
 `v' != v` is accepted by different processes and, as a result, triggers state
 transitions in the `prevote` or `precommit` round steps.
 So, a priori, the algorithm expects a correct process to store all the
 multiple proposals broadcast by a Byzantine proposer.
 Which, by itself, constitutes an attack vector to be considered.
+NM{I don't know how this is implemented in the code, but in a round process do need to store 
+all values but if one of the values collects 2f+1 prevotes it can discard others? }
 
 While hard to handle, it is easy to prove that a process has performed an
 equivocation attack: it is enough to receive and store distinct messages for
@@ -368,12 +371,12 @@ inducing undesirable behaviour, are two:
    expected contents of its `lockedValue_q` and `lockedRound_q` variables.
 
 Since Byzantine processes can always produce **equivocation attacks**, a
-correct process can deal with them is by only considering the first
+correct process can deal with them by only considering the first
 `⟨PREVOTE, h, r, *⟩` or `⟨PRECOMMIT, h, r, *⟩` messages received from a process
 in a round `r` of height `h`.
 Different (equivocating) versions of the same message from the same sender
 should, from a defensive point of view, be disregarded and dropped by the
-consensus logic as they were duplicated messages.
+consensus logic as they were duplicated messages. NM{Ok I guess this is the change you want to implement or have alrady implemented, that is different from the paper?}
 The reason for which is the fact that a Byzantine process can produce an
 arbitrary number of such messages, therefore store all of them may constitute
 an attack vector.
@@ -575,7 +578,7 @@ looks something like `valid(v, chain, height)`. (In the [Tendermint paper][tende
 the data about the blockchain state, that is, past decisions etc., is captured in `decision_p`.) 
 This implies that
 a value that might be valid at blockchain height 5, might be invalid at height 6. Observe 
-that this, strictly speaking, the above defined property 1.
+that this, strictly speaking, violates the above defined property 1.
 However, as long as all processes agree on 
 the state of the chain up to height 5 when they 
 start consensus for height 6, this still satisfies properties 2 and 3 and it will not harm 
@@ -583,7 +586,7 @@ liveness. (There have been cases of
 non-determinism in the application level that led to processes disagreeing on the 
 application state and thus consensus being blocked at a given height)
 
-> **Remark.** We have seen slight (ab)uses of valid, that use external data. Consider he toy 
+> **Remark.** We have seen slight (ab)uses of valid, that use external data. Consider the toy 
 example of the proposer proposing the current room temperature, and the processes 
 checking in `valid` whether the temperature is within one degree of their room 
 temperature. It is easy to see that this a priori violates the points 1-3 above. 
@@ -744,7 +747,7 @@ But `∆` is not always observed by the system, which may operate asynchronously
 for an arbitrary amount of time.
 There is, however, a (possibly unknown) Global Stabilization Time (`GST`), a
 time from which the system becomes synchronous and `∆` is observed for all
-messages sent by correct processes.
+messages sent by correct processes. \NM{Ok this "possibly unknown" in both sentences is confusing me? Did you try to somehow capture both versions of partially synchronous system models? }
 
 In practical systems, `GST` is usually unknown, although it is assumed that the
 system eventually stabilizes.
@@ -815,7 +818,7 @@ The rationale is that `p` _could have_ locked and issued a `PRECOMMIT` for `v`
 in round `vr`, if `p` _had received_ the POL messages while in the `prevote`
 round step of round `vr`.
 If `p` could have locked `v` in round `vr`, then any correct process could
-have produced a valid lock in round `vr`.
+have produced a valid lock in round `vr`. \NM{Ok, this explanation is too high level for me but I understand that it is hard to explain at this point that it can accept it because it knows that lockedValue is not decided}
 And more recent (from high-numbered rounds) locks prevail.
 
 > **Remark**: notice that the actual condition in line 29 is `vr >= lockedRound_p`.
@@ -838,9 +841,9 @@ unaware of the lock in round `r`, therefore propose new values.
 Those values are rejected by processes locked in round `r`, but they are
 accepted by correct processes that have no locks.
 With the votes of Byzantine processes, which may misbehave, it is then
-possible to produce another lock in a round `r' > r`.
+possible to produce another lock in a round `r' > r`. \NM{These processes do not need to be Byzantine.}
 None of the locked values can be decided, for the lack of votes, but liveness
-is under threat, as detailed in this [discussion][equivocation-discussion].
+is under threat, as detailed in this [discussion][equivocation-discussion]. \NM{Potentially they cannot be decided, so maybe we can rephrase a bit this sentence.  }
 The only way out of this _hidden locks_ scenario is when the processes locked
 in round `r` learn the POL for round `r' > r`, so that they can disregard
 their own lock.
@@ -859,14 +862,14 @@ specific value `v` in a round, but the process observes that other processes
 may have locked `v` in this round.
 In this case, to ensure liveness, if the process becomes a proposer in a future
 round, it should re-propose `v`.
-This is achieved by setting `validValue_p` to `v` the in the pseudo-code line
+This is achieved by setting `validValue_p` to `v` in the pseudo-code line
 42 then using it as the proposal value when it becomes the proposer of a round,
 in line 16.
 The concrete scenario is detailed as follows.
 
 A proposed value `v` becomes _globally_ valid (in opposition to the _local_
 validity represented by the [`valid(v)` function](#validation)) in a round `r`
-when it is accepted by a big enough number of processes; they accept it by
+when it is accepted by a super-majority of processes; they accept it by
 broadcasting a `PREVOTE` for `id(v)`.
 If a process `p` observes these conditions, while still in round `r`, line 36
 of the pseudo-code is eventually triggered.
@@ -878,6 +881,8 @@ There are however some scenarios to consider:
    `PRECOMMIT` for `id(v)`;
 3. `step_p = precommit`: in this case, `p` only updates `validValue_p` to `v`
    and `validRound_p` to `r`.
+
+\NM{I would maybe just talk about two scenarios here, when it locks and when it just updates valid values}
 
 In scenarios 1 and 2, `p` locks the proposed value `v` and therefore cannot
 accept any value different than `v` in rounds greater than `r`.
@@ -907,6 +912,7 @@ value in round `r`.
 This is the reason for which pseudo-code lines 15-16 adopt `validValue_p`
 instead of `lockedValue_p`.
 
+
 ### Safety
 
 This section argues that Tendermint is a safe consensus algorithm.
@@ -929,7 +935,8 @@ correct processes, and consider the [Locked Value](#locked-value) handling:
 - every process `p` in `C` has set `lockedValue_p` to `v` and `lockedRound_p`
   to `r` ;
 - every process `p` in `C` will broadcast a `PREVOTE` for `nil` in rounds
-  `r' > r` where a value `v' != v` is proposed.
+  `r' > r` where a value `v' != v` is proposed. \NM{this might not be clear for all and this is 
+  what we explain below, so maybe we can somehow rephrase" }
 
 Next, lets define a `Q'` any set of processes that does not include process in
 `C`, i.e. `Q' ∩ C = ∅`:
@@ -984,14 +991,14 @@ such a good round. Here, there are two crucial points:
     - The content of the variables `lockedValue_p` and `validValue_p` change in
       a rather complicated manner at different processes in arbitrary
       asynchronous prefixes of the computation.
-- **Synchrony.** Messages should be delivered and timeouts should not expire.
+- **Synchrony.** Messages should be delivered before the associated timeouts expire.
 
 #### Value Handling
 
 The first set of conditions for the success of a round `r` depends on its proposer:
 
 1. The [`proposer(h, r)` function](#proposer-selection) returns a correct process `p`;
-2. And `validRound_p` equals the maximum `validRound_q` among every correct process `q`.
+2. And `validRound_p` is larger or equals the maximum `lockedRound_q` among every correct process `q`.
 
 A correct proposer `p` (Condition 1) broadcasts a single `PROPOSAL` message (it
 does not equivocate) in round `r`, including a proposed value `v` that will be
@@ -1018,6 +1025,7 @@ POL for `v` in round `vr`.
 Notice, however, that from the [Gossip communication property](#network), `q`
 should eventually receive the POL for `v` in round `vr`, since `p` is a correct
 process.
+And, as we detail on the next section, when the synchrony assumptions are observed, `p` will receive such messages before it receives the new `PROPOSAL`.
 
 #### Synchrony
 
@@ -1047,7 +1055,7 @@ successful round is observed.
 In other words, it should be ensured that, from `GST` on, if any correct
 process executes pseudo-code line 36 for a round `r*`, then every correct
 process executes the same line while still in round `r*`.
-This is achieved by the means of, and it is actually the reason for which
+This is achieved by the means of, and it is actually the key reason for which
 Tendermint has, the `timeoutPrecommit(r*)`.
 Before moving to the next round, because the current one has not succeeded,
 processes wait for a while to ensure that they have received all the `PREVOTE`
@@ -1055,6 +1063,7 @@ messages from that round, broadcast or received by other correct processes.
 As a result, if a correct process has locked or updated its valid value in
 round `r*`, then every correct process will at least update its valid value in
 round `r*`.
+This happens because, due to [Gossip communication property](#network), every correct process receives the same set of messages within `∆`. 
 This enables the next correct proposer, of a round `r > r*` to fulfill
 Condition 2, thus enabling `r` to be a successful round.
 
