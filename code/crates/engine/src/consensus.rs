@@ -286,6 +286,14 @@ where
     ) -> Result<(), ActorProcessingErr> {
         match msg {
             Msg::StartHeight(height, validator_set) => {
+                state
+                    .consensus
+                    .driver
+                    .move_to_height(height, validator_set.clone());
+                if let Err(e) = self.check_and_replay_wal(&myself, state, height).await {
+                    error!(%height, "Error when checking and replaying WAL: {e}");
+                }
+
                 let result = self
                     .process_input(
                         &myself,
@@ -306,10 +314,6 @@ where
                 }
 
                 self.tx_event.send(|| Event::StartedHeight(height));
-
-                if let Err(e) = self.check_and_replay_wal(&myself, state, height).await {
-                    error!(%height, "Error when checking and replaying WAL: {e}");
-                }
 
                 self.process_buffered_msgs(&myself, state).await;
 
