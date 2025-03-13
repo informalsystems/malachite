@@ -78,7 +78,7 @@ where
     ///
     /// 7. If none of the above conditions are met, simply wrap the proposal in
     ///    `RoundInput::Proposal` and return it.
-    pub(crate) fn multiplex_proposal(
+    fn multiplex_proposal(
         &mut self,
         proposal: Ctx::Proposal,
         validity: Validity,
@@ -91,9 +91,8 @@ where
             return None;
         }
 
-        // Determine if there is a polka for a previous round
+        // Determine if there is a polka for the proposal's POL round
         let polka_previous = proposal.pol_round().is_defined()
-            && proposal.pol_round() < self.round_state.round
             && self.vote_keeper.is_threshold_met(
                 &proposal.pol_round(),
                 VoteType::Prevote,
@@ -102,16 +101,12 @@ where
 
         // Handle invalid proposal
         if !validity.is_valid() {
-            if self.round_state.step == Step::Propose {
-                if proposal.pol_round().is_nil() {
-                    // L26
-                    return Some(RoundInput::InvalidProposal);
-                } else if polka_previous {
-                    // L32
-                    return Some(RoundInput::InvalidProposalAndPolkaPrevious(proposal));
-                } else {
-                    return None;
-                }
+            if proposal.pol_round().is_nil() {
+                // L26
+                return Some(RoundInput::InvalidProposal);
+            } else if polka_previous {
+                // L32
+                return Some(RoundInput::InvalidProposalAndPolkaPrevious(proposal));
             } else {
                 return None;
             }
@@ -119,45 +114,31 @@ where
 
         // We have a valid proposal. Check if there is already a certificate for it.
         // L49
-        if self.round_state.decision.is_none()
-            && self
-                .get_certificate(proposal.round(), proposal.value().id())
-                .is_some()
+        if self
+            .get_certificate(proposal.round(), proposal.value().id())
+            .is_some()
+            || self.vote_keeper.is_threshold_met(
+                &proposal.round(),
+                VoteType::Precommit,
+                Threshold::Value(proposal.value().id()),
+            )
         {
             return Some(RoundInput::ProposalAndPrecommitValue(proposal));
         }
 
-        if self.vote_keeper.is_threshold_met(
-            &proposal.round(),
-            VoteType::Precommit,
-            Threshold::Value(proposal.value().id()),
-        ) && self.round_state.decision.is_none()
-        {
-            return Some(RoundInput::ProposalAndPrecommitValue(proposal));
-        }
-
-        // If the proposal is for a different round, return.
-        // This check must be after the L49 check above because a commit quorum from any round
-        // should result in a decision.
-        if self.round_state.round != proposal.round() {
-            return None;
-        }
-
-        let polka_for_current = self.vote_keeper.is_threshold_met(
+        let polka_current = self.vote_keeper.is_threshold_met(
             &proposal.round(),
             VoteType::Prevote,
             Threshold::Value(proposal.value().id()),
         );
 
-        let polka_current = polka_for_current && self.round_state.step >= Step::Prevote;
-
         // L36
-        if polka_current {
+        if polka_current && self.round_state.step >= Step::Prevote {
             return Some(RoundInput::ProposalAndPolkaCurrent(proposal));
         }
 
         // L28
-        if self.round_state.step == Step::Propose && polka_previous {
+        if polka_previous && self.round_state.step == Step::Propose {
             return Some(RoundInput::ProposalAndPolkaPrevious(proposal));
         }
 
