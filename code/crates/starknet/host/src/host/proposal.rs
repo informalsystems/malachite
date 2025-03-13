@@ -15,7 +15,7 @@ use crate::host::starknet::StarknetParams;
 use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::types::*;
 
-const PROTOCOL_VERSION: &str = "0.13.0";
+// const PROTOCOL_VERSION: &str = "0.13.0";
 
 pub async fn build_proposal_task(
     height: Height,
@@ -89,7 +89,8 @@ async fn run_build_proposal_task(
             l1_gas_price_wei: 0,
             l1_data_gas_price_wei: 0,
             l2_gas_price_fri: 0,
-            eth_to_strk_rate: 0,
+            // eth_to_strk_rate: 0,
+            eth_to_fri_rate: 0,
             l1_da_mode: L1DataAvailabilityMode::Blob,
         });
 
@@ -160,30 +161,30 @@ async fn run_build_proposal_task(
         }
     }
 
-    // Proposal Commitment
-    {
-        let part = ProposalPart::Commitment(Box::new(ProposalCommitment {
-            height,
-            parent_commitment: Hash::new([0; 32]),
-            builder: proposer,
-            timestamp: now,
-            protocol_version: PROTOCOL_VERSION.to_string(),
-            old_state_root: Hash::new([0; 32]),
-            state_diff_commitment: Hash::new([0; 32]),
-            transaction_commitment: Hash::new([0; 32]),
-            event_commitment: Hash::new([0; 32]),
-            receipt_commitment: Hash::new([0; 32]),
-            concatenated_counts: Felt::ONE,
-            l1_gas_price_fri: 0,
-            l1_data_gas_price_fri: 0,
-            l2_gas_price_fri: 0,
-            l2_gas_used: 0,
-            l1_da_mode: L1DataAvailabilityMode::Blob,
-        }));
-
-        tx_part.send(part).await?;
-        sequence += 1;
-    }
+    // // Proposal Commitment
+    // {
+    //     let part = ProposalPart::Commitment(Box::new(ProposalCommitment {
+    //         height,
+    //         parent_commitment: Hash::new([0; 32]),
+    //         builder: proposer,
+    //         timestamp: now,
+    //         protocol_version: PROTOCOL_VERSION.to_string(),
+    //         old_state_root: Hash::new([0; 32]),
+    //         state_diff_commitment: Hash::new([0; 32]),
+    //         transaction_commitment: Hash::new([0; 32]),
+    //         event_commitment: Hash::new([0; 32]),
+    //         receipt_commitment: Hash::new([0; 32]),
+    //         concatenated_counts: Felt::ONE,
+    //         l1_gas_price_fri: 0,
+    //         l1_data_gas_price_fri: 0,
+    //         l2_gas_price_fri: 0,
+    //         l2_gas_used: 0,
+    //         l1_da_mode: L1DataAvailabilityMode::Blob,
+    //     }));
+    //
+    //     tx_part.send(part).await?;
+    //     sequence += 1;
+    // }
 
     // TODO: Compute the actual propoosal commitment hash
     let proposal_commitment_hash = Hash::new([42; 32]);

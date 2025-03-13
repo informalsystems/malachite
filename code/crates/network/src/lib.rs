@@ -1,3 +1,5 @@
+#![allow(unused_variables, unused_imports)]
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::ControlFlow;

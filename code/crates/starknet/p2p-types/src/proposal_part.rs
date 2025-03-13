@@ -3,7 +3,7 @@ use malachitebft_core_types::Round;
 use malachitebft_proto as proto;
 use malachitebft_starknet_p2p_proto::{self as p2p_proto};
 
-use crate::{Address, BlockInfo, Hash, Height, ProposalCommitment, TransactionBatch};
+use crate::{Address, BlockInfo, Hash, Height, TransactionBatch};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProposalInit {
@@ -23,7 +23,7 @@ pub enum ProposalPart {
     Init(ProposalInit),
     BlockInfo(BlockInfo),
     Transactions(TransactionBatch),
-    Commitment(Box<ProposalCommitment>),
+    // Commitment(Box<ProposalCommitment>),
     Fin(ProposalFin),
 }
 
@@ -32,7 +32,7 @@ pub enum PartType {
     Init,
     BlockInfo,
     Transactions,
-    ProposalCommitment,
+    // ProposalCommitment,
     Fin,
 }
 
@@ -42,7 +42,7 @@ impl ProposalPart {
             Self::Init(_) => PartType::Init,
             Self::BlockInfo(_) => PartType::BlockInfo,
             Self::Transactions(_) => PartType::Transactions,
-            Self::Commitment(_) => PartType::ProposalCommitment,
+            // Self::Commitment(_) => PartType::ProposalCommitment,
             Self::Fin(_) => PartType::Fin,
         }
     }
@@ -86,13 +86,13 @@ impl ProposalPart {
         }
     }
 
-    pub fn as_commitment(&self) -> Option<&ProposalCommitment> {
-        if let Self::Commitment(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
+    // pub fn as_commitment(&self) -> Option<&ProposalCommitment> {
+    //     if let Self::Commitment(v) = self {
+    //         Some(v)
+    //     } else {
+    //         None
+    //     }
+    // }
 
     pub fn as_fin(&self) -> Option<&ProposalFin> {
         if let Self::Fin(v) = self {
@@ -108,14 +108,14 @@ impl proto::Protobuf for ProposalPart {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
-        use p2p_proto::proposal_part::Messages;
+        use p2p_proto::proposal_part::Message;
 
         let message = proto
-            .messages
-            .ok_or_else(|| proto::Error::missing_field::<Self::Proto>("messages"))?;
+            .message
+            .ok_or_else(|| proto::Error::missing_field::<Self::Proto>("message"))?;
 
         Ok(match message {
-            Messages::Init(init) => ProposalPart::Init(ProposalInit {
+            Message::Init(init) => ProposalPart::Init(ProposalInit {
                 height: Height::new(init.height, 0),
                 round: Round::new(init.round),
                 valid_round: init.valid_round.into(),
@@ -125,20 +125,19 @@ impl proto::Protobuf for ProposalPart {
                 )?,
             }),
 
-            Messages::BlockInfo(block_info) => {
+            Message::BlockInfo(block_info) => {
                 ProposalPart::BlockInfo(BlockInfo::from_proto(block_info)?)
             }
 
-            Messages::Transactions(txes) => {
+            Message::Transactions(txes) => {
                 let transactions = TransactionBatch::from_proto(txes)?;
                 ProposalPart::Transactions(transactions)
             }
 
-            Messages::Commitment(commitment) => {
-                ProposalPart::Commitment(Box::new(ProposalCommitment::from_proto(commitment)?))
-            }
-
-            Messages::Fin(fin) => ProposalPart::Fin(ProposalFin {
+            // Message::Commitment(commitment) => {
+            //     ProposalPart::Commitment(Box::new(ProposalCommitment::from_proto(commitment)?))
+            // }
+            Message::Fin(fin) => ProposalPart::Fin(ProposalFin {
                 proposal_commitment_hash: Hash::from_proto(fin.proposal_commitment.ok_or_else(
                     || proto::Error::missing_field::<Self::Proto>("proposal_commitment"),
                 )?)?,
@@ -148,18 +147,18 @@ impl proto::Protobuf for ProposalPart {
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
-        use p2p_proto::proposal_part::Messages;
+        use p2p_proto::proposal_part::Message;
 
         let message = match self {
-            ProposalPart::Init(init) => Messages::Init(p2p_proto::ProposalInit {
+            ProposalPart::Init(init) => Message::Init(p2p_proto::ProposalInit {
                 height: init.height.block_number,
                 round: init.round.as_u32().expect("round should not be nil"),
                 valid_round: init.valid_round.as_u32(),
                 proposer: Some(init.proposer.to_proto()?),
             }),
-            ProposalPart::BlockInfo(block_info) => Messages::BlockInfo(block_info.to_proto()?),
+            ProposalPart::BlockInfo(block_info) => Message::BlockInfo(block_info.to_proto()?),
             ProposalPart::Transactions(txes) => {
-                Messages::Transactions(p2p_proto::TransactionBatch {
+                Message::Transactions(p2p_proto::TransactionBatch {
                     transactions: txes
                         .as_slice()
                         .iter()
@@ -167,14 +166,14 @@ impl proto::Protobuf for ProposalPart {
                         .collect::<Result<Vec<_>, _>>()?,
                 })
             }
-            ProposalPart::Commitment(commitment) => Messages::Commitment(commitment.to_proto()?),
-            ProposalPart::Fin(fin) => Messages::Fin(p2p_proto::ProposalFin {
+            // ProposalPart::Commitment(commitment) => Message::Commitment(commitment.to_proto()?),
+            ProposalPart::Fin(fin) => Message::Fin(p2p_proto::ProposalFin {
                 proposal_commitment: Some(fin.proposal_commitment_hash.to_proto()?),
             }),
         };
 
         Ok(p2p_proto::ProposalPart {
-            messages: Some(message),
+            message: Some(message),
         })
     }
 }

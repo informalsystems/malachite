@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use malachitebft_sync::PeerId;
+use bytes::{Buf, BufMut};
 use rand::RngCore;
 use tracing::{debug, error, trace};
 
@@ -10,12 +10,46 @@ use malachitebft_core_types::{Context, Round, Validity};
 use malachitebft_engine::consensus::ConsensusRef;
 use malachitebft_engine::host::ProposedValue;
 use malachitebft_engine::util::streaming::StreamId;
-use malachitebft_starknet_p2p_proto as p2p_proto;
+// use malachitebft_starknet_p2p_proto as p2p_proto;
+use malachitebft_sync::PeerId;
 
 use crate::block_store::BlockStore;
 use crate::host::{Host, StarknetHost};
 use crate::streaming::PartStreamsMap;
 use crate::types::*;
+
+/// HeightAndRound is a tuple struct used as the StreamId for consensus and context.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HeightAndRound(pub u64, pub u32);
+
+impl TryFrom<Vec<u8>> for HeightAndRound {
+    type Error = &'static str;
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() != 12 {
+            return Err("Invalid length");
+        }
+        let mut bytes = value.as_slice();
+        let height = bytes.get_u64();
+        let round = bytes.get_u32();
+        Ok(HeightAndRound(height, round))
+    }
+}
+
+impl From<HeightAndRound> for Vec<u8> {
+    fn from(value: HeightAndRound) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(12);
+        bytes.put_u64(value.0);
+        bytes.put_u32(value.1);
+        bytes
+    }
+}
+
+impl std::fmt::Display for HeightAndRound {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "(height: {}, round: {})", self.0, self.1)
+    }
+}
 
 pub struct HostState {
     pub ctx: MockContext,
@@ -59,15 +93,11 @@ impl HostState {
     }
 
     pub fn stream_id(&mut self) -> StreamId {
-        let stream_id = p2p_proto::ConsensusStreamId {
-            height: self.height.as_u64(),
-            round: self.round.as_u32().expect("round is non-nil"),
-            nonce: self.nonce,
-        };
+        let stream_id = HeightAndRound(self.height.block_number, self.round.as_u32().unwrap());
 
         self.nonce += 1;
 
-        let bytes = prost::Message::encode_to_vec(&stream_id);
+        let bytes = Vec::<u8>::from(stream_id);
         StreamId::new(bytes.into())
     }
 
@@ -119,12 +149,14 @@ impl HostState {
             return None;
         };
 
-        let Some(commitment) = parts.iter().find_map(|part| part.as_commitment()) else {
-            error!("Part not found: ProposalCommitment");
-            return None;
-        };
+        // let Some(commitment) = parts.iter().find_map(|part| part.as_commitment()) else {
+        //     error!("Part not found: ProposalCommitment");
+        //     return None;
+        // };
 
-        let validity = self.verify_proposal_validity(init, fin, commitment).await?;
+        let validity = self
+            .verify_proposal_validity(init, fin /*, commitment */)
+            .await?;
 
         let valid_round = init.valid_round;
         if valid_round.is_defined() {
@@ -145,7 +177,7 @@ impl HostState {
         &self,
         init: &ProposalInit,
         _fin: &ProposalFin,
-        _commitment: &ProposalCommitment,
+        // _commitment: &ProposalCommitment,
     ) -> Option<Validity> {
         let validators = self.host.validators(init.height).await?;
 
@@ -219,10 +251,10 @@ impl HostState {
             return None;
         };
 
-        let Some(_proposal_commitment) = parts.iter().find_map(|part| part.as_commitment()) else {
-            debug!("Proposal part has not been received yet: ProposalCommitment");
-            return None;
-        };
+        // let Some(_proposal_commitment) = parts.iter().find_map(|part| part.as_commitment()) else {
+        //     debug!("Proposal part has not been received yet: ProposalCommitment");
+        //     return None;
+        // };
 
         let block_size: usize = parts.iter().map(|p| p.size_bytes()).sum();
         let tx_count: usize = parts.iter().map(|p| p.tx_count()).sum();

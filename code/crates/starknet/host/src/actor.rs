@@ -480,7 +480,7 @@ async fn on_restream_proposal(
             PartType::Init => init_part.clone(),
             PartType::BlockInfo => part,
             PartType::Transactions => part,
-            PartType::ProposalCommitment => part,
+            // PartType::ProposalCommitment => part,
             PartType::Fin => fin_part.clone(),
         };
 
