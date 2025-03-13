@@ -203,6 +203,7 @@ pub async fn spawn(
 
     let peer_id = PeerId::from_libp2p(swarm.local_peer_id());
     let span = error_span!("network");
+
     info!(parent: span.clone(), %peer_id, "Starting network");
 
     let task_handle =
