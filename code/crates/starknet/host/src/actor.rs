@@ -202,11 +202,25 @@ impl Host {
 
             HostMsg::PeerJoined { peer_id } => {
                 debug!(%peer_id, "Peer joined the network");
+
+                state.peers.insert(peer_id);
+
+                if state.peers.len() == 1 && state.ready {
+                    let start_height = state.start_height;
+                    let consensus = state.consensus.as_ref().unwrap();
+
+                    consensus.cast(ConsensusMsg::StartHeight(
+                        start_height,
+                        state.host.validator_set.clone(),
+                    ))?;
+                }
+
                 Ok(())
             }
 
             HostMsg::PeerLeft { peer_id } => {
                 debug!(%peer_id, "Peer left the network");
+                state.peers.remove(&peer_id);
                 Ok(())
             }
         }
@@ -217,19 +231,27 @@ async fn on_consensus_ready(
     state: &mut HostState,
     consensus: ConsensusRef<MockContext>,
 ) -> Result<(), ActorProcessingErr> {
+    if !state.ready {
+        state.consensus = Some(consensus.clone());
+        state.ready = true;
+    }
+
     let mut start_height = malachitebft_core_types::Height::INITIAL;
     if state.block_store.last_height().is_some() {
         let latest_block_height = state.block_store.last_height().unwrap_or_default();
         start_height = latest_block_height.increment();
     }
-    state.consensus = Some(consensus.clone());
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.start_height = start_height;
 
-    consensus.cast(ConsensusMsg::StartHeight(
-        start_height,
-        state.host.validator_set.clone(),
-    ))?;
+    if !state.peers.is_empty() {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consensus.cast(ConsensusMsg::StartHeight(
+            start_height,
+            state.host.validator_set.clone(),
+        ))?;
+    }
 
     Ok(())
 }

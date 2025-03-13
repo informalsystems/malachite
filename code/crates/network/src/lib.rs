@@ -232,10 +232,10 @@ async fn run(
         return;
     };
 
-    if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
-        error!("Error subscribing to Sync channel: {e}");
-        return;
-    };
+    // if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
+    //     error!("Error subscribing to Sync channel: {e}");
+    //     return;
+    // };
 
     loop {
         let result = tokio::select! {
@@ -295,13 +295,13 @@ async fn handle_ctrl_msg(
         }
 
         CtrlMsg::Broadcast(channel, data) => {
-            let msg_size = data.len();
-            let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
-
-            match result {
-                Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
-                Err(e) => error!(%channel, "Error broadcasting message: {e}"),
-            }
+            // let msg_size = data.len();
+            // let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
+            //
+            // match result {
+            //     Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
+            //     Err(e) => error!(%channel, "Error broadcasting message: {e}"),
+            // }
 
             ControlFlow::Continue(())
         }
@@ -310,6 +310,8 @@ async fn handle_ctrl_msg(
             let request_id = swarm
                 .behaviour_mut()
                 .sync
+                .as_mut()
+                .unwrap()
                 .send_request(peer_id.to_libp2p(), request);
 
             if let Err(e) = reply_to.send(request_id) {
@@ -325,7 +327,12 @@ async fn handle_ctrl_msg(
                 return ControlFlow::Continue(());
             };
 
-            let result = swarm.behaviour_mut().sync.send_response(channel, data);
+            let result = swarm
+                .behaviour_mut()
+                .sync
+                .as_mut()
+                .unwrap()
+                .send_response(channel, data);
 
             match result {
                 Ok(()) => debug!(%request_id, "Replied to Sync request"),

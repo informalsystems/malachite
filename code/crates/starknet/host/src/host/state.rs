@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use malachitebft_sync::PeerId;
 use rand::RngCore;
 use tracing::{debug, error, trace};
 
@@ -25,6 +27,9 @@ pub struct HostState {
     pub block_store: BlockStore,
     pub part_streams_map: PartStreamsMap,
     pub nonce: u64,
+    pub ready: bool,
+    pub peers: HashSet<PeerId>,
+    pub start_height: Height,
 }
 
 impl HostState {
@@ -47,6 +52,9 @@ impl HostState {
             block_store: BlockStore::new(db_path).unwrap(),
             part_streams_map: PartStreamsMap::default(),
             nonce: rng.next_u64(),
+            ready: false,
+            peers: HashSet::new(),
+            start_height: Height::new(0, 0),
         }
     }
 

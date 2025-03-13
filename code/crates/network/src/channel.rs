@@ -20,8 +20,9 @@ impl Channel {
         &[Channel::Consensus, Channel::ProposalParts]
     }
 
-    pub fn to_gossipsub_topic(self) -> gossipsub::IdentTopic {
-        gossipsub::IdentTopic::new(self.as_str())
+    pub fn to_gossipsub_topic(self) -> gossipsub::Sha256Topic {
+        // gossipsub::IdentTopic::new(self.as_str())
+        gossipsub::Sha256Topic::new(self.as_str())
     }
 
     pub fn to_broadcast_topic(self) -> broadcast::Topic {
@@ -30,9 +31,9 @@ impl Channel {
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Channel::Consensus => "/consensus_votes",
-            Channel::ProposalParts => "/consensus_proposals",
-            Channel::Sync => "/sync",
+            Channel::Consensus => "consensus_votes",
+            Channel::ProposalParts => "consensus_proposals",
+            Channel::Sync => "sync",
         }
     }
 
@@ -50,18 +51,18 @@ impl Channel {
 
     pub fn from_gossipsub_topic_hash(topic: &gossipsub::TopicHash) -> Option<Self> {
         match topic.as_str() {
-            "/consensus_votes" => Some(Channel::Consensus),
-            "/consensus_proposals" => Some(Channel::ProposalParts),
-            "/sync" => Some(Channel::Sync),
+            "consensus_votes" => Some(Channel::Consensus),
+            "consensus_proposals" => Some(Channel::ProposalParts),
+            "sync" => Some(Channel::Sync),
             _ => None,
         }
     }
 
     pub fn from_broadcast_topic(topic: &broadcast::Topic) -> Option<Self> {
         match topic.as_ref() {
-            b"/consensus_votes" => Some(Channel::Consensus),
-            b"/consensus_proposals" => Some(Channel::ProposalParts),
-            b"/sync" => Some(Channel::Sync),
+            b"consensus_votes" => Some(Channel::Consensus),
+            b"consensus_proposals" => Some(Channel::ProposalParts),
+            b"sync" => Some(Channel::Sync),
             _ => None,
         }
     }

@@ -50,14 +50,14 @@ where
             request_data.retry.count()
         );
 
-        let request_id = swarm.behaviour_mut().send_request(
-            &request_data.peer_id(),
-            behaviour::Request::Peers(self.get_all_peers_except(request_data.peer_id())),
-        );
-
-        self.controller
-            .peers_request
-            .register_in_progress(request_id, request_data);
+        // let request_id = swarm.behaviour_mut().send_request(
+        //     &request_data.peer_id(),
+        //     behaviour::Request::Peers(self.get_all_peers_except(request_data.peer_id())),
+        // );
+        //
+        // self.controller
+        //     .peers_request
+        //     .register_in_progress(request_id, request_data);
     }
 
     pub(crate) fn handle_peers_request(
@@ -69,21 +69,21 @@ where
     ) {
         // Compute the difference between the discovered peers and the requested peers
         // to avoid sending the requesting peer the peers it already knows.
-        let peers_difference = self
-            .get_all_peers_except(peer)
-            .difference(&peers)
-            .cloned()
-            .collect();
+        // let peers_difference = self
+        //     .get_all_peers_except(peer)
+        //     .difference(&peers)
+        //     .cloned()
+        //     .collect();
 
-        if swarm
-            .behaviour_mut()
-            .send_response(channel, behaviour::Response::Peers(peers_difference))
-            .is_err()
-        {
-            error!("Error sending peers to {peer}");
-        } else {
-            trace!("Sent peers to {peer}");
-        }
+        // if swarm
+        //     .behaviour_mut()
+        //     .send_response(channel, behaviour::Response::Peers(peers_difference))
+        //     .is_err()
+        // {
+        //     error!("Error sending peers to {peer}");
+        // } else {
+        //     trace!("Sent peers to {peer}");
+        // }
     }
 
     pub(crate) fn handle_peers_response(

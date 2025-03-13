@@ -23,6 +23,8 @@ pub fn subscribe(
                 swarm
                     .behaviour_mut()
                     .broadcast
+                    .as_mut()
+                    .unwrap()
                     .subscribe(channel.to_broadcast_topic());
             }
         }
@@ -48,6 +50,8 @@ pub fn publish(
             swarm
                 .behaviour_mut()
                 .broadcast
+                .as_mut()
+                .unwrap()
                 .broadcast(&channel.to_broadcast_topic(), data);
         }
     }

@@ -48,13 +48,13 @@ where
             request_data.retry.count()
         );
 
-        let request_id = swarm
-            .behaviour_mut()
-            .send_request(&request_data.peer_id(), behaviour::Request::Connect());
-
-        self.controller
-            .connect_request
-            .register_in_progress(request_id, request_data);
+        // let request_id = swarm
+        //     .behaviour_mut()
+        //     .send_request(&request_data.peer_id(), behaviour::Request::Connect());
+        //
+        // self.controller
+        //     .connect_request
+        //     .register_in_progress(request_id, request_data);
     }
 
     pub(crate) fn handle_connect_request(
@@ -85,15 +85,15 @@ where
 
         self.update_connections_metrics();
 
-        if swarm
-            .behaviour_mut()
-            .send_response(channel, behaviour::Response::Connect(accepted))
-            .is_err()
-        {
-            error!("Error sending connect response to {peer}");
-        } else {
-            trace!("Sent connect response to {peer}");
-        }
+        // if swarm
+        //     .behaviour_mut()
+        //     .send_response(channel, behaviour::Response::Connect(accepted))
+        //     .is_err()
+        // {
+        //     error!("Error sending connect response to {peer}");
+        // } else {
+        //     trace!("Sent connect response to {peer}");
+        // }
     }
 
     pub(crate) fn handle_connect_response(

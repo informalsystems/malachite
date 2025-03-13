@@ -30,7 +30,8 @@ fn message_id(message: &gossipsub::Message) -> gossipsub::MessageId {
 }
 
 fn gossipsub_config() -> gossipsub::Config {
-    gossipsub::ConfigBuilder::default()
+    dbg!(gossipsub::ConfigBuilder::default()
+        .protocol_id_prefix("/meshsub")
         .max_transmit_size(MAX_TRANSMIT_SIZE)
         .opportunistic_graft_ticks(3)
         .heartbeat_interval(Duration::from_secs(1))
@@ -43,7 +44,7 @@ fn gossipsub_config() -> gossipsub::Config {
         .mesh_n(3)
         .message_id_fn(message_id)
         .build()
-        .unwrap()
+        .unwrap())
 }
 
 impl Behaviour {
