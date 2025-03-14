@@ -370,6 +370,8 @@ where
                         debug!(connected = %connected_peers, total = %total_peers, "Connected to another peer");
 
                         self.metrics.connected_peers.inc();
+
+                        self.host.cast(HostMsg::PeerJoined { peer_id })?;
                     }
 
                     NetworkEvent::PeerDisconnected(peer_id) => {
@@ -377,6 +379,8 @@ where
 
                         if state.connected_peers.remove(&peer_id) {
                             self.metrics.connected_peers.dec();
+
+                            self.host.cast(HostMsg::PeerLeft { peer_id })?;
                         }
                     }
 

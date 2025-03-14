@@ -202,11 +202,25 @@ impl Host {
 
             HostMsg::PeerJoined { peer_id } => {
                 debug!(%peer_id, "Peer joined the network");
+
+                state.peers.insert(peer_id);
+
+                if state.peers.len() == 1 && state.ready {
+                    let start_height = state.start_height;
+                    let consensus = state.consensus.as_ref().unwrap();
+
+                    consensus.cast(ConsensusMsg::StartHeight(
+                        start_height,
+                        state.host.validator_set.clone(),
+                    ))?;
+                }
+
                 Ok(())
             }
 
             HostMsg::PeerLeft { peer_id } => {
                 debug!(%peer_id, "Peer left the network");
+                state.peers.remove(&peer_id);
                 Ok(())
             }
         }
@@ -217,17 +231,27 @@ async fn on_consensus_ready(
     state: &mut HostState,
     consensus: ConsensusRef<MockContext>,
 ) -> Result<(), ActorProcessingErr> {
-    let latest_block_height = state.block_store.last_height().unwrap_or_default();
-    let start_height = latest_block_height.increment();
+    if !state.ready {
+        state.consensus = Some(consensus.clone());
+        state.ready = true;
+    }
 
-    state.consensus = Some(consensus.clone());
+    let mut start_height = malachitebft_core_types::Height::INITIAL;
+    if state.block_store.last_height().is_some() {
+        let latest_block_height = state.block_store.last_height().unwrap_or_default();
+        start_height = latest_block_height.increment();
+    }
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    state.start_height = start_height;
 
-    consensus.cast(ConsensusMsg::StartHeight(
-        start_height,
-        state.host.validator_set.clone(),
-    ))?;
+    if !state.peers.is_empty() {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        consensus.cast(ConsensusMsg::StartHeight(
+            start_height,
+            state.host.validator_set.clone(),
+        ))?;
+    }
 
     Ok(())
 }
@@ -456,7 +480,7 @@ async fn on_restream_proposal(
             PartType::Init => init_part.clone(),
             PartType::BlockInfo => part,
             PartType::Transactions => part,
-            PartType::ProposalCommitment => part,
+            // PartType::ProposalCommitment => part,
             PartType::Fin => fin_part.clone(),
         };
 

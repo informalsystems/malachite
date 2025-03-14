@@ -1,11 +1,8 @@
 syntax = "proto3";
-
 import "p2p/proto/common.proto";
 import "p2p/proto/transaction.proto";
 
 option go_package = "github.com/starknet-io/starknet-p2pspecs/p2p/proto/consensus/consensus";
-
-// WIP - will change
 
 // Contains all variants of mempool and an L1Handler variant to cover all transactions that can be
 // in a new block.
@@ -29,56 +26,14 @@ message Vote {
     // We use a type field to distinguish between prevotes and precommits instead of different
     // messages, to make sure the data, and therefore the signatures, are unambiguous between
     // Prevote and Precommit.
-    VoteType           vote_type    = 1;
-    uint64             block_number = 3;
-    uint64             fork_id      = 4;
-    uint32             round        = 5;
+    VoteType      vote_type  = 2;
+    uint64        height     = 3;
+    uint32        round      = 4;
     // This is optional since a vote can be NIL.
-    optional Hash      block_hash   = 6;
-    // Identifies the voter.
-    Address            voter        = 7;
+    optional Hash block_hash = 5;
+    Address       voter      = 6;
 }
 
-// Streaming of proposals is done on the "consensus_proposal" topic.
-message ConsensusStreamId {
-    uint64 height = 1;
-    uint32 round  = 2;
-    uint64 nonce = 3;
-}
-
-// The timestamp of a proposal can impact consensus, specifically the lower bound applied. If nodes
-// apply a lower bound validation based on their local time, then we risk a scenario where in round
-// `R` proposal P is locked. Then in a later round the timestamp in P has gone stale. Therefore the
-// lower bound should be "greater than the previous timestamp". Upper bounds don't suffer from this
-// problem.
-message ProposalPart {
-    oneof messages {
-        ProposalInit       init         = 1;
-        ProposalFin        fin          = 2;
-        BlockInfo          block_info   = 3;
-        TransactionBatch   transactions = 4;
-        ProposalCommitment commitment   = 5;
-    }
-}
-
-message ProposalInit {
-    uint64 height = 1;
-    uint32 round = 2;
-    optional uint32 valid_round = 3;
-    Address proposer = 4;
-}
-
-// Identifies the content proposed (and executed). Consensus is reached on the value contained here.
-message ProposalFin {
-    Hash proposal_commitment = 1;
-}
-
-message TransactionBatch {
-    repeated ConsensusTransaction transactions = 1;
-}
-
-// The content and stream_id are generic fields. The user of the stream can choose to pass whatever
-// message that they want. The messages are then encoded in bytes.
 message StreamMessage {
     oneof message {
         bytes content = 1;
@@ -88,38 +43,42 @@ message StreamMessage {
     uint64 message_id = 4;
 }
 
-message ProposalCommitment {
-    uint64                 block_number           = 1;
-    uint64                 fork_id                = 2;
-    Hash                   parent_commitment      = 3;
-    Address                builder                = 4;
-    uint64                 timestamp              = 5;
-    string                 protocol_version       = 6; // Starknet version
-    // State root of block `H-K`, where `K` is defined by the protocol's version.
-    Hash                   old_state_root         = 7;
-    // The state diff commitment returned  by the Starknet Feeder Gateway
-    Hash                   state_diff_commitment  = 8;
-    Hash                   transaction_commitment = 9;
-    Hash                   event_commitment       = 10;
-    Hash                   receipt_commitment     = 11;
-    // TODO: Just put the sizes explicitly? This is relatively free compared actually hashing the
-    // lists we commit to. If not, should we also pack other fields?
-    Felt252                concatenated_counts    = 12;
-    Uint128                l1_gas_price_fri       = 13;
-    Uint128                l1_data_gas_price_fri  = 14;
-    Uint128                l2_gas_price_fri       = 15;
-    Uint128                l2_gas_used            = 16;
-    L1DataAvailabilityMode l1_da_mode             = 17;
+message ProposalInit {
+    uint64 height = 1;
+    uint32 round = 2;
+    optional uint32 valid_round = 3;
+    Address proposer = 4;
 }
 
 message BlockInfo {
-    uint64                 block_number          = 1;
-    uint64                 fork_id               = 2;
-    Address                builder               = 3;
-    uint64                 timestamp             = 4;
-    Uint128                l2_gas_price_fri      = 5;
-    Uint128                l1_gas_price_wei      = 6;
-    Uint128                l1_data_gas_price_wei = 7;
-    Uint128                eth_to_strk_rate      = 8;
-    L1DataAvailabilityMode l1_da_mode            = 9;
+    uint64 height = 1;
+    uint64 timestamp = 2;
+    Address builder = 3;
+    L1DataAvailabilityMode l1_da_mode = 4;
+    Uint128 l2_gas_price_fri = 5;
+    Uint128 l1_gas_price_wei = 6;
+    Uint128 l1_data_gas_price_wei = 7;
+    Uint128 eth_to_fri_rate = 8;
+}
+
+message TransactionBatch {
+    repeated ConsensusTransaction transactions = 1;
+}
+
+message ProposalFin {
+    // Identifies a Starknet block based on the content streamed in the proposal.
+    Hash proposal_commitment = 1;
+}
+
+// Network format:
+// 1. First message is ProposalInit
+// 2. Last message is ProposalFin
+// 3. In between can be any number of other messages.
+message ProposalPart {
+    oneof message {
+        ProposalInit init = 1;
+        ProposalFin fin = 2;
+        BlockInfo block_info = 3;
+        TransactionBatch transactions = 4;
+    }
 }

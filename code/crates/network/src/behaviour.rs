@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use libp2p::kad::{Addresses, KBucketKey, KBucketRef};
 use libp2p::request_response::{OutboundRequestId, ResponseChannel};
+use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
 use libp2p_broadcast as broadcast;
@@ -65,11 +66,11 @@ impl From<discovery::NetworkEvent> for NetworkEvent {
 #[behaviour(to_swarm = "NetworkEvent")]
 pub struct Behaviour {
     pub identify: identify::Behaviour,
-    pub ping: ping::Behaviour,
+    pub ping: Toggle<ping::Behaviour>,
     pub gossipsub: gossipsub::Behaviour,
-    pub broadcast: broadcast::Behaviour,
-    pub sync: sync::Behaviour,
-    pub discovery: discovery::Behaviour,
+    pub broadcast: Toggle<broadcast::Behaviour>,
+    pub sync: Toggle<sync::Behaviour>,
+    pub discovery: Toggle<discovery::Behaviour>,
 }
 
 /// Dummy implementation of Debug for Behaviour.
@@ -82,6 +83,8 @@ impl std::fmt::Debug for Behaviour {
 impl discovery::DiscoveryClient for Behaviour {
     fn add_address(&mut self, peer: &PeerId, address: Multiaddr) -> libp2p::kad::RoutingUpdate {
         self.discovery
+            .as_mut()
+            .unwrap()
             .kademlia
             .as_mut()
             .expect("Kademlia behaviour should be available")
@@ -90,6 +93,8 @@ impl discovery::DiscoveryClient for Behaviour {
 
     fn kbuckets(&mut self) -> impl Iterator<Item = KBucketRef<'_, KBucketKey<PeerId>, Addresses>> {
         self.discovery
+            .as_mut()
+            .unwrap()
             .kademlia
             .as_mut()
             .expect("Kademlia behaviour should be available")
@@ -97,7 +102,13 @@ impl discovery::DiscoveryClient for Behaviour {
     }
 
     fn send_request(&mut self, peer_id: &PeerId, req: discovery::Request) -> OutboundRequestId {
-        self.discovery.request_response.send_request(peer_id, req)
+        self.discovery
+            .as_mut()
+            .unwrap()
+            .request_response
+            .as_mut()
+            .unwrap()
+            .send_request(peer_id, req)
     }
 
     fn send_response(
@@ -105,7 +116,13 @@ impl discovery::DiscoveryClient for Behaviour {
         ch: ResponseChannel<discovery::Response>,
         rs: discovery::Response,
     ) -> Result<(), discovery::Response> {
-        self.discovery.request_response.send_response(ch, rs)
+        self.discovery
+            .as_mut()
+            .unwrap()
+            .request_response
+            .as_mut()
+            .unwrap()
+            .send_response(ch, rs)
     }
 }
 
@@ -120,6 +137,7 @@ fn message_id(message: &gossipsub::Message) -> gossipsub::MessageId {
 
 fn gossipsub_config(config: GossipSubConfig, max_transmit_size: usize) -> gossipsub::Config {
     gossipsub::ConfigBuilder::default()
+        .protocol_id_prefix("/meshsub")
         .max_transmit_size(max_transmit_size)
         .opportunistic_graft_ticks(3)
         .heartbeat_interval(Duration::from_secs(1))
@@ -168,11 +186,11 @@ impl Behaviour {
 
         Self {
             identify,
-            ping,
+            ping: Toggle::from(None),
             gossipsub,
-            broadcast,
-            sync,
-            discovery,
+            broadcast: Toggle::from(None),
+            sync: Toggle::from(None),
+            discovery: Toggle::from(Some(discovery)),
         }
     }
 }

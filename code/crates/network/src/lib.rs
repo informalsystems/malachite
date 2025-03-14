@@ -1,3 +1,5 @@
+#![allow(unused_variables, unused_imports)]
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::ControlFlow;
@@ -33,7 +35,7 @@ pub use channel::Channel;
 use behaviour::{Behaviour, NetworkEvent};
 use handle::Handle;
 
-const PROTOCOL: &str = "/malachitebft-core-consensus/v1beta1";
+const PROTOCOL: &str = "/staknet/identify/0.1.0-rc.0"; // Typo is from the sequencer code
 const METRICS_PREFIX: &str = "malachitebft_network";
 const DISCOVERY_METRICS_PREFIX: &str = "malachitebft_discovery";
 
@@ -204,7 +206,7 @@ pub async fn spawn(
     let peer_id = PeerId::from_libp2p(swarm.local_peer_id());
     let span = error_span!("network");
 
-    info!(parent: span.clone(), %peer_id, "Starting network service");
+    info!(parent: span.clone(), %peer_id, "Starting network");
 
     let task_handle =
         tokio::task::spawn(run(config, metrics, state, swarm, rx_ctrl, tx_event).instrument(span));
@@ -232,10 +234,10 @@ async fn run(
         return;
     };
 
-    if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
-        error!("Error subscribing to Sync channel: {e}");
-        return;
-    };
+    // if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
+    //     error!("Error subscribing to Sync channel: {e}");
+    //     return;
+    // };
 
     loop {
         let result = tokio::select! {
@@ -295,13 +297,13 @@ async fn handle_ctrl_msg(
         }
 
         CtrlMsg::Broadcast(channel, data) => {
-            let msg_size = data.len();
-            let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
-
-            match result {
-                Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
-                Err(e) => error!(%channel, "Error broadcasting message: {e}"),
-            }
+            // let msg_size = data.len();
+            // let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
+            //
+            // match result {
+            //     Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
+            //     Err(e) => error!(%channel, "Error broadcasting message: {e}"),
+            // }
 
             ControlFlow::Continue(())
         }
@@ -310,6 +312,8 @@ async fn handle_ctrl_msg(
             let request_id = swarm
                 .behaviour_mut()
                 .sync
+                .as_mut()
+                .unwrap()
                 .send_request(peer_id.to_libp2p(), request);
 
             if let Err(e) = reply_to.send(request_id) {
@@ -325,7 +329,12 @@ async fn handle_ctrl_msg(
                 return ControlFlow::Continue(());
             };
 
-            let result = swarm.behaviour_mut().sync.send_response(channel, data);
+            let result = swarm
+                .behaviour_mut()
+                .sync
+                .as_mut()
+                .unwrap()
+                .send_response(channel, data);
 
             match result {
                 Ok(()) => debug!(%request_id, "Replied to Sync request"),
@@ -391,13 +400,20 @@ async fn handle_swarm_event(
         SwarmEvent::ConnectionClosed {
             peer_id,
             connection_id,
+            endpoint,
             cause,
             ..
         } => {
             if let Some(cause) = cause {
-                warn!("Connection closed with {peer_id}, reason: {cause}");
+                warn!(
+                    "Connection closed with {peer_id} at {}, reason: {cause}",
+                    endpoint.get_remote_address()
+                );
             } else {
-                warn!("Connection closed with {peer_id}, reason: unknown");
+                warn!(
+                    "Connection closed with {peer_id} at {}, reason: unknown",
+                    endpoint.get_remote_address()
+                );
             }
 
             state

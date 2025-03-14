@@ -87,7 +87,7 @@ where
                 self.metrics.elapsed().as_millis()
             );
 
-            self.adjust_connections(swarm);
+            // self.adjust_connections(swarm);
 
             self.state = State::Idle;
         } else {
