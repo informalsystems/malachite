@@ -101,7 +101,6 @@ malachitebft-starknet-p2p-proto = { version = "0.0.1", package = "informalsystem
 malachitebft-starknet-p2p-types = { version = "0.0.1", package = "informalsystems-malachitebft-starknet-p2p-types", path = "crates/starknet/p2p-types" }
 
 # Starknet
-starknet_api = "0.14.0-rc.3"
 starknet-core   = "0.11.1"
 starknet-crypto = "0.7.3"
 

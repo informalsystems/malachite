@@ -13,7 +13,6 @@ malachitebft-proto.workspace = true
 malachitebft-starknet-p2p-proto.workspace = true
 malachitebft-signing-ed25519 = { workspace = true, features = ["serde", "rand"] }
 
-starknet_api.workspace = true
 starknet-core.workspace = true
 starknet-crypto.workspace = true
 
