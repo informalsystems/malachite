@@ -467,6 +467,7 @@ where
                             height,
                             round,
                             vote_set,
+                            polka_certificates,
                         }),
                     ) => {
                         if vote_set.votes.is_empty() {
@@ -480,7 +481,7 @@ where
                             .process_input(
                                 &myself,
                                 state,
-                                ConsensusInput::VoteSetResponse(vote_set),
+                                ConsensusInput::VoteSetResponse(vote_set, polka_certificates),
                             )
                             .await
                         {
@@ -1049,15 +1050,28 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::SendVoteSetResponse(request_id_str, height, round, vote_set, r) => {
+            Effect::SendVoteSetResponse(
+                request_id_str,
+                height,
+                round,
+                vote_set,
+                polka_certificates,
+                r,
+            ) => {
                 let Some(sync) = self.sync.as_ref() else {
                     warn!("Responding to a vote set request but sync actor is not available");
                     return Ok(r.resume_with(()));
                 };
 
                 let vote_count = vote_set.len();
-                let response =
-                    Response::VoteSetResponse(VoteSetResponse::new(height, round, vote_set));
+                let polka_certificates_count = polka_certificates.len();
+
+                let response = Response::VoteSetResponse(VoteSetResponse::new(
+                    height,
+                    round,
+                    vote_set,
+                    polka_certificates,
+                ));
 
                 let request_id = InboundRequestId::new(request_id_str);
 
@@ -1074,8 +1088,9 @@ where
                         eyre!("Error when notifying Sync about vote set response: {e:?}")
                     })?;
 
-                self.tx_event
-                    .send(|| Event::SentVoteSetResponse(height, round, vote_count));
+                self.tx_event.send(|| {
+                    Event::SentVoteSetResponse(height, round, vote_count, polka_certificates_count)
+                });
 
                 Ok(r.resume_with(()))
             }
