@@ -515,23 +515,23 @@ async fn handle_gossipsub_event(
     _state: &mut State,
     tx_event: &mpsc::Sender<Event>,
 ) -> ControlFlow<()> {
-    match event {
+    match dbg!(event) {
         gossipsub::Event::Subscribed { peer_id, topic } => {
-            if !Channel::has_gossipsub_topic(&topic) {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
                 trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic}");
                 return ControlFlow::Continue(());
-            }
+            };
 
-            trace!("Peer {peer_id} subscribed to {topic}");
+            trace!("Peer {peer_id} subscribed to {channel}");
         }
 
         gossipsub::Event::Unsubscribed { peer_id, topic } => {
-            if !Channel::has_gossipsub_topic(&topic) {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
                 trace!("Peer {peer_id} tried to unsubscribe from unknown topic: {topic}");
                 return ControlFlow::Continue(());
-            }
+            };
 
-            trace!("Peer {peer_id} unsubscribed from {topic}");
+            trace!("Peer {peer_id} unsubscribed from {channel}");
         }
 
         gossipsub::Event::Message {

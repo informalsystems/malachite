@@ -50,11 +50,14 @@ impl Channel {
     }
 
     pub fn from_gossipsub_topic_hash(topic: &gossipsub::TopicHash) -> Option<Self> {
-        match topic.as_str() {
-            "consensus_votes" => Some(Channel::Consensus),
-            "consensus_proposals" => Some(Channel::ProposalParts),
-            "sync" => Some(Channel::Sync),
-            _ => None,
+        if topic == &Self::Consensus.to_gossipsub_topic().hash() {
+            Some(Self::Consensus)
+        } else if topic == &Self::ProposalParts.to_gossipsub_topic().hash() {
+            Some(Self::ProposalParts)
+        } else if topic == &Self::Sync.to_gossipsub_topic().hash() {
+            Some(Self::Sync)
+        } else {
+            None
         }
     }
 
