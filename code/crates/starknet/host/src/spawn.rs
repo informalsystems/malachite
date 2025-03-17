@@ -36,6 +36,7 @@ pub async fn spawn_node_actor(
     home_dir: PathBuf,
     initial_validator_set: ValidatorSet,
     private_key: PrivateKey,
+    address: Address,
     start_height: Option<Height>,
     tx_event: TxEvent<MockContext>,
     span: tracing::Span,
@@ -46,7 +47,6 @@ pub async fn spawn_node_actor(
 
     let registry = SharedRegistry::global().with_moniker(cfg.moniker.as_str());
     let metrics = Metrics::register(&registry);
-    let address = Address::from_public_key(private_key.public_key());
     let signing_provider = Ed25519Provider::new(private_key.clone());
 
     // Spawn mempool and its gossip layer

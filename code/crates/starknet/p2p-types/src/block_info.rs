@@ -12,8 +12,7 @@ pub struct BlockInfo {
     pub l1_gas_price_wei: u128,
     pub l1_data_gas_price_wei: u128,
     pub l2_gas_price_fri: u128,
-    // pub eth_to_strk_rate: u128,
-    pub eth_to_fri_rate: u128,
+    pub eth_to_strk_rate: u64,
     pub l1_da_mode: L1DataAvailabilityMode,
 }
 
@@ -41,14 +40,7 @@ impl Protobuf for BlockInfo {
                 .l2_gas_price_fri
                 .ok_or_else(|| ProtoError::missing_field::<Self::Proto>("l2_gas_price_fri"))?
                 .into(),
-            // eth_to_strk_rate: proto
-            //     .eth_to_strk_rate
-            //     .ok_or_else(|| ProtoError::missing_field::<Self::Proto>("eth_to_strk_rate"))?
-            //     .into(),
-            eth_to_fri_rate: proto
-                .eth_to_fri_rate
-                .ok_or_else(|| ProtoError::missing_field::<Self::Proto>("eth_to_fri_rate"))?
-                .into(),
+            eth_to_strk_rate: proto.eth_to_strk_rate,
             l1_da_mode: L1DataAvailabilityMode::from_proto(proto.l1_da_mode)?,
         })
     }
@@ -63,8 +55,7 @@ impl Protobuf for BlockInfo {
             l2_gas_price_fri: Some(self.l2_gas_price_fri.into()),
             l1_gas_price_wei: Some(self.l1_gas_price_wei.into()),
             l1_data_gas_price_wei: Some(self.l1_data_gas_price_wei.into()),
-            // eth_to_strk_rate: Some(self.eth_to_strk_rate.into()),
-            eth_to_fri_rate: Some(self.eth_to_fri_rate.into()),
+            eth_to_strk_rate: self.eth_to_strk_rate,
             l1_da_mode: self.l1_da_mode.to_proto()?,
         })
     }

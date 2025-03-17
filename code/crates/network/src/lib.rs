@@ -515,7 +515,7 @@ async fn handle_gossipsub_event(
     _state: &mut State,
     tx_event: &mpsc::Sender<Event>,
 ) -> ControlFlow<()> {
-    match dbg!(event) {
+    match event {
         gossipsub::Event::Subscribed { peer_id, topic } => {
             let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
                 trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic}");

@@ -10,7 +10,9 @@ use rand::rngs::StdRng;
 use rand::SeedableRng;
 
 use malachitebft_starknet_host::node::{ConfigSource, Handle, StarknetNode};
-use malachitebft_starknet_host::types::{Height, MockContext, PrivateKey, Validator, ValidatorSet};
+use malachitebft_starknet_host::types::{
+    Address, Height, MockContext, PrivateKey, Validator, ValidatorSet,
+};
 use malachitebft_test_framework::HasTestRunner;
 use malachitebft_test_framework::{NodeRunner, TestNode};
 
@@ -210,9 +212,10 @@ fn make_validators<S>(
     let mut validators = Vec::new();
     let mut private_keys = HashMap::new();
 
-    for node in nodes {
+    for (i, node) in nodes.iter().enumerate() {
         let sk = PrivateKey::generate(&mut rng);
-        let val = Validator::new(sk.public_key(), node.voting_power);
+        let address = Address::from(0x64 + i as u64);
+        let val = Validator::new(address, sk.public_key(), node.voting_power);
 
         private_keys.insert(node.id, sk);
 

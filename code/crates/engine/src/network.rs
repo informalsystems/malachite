@@ -329,6 +329,8 @@ where
             }
 
             Msg::NewEvent(Event::Message(Channel::Consensus, from, data)) => {
+                tracing::debug!(%from, "Received consensus message: {data:?}");
+
                 let msg = match self.codec.decode(data) {
                     Ok(msg) => msg,
                     Err(e) => {
@@ -348,6 +350,8 @@ where
             }
 
             Msg::NewEvent(Event::Message(Channel::ProposalParts, from, data)) => {
+                tracing::debug!(%from, "Received proposal part: {data:?}");
+
                 let msg: StreamMessage<Ctx::ProposalPart> = match self.codec.decode(data) {
                     Ok(stream_msg) => stream_msg,
                     Err(e) => {

@@ -1,0 +1,14 @@
+{
+  "private_key": {
+    "type": "tendermint/PrivKeyEd25519",
+    "value": "moMNWOA0BSeCVSWk9KYukIMUYCCX8JRB67dYROWSllo="
+  },
+  "public_key": {
+    "type": "tendermint/PubKeyEd25519",
+    "value": "xZpDiwDi7+uP/4Goz1QChct3qvDZ+IyHr89EqZIgrk0="
+  },
+  "address": {
+    "type": "tendermint/PubKeyEd25519",
+    "value": "xZpDiwDi7+uP/4Goz1QChct3qvDZ+IyHr89EqZIgrk0="
+  }
+}

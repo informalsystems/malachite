@@ -33,10 +33,9 @@ pub struct PrivateKeyFile {
     pub address: Address,
 }
 
-impl From<PrivateKey> for PrivateKeyFile {
-    fn from(private_key: PrivateKey) -> Self {
+impl PrivateKeyFile {
+    pub fn new(address: Address, private_key: PrivateKey) -> Self {
         let public_key = private_key.public_key();
-        let address = Address::from_public_key(public_key);
 
         Self {
             private_key,
@@ -119,7 +118,8 @@ impl Node for StarknetNode {
     }
 
     fn get_address(&self, pk: &PublicKey) -> Address {
-        Address::from_public_key(*pk)
+        let genesis = self.load_genesis().unwrap();
+        genesis.validator_set.get_by_public_key(pk).unwrap().address
     }
 
     fn get_public_key(&self, pk: &PrivateKey) -> PublicKey {
@@ -155,6 +155,7 @@ impl Node for StarknetNode {
         let _enter = span.enter();
 
         let priv_key_file = self.load_private_key_file()?;
+        let address = priv_key_file.address;
         let private_key = self.load_private_key(priv_key_file);
         let genesis = self.load_genesis()?;
         let tx_event = TxEvent::new();
@@ -166,6 +167,7 @@ impl Node for StarknetNode {
             self.home_dir.clone(),
             genesis.validator_set,
             private_key,
+            address,
             start_height,
             tx_event.clone(),
             span.clone(),
@@ -196,15 +198,18 @@ impl CanGeneratePrivateKey for StarknetNode {
 
 impl CanMakePrivateKeyFile for StarknetNode {
     fn make_private_key_file(&self, private_key: PrivateKey) -> Self::PrivateKeyFile {
-        PrivateKeyFile::from(private_key)
+        let public_key = self.get_public_key(&private_key);
+        let address = self.get_address(&public_key);
+        PrivateKeyFile::new(address, private_key)
     }
 }
 
 impl CanMakeGenesis for StarknetNode {
     fn make_genesis(&self, validators: Vec<(PublicKey, VotingPower)>) -> Self::Genesis {
-        let validators = validators
-            .into_iter()
-            .map(|(pk, vp)| Validator::new(pk, vp));
+        let validators = validators.into_iter().enumerate().map(|(i, (pk, vp))| {
+            let address = Address::from(0x64 + i as u64);
+            Validator::new(address, pk, vp)
+        });
 
         let validator_set = ValidatorSet::new(validators);
 
@@ -456,12 +461,12 @@ fn test_starknet_node() {
     let pub_keys = priv_keys.iter().map(|pk| node.get_public_key(pk)).collect();
     let genesis = new::generate_genesis(&node, pub_keys, true);
 
-    file::save_priv_validator_key(
-        &node,
-        &node.private_key_file(),
-        &PrivateKeyFile::from(priv_keys[0].clone()),
-    )
-    .unwrap();
+    // file::save_priv_validator_key(
+    //     &node,
+    //     &node.private_key_file(),
+    //     &PrivateKeyFile::from(priv_keys[0].clone()),
+    // )
+    // .unwrap();
 
     file::save_genesis(&node, &node.genesis_file(), &genesis).unwrap();
 

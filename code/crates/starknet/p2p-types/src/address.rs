@@ -1,42 +1,40 @@
 use bytes::Bytes;
 use core::fmt;
 use serde::{Deserialize, Serialize};
+use starknet_api::core::{ContractAddress, PatriciaKey};
 
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_starknet_p2p_proto as p2p_proto;
 
-use crate::PublicKey;
+use crate::Felt;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Address(PublicKey);
+pub struct Address(ContractAddress);
 
 impl Address {
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    pub fn new(bytes: [u8; 32]) -> Self {
-        Self::from_public_key(PublicKey::from_bytes(bytes))
+    pub fn new(address: ContractAddress) -> Self {
+        Self(address)
     }
+}
 
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    pub fn from_public_key(public_key: PublicKey) -> Self {
-        Self(public_key)
+impl From<u64> for Address {
+    fn from(address: u64) -> Self {
+        Self(ContractAddress::from(address))
     }
 }
 
 impl fmt::Display for Address {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0.as_bytes().iter() {
-            write!(f, "{:02X}", byte)?;
-        }
-        Ok(())
+        self.0.fmt(f)
     }
 }
 
 impl fmt::Debug for Address {
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Address({})", self)
+        write!(f, "Address({})", self.0)
     }
 }
 
@@ -46,21 +44,24 @@ impl Protobuf for Address {
     type Proto = p2p_proto::Address;
 
     fn from_proto(proto: Self::Proto) -> Result<Self, ProtoError> {
+        let mut felt = [0; 32];
         if proto.elements.len() != 32 {
-            return Err(ProtoError::Other(format!(
-                "Invalid address length: expected 32, got {}",
-                proto.elements.len()
-            )));
+            return Err(ProtoError::invalid_data::<Self::Proto>("elements"));
         }
 
-        let mut bytes = [0; 32];
-        bytes.copy_from_slice(&proto.elements);
-        Ok(Address::new(bytes))
+        felt.copy_from_slice(&proto.elements);
+
+        let hash = Felt::from_bytes_be(&felt);
+        if let Ok(stark_felt) = PatriciaKey::try_from(hash) {
+            Ok(Self(ContractAddress(stark_felt)))
+        } else {
+            Err(ProtoError::invalid_data::<Self::Proto>("elements"))
+        }
     }
 
     fn to_proto(&self) -> Result<Self::Proto, ProtoError> {
         Ok(p2p_proto::Address {
-            elements: Bytes::copy_from_slice(self.0.as_bytes().as_slice()),
+            elements: Bytes::from(self.0.key().to_bytes_be().to_vec()),
         })
     }
 }

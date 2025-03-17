@@ -1,4 +1,4 @@
-#![allow(clippy::too_many_arguments)]
+#![allow(unused_imports, clippy::too_many_arguments)]
 
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -45,6 +45,7 @@ pub async fn build_proposal_task(
     }
 }
 
+#[allow(unused_variables, unused_mut)]
 async fn run_build_proposal_task(
     height: Height,
     round: Round,
@@ -52,7 +53,7 @@ async fn run_build_proposal_task(
     _private_key: PrivateKey,
     params: StarknetParams,
     deadline: Instant,
-    mempool: MempoolRef,
+    _mempool: MempoolRef,
     tx_part: mpsc::Sender<ProposalPart>,
     tx_value_id: oneshot::Sender<Hash>,
 ) -> Result<(), Box<dyn core::error::Error>> {
@@ -86,11 +87,10 @@ async fn run_build_proposal_task(
             height,
             builder: proposer,
             timestamp: now,
-            l1_gas_price_wei: 0,
-            l1_data_gas_price_wei: 0,
-            l2_gas_price_fri: 0,
-            // eth_to_strk_rate: 0,
-            eth_to_fri_rate: 0,
+            l1_gas_price_wei: 1,
+            l1_data_gas_price_wei: 1,
+            l2_gas_price_fri: 100000,
+            eth_to_strk_rate: 1,
             l1_da_mode: L1DataAvailabilityMode::Blob,
         });
 
@@ -98,68 +98,68 @@ async fn run_build_proposal_task(
         sequence += 1;
     }
 
-    let max_block_size = params.max_block_size.as_u64() as usize;
-
-    'reap: loop {
-        let reaped_txes = mempool
-            .call(
-                |reply| MempoolMsg::Reap {
-                    height: height.as_u64(),
-                    num_txes: params.txs_per_part,
-                    reply,
-                },
-                Some(build_duration),
-            )
-            .await?
-            .success_or(eyre!("Failed to reap transactions from the mempool"))?;
-
-        trace!("Reaped {} transactions from the mempool", reaped_txes.len());
-
-        if reaped_txes.is_empty() {
-            break 'reap;
-        }
-
-        let mut txes = Vec::new();
-        let mut tx_count = 0;
-
-        'txes: for tx in reaped_txes {
-            if block_size + tx.size_bytes() > max_block_size {
-                continue 'txes;
-            }
-
-            block_size += tx.size_bytes();
-            tx_count += 1;
-
-            txes.push(tx);
-        }
-
-        block_tx_count += tx_count;
-
-        let exec_time = params.exec_time_per_tx * tx_count as u32;
-        tokio::time::sleep(exec_time).await;
-
-        trace!(
-            %sequence,
-            "Created a tx batch with {tx_count} tx-es of size {} in {:?}",
-            ByteSize::b(block_size as u64),
-            start.elapsed()
-        );
-
-        // Transactions
-        {
-            let part = ProposalPart::Transactions(TransactionBatch::new(txes));
-            tx_part.send(part).await?;
-            sequence += 1;
-        }
-
-        if block_size > max_block_size {
-            trace!("Max block size reached, stopping tx generation");
-            break 'reap;
-        } else if start.elapsed() > build_duration {
-            trace!("Time allowance exceeded, stopping tx generation");
-            break 'reap;
-        }
-    }
+    // let max_block_size = params.max_block_size.as_u64() as usize;
+    //
+    // 'reap: loop {
+    //     let reaped_txes = mempool
+    //         .call(
+    //             |reply| MempoolMsg::Reap {
+    //                 height: height.as_u64(),
+    //                 num_txes: params.txs_per_part,
+    //                 reply,
+    //             },
+    //             Some(build_duration),
+    //         )
+    //         .await?
+    //         .success_or(eyre!("Failed to reap transactions from the mempool"))?;
+    //
+    //     trace!("Reaped {} transactions from the mempool", reaped_txes.len());
+    //
+    //     if reaped_txes.is_empty() {
+    //         break 'reap;
+    //     }
+    //
+    //     let mut txes = Vec::new();
+    //     let mut tx_count = 0;
+    //
+    //     'txes: for tx in reaped_txes {
+    //         if block_size + tx.size_bytes() > max_block_size {
+    //             continue 'txes;
+    //         }
+    //
+    //         block_size += tx.size_bytes();
+    //         tx_count += 1;
+    //
+    //         txes.push(tx);
+    //     }
+    //
+    //     block_tx_count += tx_count;
+    //
+    //     let exec_time = params.exec_time_per_tx * tx_count as u32;
+    //     tokio::time::sleep(exec_time).await;
+    //
+    //     trace!(
+    //         %sequence,
+    //         "Created a tx batch with {tx_count} tx-es of size {} in {:?}",
+    //         ByteSize::b(block_size as u64),
+    //         start.elapsed()
+    //     );
+    //
+    //     // Transactions
+    //     {
+    //         let part = ProposalPart::Transactions(TransactionBatch::new(txes));
+    //         tx_part.send(part).await?;
+    //         sequence += 1;
+    //     }
+    //
+    //     if block_size > max_block_size {
+    //         trace!("Max block size reached, stopping tx generation");
+    //         break 'reap;
+    //     } else if start.elapsed() > build_duration {
+    //         trace!("Time allowance exceeded, stopping tx generation");
+    //         break 'reap;
+    //     }
+    // }
 
     // // Proposal Commitment
     // {
@@ -187,7 +187,7 @@ async fn run_build_proposal_task(
     // }
 
     // TODO: Compute the actual propoosal commitment hash
-    let proposal_commitment_hash = Hash::new([42; 32]);
+    let proposal_commitment_hash = Hash::new([0; 32]);
 
     // Fin
     {
