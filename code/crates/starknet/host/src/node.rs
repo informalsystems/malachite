@@ -118,8 +118,12 @@ impl Node for StarknetNode {
     }
 
     fn get_address(&self, pk: &PublicKey) -> Address {
-        let genesis = self.load_genesis().unwrap();
-        genesis.validator_set.get_by_public_key(pk).unwrap().address
+        if let Ok(genesis) = self.load_genesis() {
+            genesis.validator_set.get_by_public_key(pk).unwrap().address
+        } else {
+            // FIXME: Figure out a way to specify the address for a public key.
+            Address::from(0x65)
+        }
     }
 
     fn get_public_key(&self, pk: &PrivateKey) -> PublicKey {
@@ -460,13 +464,14 @@ fn test_starknet_node() {
     let priv_keys = new::generate_private_keys(&node, 1, true);
     let pub_keys = priv_keys.iter().map(|pk| node.get_public_key(pk)).collect();
     let genesis = new::generate_genesis(&node, pub_keys, true);
+    let address = Address::from(0x64);
 
-    // file::save_priv_validator_key(
-    //     &node,
-    //     &node.private_key_file(),
-    //     &PrivateKeyFile::from(priv_keys[0].clone()),
-    // )
-    // .unwrap();
+    file::save_priv_validator_key(
+        &node,
+        &node.private_key_file(),
+        &PrivateKeyFile::new(address, priv_keys[0].clone()),
+    )
+    .unwrap();
 
     file::save_genesis(&node, &node.genesis_file(), &genesis).unwrap();
 
