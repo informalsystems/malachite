@@ -65,7 +65,7 @@ where
 #[behaviour(to_swarm = "NetworkEvent")]
 pub struct Behaviour {
     pub kademlia: Toggle<kad::Behaviour<MemoryStore>>,
-    pub request_response: Toggle<request_response::cbor::Behaviour<Request, Response>>,
+    pub request_response: request_response::cbor::Behaviour<Request, Response>,
 }
 
 fn kademlia_config() -> kad::Config {
@@ -106,14 +106,14 @@ impl Behaviour {
             ),
         );
 
-        // let request_response = request_response::cbor::Behaviour::new(
-        //     request_response_protocol(),
-        //     request_response_config(),
-        // );
+        let request_response = request_response::cbor::Behaviour::new(
+            request_response_protocol(),
+            request_response_config(),
+        );
 
         Self {
             kademlia,
-            request_response: Toggle::from(None),
+            request_response,
         }
     }
 }

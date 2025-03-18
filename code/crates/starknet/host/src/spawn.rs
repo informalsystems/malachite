@@ -31,6 +31,7 @@ use crate::mempool::{Mempool, MempoolRef};
 use crate::types::MockContext;
 use crate::types::{Address, Height, PrivateKey, ValidatorSet};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_node_actor(
     cfg: Config,
     home_dir: PathBuf,

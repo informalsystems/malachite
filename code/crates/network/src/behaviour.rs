@@ -106,8 +106,6 @@ impl discovery::DiscoveryClient for Behaviour {
             .as_mut()
             .unwrap()
             .request_response
-            .as_mut()
-            .unwrap()
             .send_request(peer_id, req)
     }
 
@@ -120,8 +118,6 @@ impl discovery::DiscoveryClient for Behaviour {
             .as_mut()
             .unwrap()
             .request_response
-            .as_mut()
-            .unwrap()
             .send_response(ch, rs)
     }
 }

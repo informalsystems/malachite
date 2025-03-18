@@ -1,5 +1,3 @@
-#![allow(unused_variables, unused_imports, dead_code, unused_assignments)]
-
 use std::collections::HashMap;
 
 use tracing::{debug, error, info, warn};
