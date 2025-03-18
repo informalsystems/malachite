@@ -14,7 +14,7 @@ use malachitebft_discovery as discovery;
 use malachitebft_metrics::Registry;
 use malachitebft_sync as sync;
 
-use crate::{Config, GossipSubConfig, PROTOCOL};
+use crate::{Config, GossipSubConfig, PubSubProtocol, PROTOCOL};
 
 #[derive(Debug)]
 pub enum NetworkEvent {
@@ -66,8 +66,8 @@ impl From<discovery::NetworkEvent> for NetworkEvent {
 #[behaviour(to_swarm = "NetworkEvent")]
 pub struct Behaviour {
     pub identify: identify::Behaviour,
-    pub ping: Toggle<ping::Behaviour>,
-    pub gossipsub: gossipsub::Behaviour,
+    pub ping: ping::Behaviour,
+    pub gossipsub: Toggle<gossipsub::Behaviour>,
     pub broadcast: Toggle<broadcast::Behaviour>,
     pub sync: Toggle<sync::Behaviour>,
     pub discovery: Toggle<discovery::Behaviour>,
@@ -84,7 +84,7 @@ impl discovery::DiscoveryClient for Behaviour {
     fn add_address(&mut self, peer: &PeerId, address: Multiaddr) -> libp2p::kad::RoutingUpdate {
         self.discovery
             .as_mut()
-            .unwrap()
+            .expect("Discovery behaviour should be available")
             .kademlia
             .as_mut()
             .expect("Kademlia behaviour should be available")
@@ -94,7 +94,7 @@ impl discovery::DiscoveryClient for Behaviour {
     fn kbuckets(&mut self) -> impl Iterator<Item = KBucketRef<'_, KBucketKey<PeerId>, Addresses>> {
         self.discovery
             .as_mut()
-            .unwrap()
+            .expect("Discovery behaviour should be available")
             .kademlia
             .as_mut()
             .expect("Kademlia behaviour should be available")
@@ -158,35 +158,45 @@ impl Behaviour {
 
         let ping = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(5)));
 
-        let gossipsub = gossipsub::Behaviour::new_with_metrics(
-            gossipsub::MessageAuthenticity::Signed(keypair.clone()),
-            gossipsub_config(config.gossipsub, config.pubsub_max_size),
-            registry.sub_registry_with_prefix("gossipsub"),
-            Default::default(),
-        )
-        .unwrap();
+        let gossipsub = config.pubsub_protocol.is_gossipsub().then(|| {
+            gossipsub::Behaviour::new_with_metrics(
+                gossipsub::MessageAuthenticity::Signed(keypair.clone()),
+                gossipsub_config(config.gossipsub, config.pubsub_max_size),
+                registry.sub_registry_with_prefix("gossipsub"),
+                Default::default(),
+            )
+            .unwrap()
+        });
 
-        let broadcast = broadcast::Behaviour::new_with_metrics(
-            broadcast::Config {
-                max_buf_size: config.pubsub_max_size,
-            },
-            registry.sub_registry_with_prefix("broadcast"),
-        );
+        let enable_broadcast = config.pubsub_protocol.is_broadcast() || config.enable_sync;
+        let broadcast = enable_broadcast.then(|| {
+            broadcast::Behaviour::new_with_metrics(
+                broadcast::Config {
+                    max_buf_size: config.pubsub_max_size,
+                },
+                registry.sub_registry_with_prefix("broadcast"),
+            )
+        });
 
-        let sync = sync::Behaviour::new_with_metrics(
-            sync::Config::default().with_max_response_size(config.rpc_max_size),
-            registry.sub_registry_with_prefix("sync"),
-        );
+        let sync = config.enable_sync.then(|| {
+            sync::Behaviour::new_with_metrics(
+                sync::Config::default().with_max_response_size(config.rpc_max_size),
+                registry.sub_registry_with_prefix("sync"),
+            )
+        });
 
-        let discovery = discovery::Behaviour::new(keypair, config.discovery);
+        let discovery = config
+            .discovery
+            .enabled
+            .then(|| discovery::Behaviour::new(keypair, config.discovery));
 
         Self {
             identify,
-            ping: Toggle::from(None),
-            gossipsub,
-            broadcast: Toggle::from(None),
-            sync: Toggle::from(None),
-            discovery: Toggle::from(Some(discovery)),
+            ping,
+            sync: Toggle::from(sync),
+            gossipsub: Toggle::from(gossipsub),
+            broadcast: Toggle::from(broadcast),
+            discovery: Toggle::from(discovery),
         }
     }
 }
