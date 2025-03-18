@@ -1,3 +1,5 @@
+#![allow(unused_variables, unused_imports)]
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::ControlFlow;
@@ -33,7 +35,7 @@ pub use channel::Channel;
 use behaviour::{Behaviour, NetworkEvent};
 use handle::Handle;
 
-const PROTOCOL: &str = "/malachitebft-core-consensus/v1beta1";
+const PROTOCOL: &str = "/staknet/identify/0.1.0-rc.0"; // Typo is from the sequencer code
 const METRICS_PREFIX: &str = "malachitebft_network";
 const DISCOVERY_METRICS_PREFIX: &str = "malachitebft_discovery";
 
@@ -94,6 +96,7 @@ pub struct Config {
     pub pubsub_protocol: PubSubProtocol,
     pub rpc_max_size: usize,
     pub pubsub_max_size: usize,
+    pub enable_sync: bool,
 }
 
 impl Config {
@@ -204,7 +207,7 @@ pub async fn spawn(
     let peer_id = PeerId::from_libp2p(swarm.local_peer_id());
     let span = error_span!("network");
 
-    info!(parent: span.clone(), %peer_id, "Starting network service");
+    info!(parent: span.clone(), %peer_id, "Starting network");
 
     let task_handle =
         tokio::task::spawn(run(config, metrics, state, swarm, rx_ctrl, tx_event).instrument(span));
@@ -232,10 +235,12 @@ async fn run(
         return;
     };
 
-    if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
-        error!("Error subscribing to Sync channel: {e}");
-        return;
-    };
+    if config.enable_sync {
+        if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
+            error!("Error subscribing to Sync channel: {e}");
+            return;
+        };
+    }
 
     loop {
         let result = tokio::select! {
@@ -295,6 +300,11 @@ async fn handle_ctrl_msg(
         }
 
         CtrlMsg::Broadcast(channel, data) => {
+            if channel == Channel::Sync && !config.enable_sync {
+                trace!("Ignoring broadcast message to Sync channel: Sync not enabled");
+                return ControlFlow::Continue(());
+            }
+
             let msg_size = data.len();
             let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
 
@@ -307,10 +317,12 @@ async fn handle_ctrl_msg(
         }
 
         CtrlMsg::SyncRequest(peer_id, request, reply_to) => {
-            let request_id = swarm
-                .behaviour_mut()
-                .sync
-                .send_request(peer_id.to_libp2p(), request);
+            let Some(sync) = swarm.behaviour_mut().sync.as_mut() else {
+                error!("Cannot request Sync from peer: Sync not enabled");
+                return ControlFlow::Continue(());
+            };
+
+            let request_id = sync.send_request(peer_id.to_libp2p(), request);
 
             if let Err(e) = reply_to.send(request_id) {
                 error!(%peer_id, "Error sending Sync request: {e}");
@@ -320,12 +332,17 @@ async fn handle_ctrl_msg(
         }
 
         CtrlMsg::SyncReply(request_id, data) => {
+            let Some(sync) = swarm.behaviour_mut().sync.as_mut() else {
+                error!("Cannot send Sync response to peer: Sync not enabled");
+                return ControlFlow::Continue(());
+            };
+
             let Some(channel) = state.sync_channels.remove(&request_id) else {
                 error!(%request_id, "Received Sync reply for unknown request ID");
                 return ControlFlow::Continue(());
             };
 
-            let result = swarm.behaviour_mut().sync.send_response(channel, data);
+            let result = sync.send_response(channel, data);
 
             match result {
                 Ok(()) => debug!(%request_id, "Replied to Sync request"),
@@ -391,13 +408,20 @@ async fn handle_swarm_event(
         SwarmEvent::ConnectionClosed {
             peer_id,
             connection_id,
+            endpoint,
             cause,
             ..
         } => {
             if let Some(cause) = cause {
-                warn!("Connection closed with {peer_id}, reason: {cause}");
+                warn!(
+                    "Connection closed with {peer_id} at {}, reason: {cause}",
+                    endpoint.get_remote_address()
+                );
             } else {
-                warn!("Connection closed with {peer_id}, reason: unknown");
+                warn!(
+                    "Connection closed with {peer_id} at {}, reason: unknown",
+                    endpoint.get_remote_address()
+                );
             }
 
             state
@@ -501,21 +525,21 @@ async fn handle_gossipsub_event(
 ) -> ControlFlow<()> {
     match event {
         gossipsub::Event::Subscribed { peer_id, topic } => {
-            if !Channel::has_gossipsub_topic(&topic) {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
                 trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic}");
                 return ControlFlow::Continue(());
-            }
+            };
 
-            trace!("Peer {peer_id} subscribed to {topic}");
+            trace!("Peer {peer_id} subscribed to {channel}");
         }
 
         gossipsub::Event::Unsubscribed { peer_id, topic } => {
-            if !Channel::has_gossipsub_topic(&topic) {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
                 trace!("Peer {peer_id} tried to unsubscribe from unknown topic: {topic}");
                 return ControlFlow::Continue(());
-            }
+            };
 
-            trace!("Peer {peer_id} unsubscribed from {topic}");
+            trace!("Peer {peer_id} unsubscribed from {channel}");
         }
 
         gossipsub::Event::Message {

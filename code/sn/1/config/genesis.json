@@ -1,0 +1,22 @@
+{
+  "validator_set": {
+    "validators": [
+      {
+        "address": "0x0000000000000000000000000000000000000000000000000000000000000065",
+        "public_key": {
+          "type": "tendermint/PubKeyEd25519",
+          "value": "Hhaz5Ebr1Yx1VKNOVBnbazs5B5IyWN8P0qxkmE2oIn8="
+        },
+        "voting_power": 1
+      },
+      {
+        "address": "0x0000000000000000000000000000000000000000000000000000000000000064",
+        "public_key": {
+          "type": "tendermint/PubKeyEd25519",
+          "value": "xZpDiwDi7+uP/4Goz1QChct3qvDZ+IyHr89EqZIgrk0="
+        },
+        "voting_power": 1
+      }
+    ]
+  }
+}

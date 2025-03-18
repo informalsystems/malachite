@@ -178,7 +178,7 @@ where
             &N::make_distributed_config(i, nodes, machines.clone(), bootstrap_set_size, settings),
         )?;
 
-        let priv_validator_key = node.make_private_key_file((*private_key).clone());
+        let priv_validator_key = node.make_private_key_file(private_key.clone());
         save_priv_validator_key(
             node,
             &args.get_priv_validator_key_file_path()?,
