@@ -12,7 +12,7 @@ use malachitebft_core_types::{
 };
 use malachitebft_core_votekeeper::keeper::VoteKeeper;
 
-use crate::input::Input;
+use crate::input::{self, Input};
 use crate::output::Output;
 use crate::proposal_keeper::{EvidenceMap, ProposalKeeper};
 use crate::Error;
@@ -364,8 +364,8 @@ where
 
         let round = proposal.round();
 
-        match self.store_and_multiplex_proposal(proposal, validity) {
-            Some(round_input) => self.apply_input(round, round_input),
+        match self.store_and_multiplex_proposal(proposal, validity).pop() {
+            Some(input) => self.apply_input(round, input),
             None => Ok(None),
         }
     }

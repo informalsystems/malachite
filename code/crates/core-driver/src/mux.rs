@@ -82,13 +82,14 @@ where
         &mut self,
         proposal: Ctx::Proposal,
         validity: Validity,
-    ) -> Option<RoundInput<Ctx>> {
+    ) -> Vec<RoundInput<Ctx>> {
+        let mut results = Vec::new();
         // Should only receive proposals for our height.
         assert_eq!(self.height(), proposal.height());
 
         // Check that there is an ongoing round
         if self.round_state.round == Round::Nil {
-            return None;
+            return results;
         }
 
         // Determine if there is a polka for a previous round
@@ -105,16 +106,13 @@ where
             if self.round_state.step == Step::Propose {
                 if proposal.pol_round().is_nil() {
                     // L26
-                    return Some(RoundInput::InvalidProposal);
+                    results.push(RoundInput::InvalidProposal);
                 } else if polka_previous {
                     // L32
-                    return Some(RoundInput::InvalidProposalAndPolkaPrevious(proposal));
-                } else {
-                    return None;
+                    results.push(RoundInput::InvalidProposalAndPolkaPrevious(proposal));
                 }
-            } else {
-                return None;
             }
+            return results;
         }
 
         // We have a valid proposal. Check if there is already a certificate for it.
@@ -124,7 +122,8 @@ where
                 .get_certificate(proposal.round(), proposal.value().id())
                 .is_some()
         {
-            return Some(RoundInput::ProposalAndPrecommitValue(proposal));
+            results.push(RoundInput::ProposalAndPrecommitValue(proposal));
+            return results;
         }
 
         if self.vote_keeper.is_threshold_met(
@@ -133,14 +132,15 @@ where
             Threshold::Value(proposal.value().id()),
         ) && self.round_state.decision.is_none()
         {
-            return Some(RoundInput::ProposalAndPrecommitValue(proposal));
+            results.push(RoundInput::ProposalAndPrecommitValue(proposal));
+            return results;
         }
 
         // If the proposal is for a different round, return.
         // This check must be after the L49 check above because a commit quorum from any round
         // should result in a decision.
         if self.round_state.round != proposal.round() {
-            return None;
+            return results;
         }
 
         let polka_for_current = self.vote_keeper.is_threshold_met(
@@ -153,31 +153,34 @@ where
 
         // L36
         if polka_current {
-            return Some(RoundInput::ProposalAndPolkaCurrent(proposal));
+            results.push(RoundInput::ProposalAndPolkaCurrent(proposal));
+            return results;
         }
 
         // L28
         if self.round_state.step == Step::Propose && polka_previous {
-            return Some(RoundInput::ProposalAndPolkaPrevious(proposal));
+            results.push(RoundInput::ProposalAndPolkaPrevious(proposal));
+            return results;
         }
 
         if proposal.pol_round().is_nil() {
             // L22
-            return Some(RoundInput::Proposal(proposal));
+            results.push(RoundInput::Proposal(proposal));
+            return results;
         }
 
         // We have `vr >= 0` without a  matching polka from round `vr`,
         // so we do not do anything and wait either:
         // - For more votes to arrive and form a polka
         // - For the Propose timeout to expire, prevote nil and move to prevote
-        None
+        results
     }
 
     pub(crate) fn store_and_multiplex_proposal(
         &mut self,
         signed_proposal: SignedProposal<Ctx>,
         validity: Validity,
-    ) -> Option<RoundInput<Ctx>> {
+    ) -> Vec<RoundInput<Ctx>> {
         // Should only receive proposals for our height.
         assert_eq!(self.height(), signed_proposal.height());
 
@@ -310,7 +313,7 @@ where
 
             match self.round_state().step {
                 Step::Propose => {
-                    if let Some(input) = self.multiplex_proposal(proposal.clone(), *validity) {
+                    for input in self.multiplex_proposal(proposal.clone(), *validity) {
                         result.push((self.round(), input))
                     }
                 }
