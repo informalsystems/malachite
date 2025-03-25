@@ -17,7 +17,7 @@ use malachitebft_core_consensus::{
 };
 use malachitebft_core_types::{
     Context, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind, ValidatorSet,
-    ValueId, ValueOrigin,
+    ValueId, ValueOrigin, ValuePayload,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -243,6 +243,7 @@ where
         input: ConsensusInput<Ctx>,
     ) -> Result<(), ConsensusError<Ctx>> {
         let height = state.height();
+        let value_payload = state.consensus.params.value_payload;
 
         malachitebft_core_consensus::process!(
             input: input,
@@ -255,6 +256,7 @@ where
                     &mut state.timers,
                     &mut state.timeouts,
                     state.phase,
+                    value_payload,
                     effect
                 ).await
             }
@@ -823,6 +825,7 @@ where
         timers: &mut Timers,
         timeouts: &mut Timeouts,
         phase: Phase,
+        value_payload: ValuePayload,
         effect: Effect<Ctx>,
     ) -> Result<Resume<Ctx>, ActorProcessingErr> {
         match effect {
@@ -951,12 +954,17 @@ where
                 // NOTE: The message has already been append to the WAL by the `WalAppendMessage` effect.
                 self.wal_flush(phase).await?;
 
-                // Notify any subscribers that we are about to publish a message
-                self.tx_event.send(|| Event::Published(msg.clone()));
+                let should_broadcast = match &msg {
+                    SignedConsensusMsg::Vote(_) => true,
+                    _ => value_payload.include_proposal(),
+                };
 
-                self.network
-                    .cast(NetworkMsg::Publish(msg))
-                    .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                if should_broadcast {
+                    self.tx_event.send(|| Event::Published(msg.clone()));
+                    self.network
+                        .cast(NetworkMsg::Publish(msg))
+                        .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                }
 
                 Ok(r.resume_with(()))
             }
@@ -1094,8 +1102,17 @@ where
             }
 
             Effect::WalAppendMessage(msg, r) => {
-                self.wal_append(height, WalEntry::ConsensusMsg(msg), phase)
-                    .await?;
+                // If msg is proposal and consensus runs in a mode where it publishes proposals over the network,
+                // we need to persist in the Write-Ahead Log before we actually send it over the network.
+                let should_append = match &msg {
+                    SignedConsensusMsg::Vote(_) => true,
+                    _ => value_payload.include_proposal(),
+                };
+
+                if should_append {
+                    self.wal_append(height, WalEntry::ConsensusMsg(msg), phase)
+                        .await?;
+                }
 
                 Ok(r.resume_with(()))
             }
