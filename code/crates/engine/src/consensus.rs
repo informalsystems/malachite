@@ -297,17 +297,28 @@ where
 
                 let (wal_before, wal_after) = self.start_wal(height).await?;
 
+                // Prepare the driver state for the new height,
+                // but do not start consensus yet.
+                let result = self
+                    .process_input(
+                        &myself,
+                        state,
+                        ConsensusInput::PrepareHeight(height, validator_set),
+                    )
+                    .await;
+
+                if let Err(e) = result {
+                    error!(%height, "Error when preparing for height: {e}");
+                }
+
                 // Replay the proposed values from the WAL before starting the new height
                 if let Err(e) = self.replay_wal(&myself, state, height, wal_before).await {
                     error!(%height, "Error when checking and replaying proposed values from the WAL: {e}");
                 }
 
+                // Start consensus
                 let result = self
-                    .process_input(
-                        &myself,
-                        state,
-                        ConsensusInput::StartHeight(height, validator_set),
-                    )
+                    .process_input(&myself, state, ConsensusInput::StartHeight(height))
                     .await;
 
                 if let Err(e) = result {
