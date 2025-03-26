@@ -573,23 +573,6 @@ where
                 self.tx_event
                     .send(|| Event::ReceivedProposedValue(value.clone(), origin));
 
-                if state.consensus.params.value_payload.parts_only() || origin == ValueOrigin::Sync
-                {
-                    let proposal = Ctx::new_proposal(
-                        value.height,
-                        value.round,
-                        value.value.clone(),
-                        value.valid_round,
-                        value.proposer.clone(),
-                    );
-                    let signed_proposal = self.signing_provider.sign_proposal(proposal);
-                    if let Err(e) = self
-                        .process_input(&myself, state, ConsensusInput::Proposal(signed_proposal))
-                        .await
-                    {
-                        error!("Error when processing proposal: {e}");
-                    }
-                }
                 let result = self
                     .process_input(&myself, state, ConsensusInput::ProposedValue(value, origin))
                     .await;
