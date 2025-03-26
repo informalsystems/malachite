@@ -9,7 +9,7 @@ use malachitebft_core_types::{CommitCertificate, Context, Round, ValueId, VoteEx
 use malachitebft_sync::RawDecidedValue;
 
 use crate::consensus::ConsensusRef;
-use crate::util::streaming::StreamMessage;
+use crate::network::NetworkEvent;
 
 pub use malachitebft_core_consensus::{LocallyProposedValue, ProposedValue};
 
@@ -74,13 +74,6 @@ pub enum HostMsg<Ctx: Context> {
     /// Request the earliest block height in the block store
     GetHistoryMinHeight { reply_to: RpcReplyPort<Ctx::Height> },
 
-    /// ProposalPart received <-- consensus <-- gossip
-    ReceivedProposalPart {
-        from: PeerId,
-        part: StreamMessage<Ctx::ProposalPart>,
-        reply_to: RpcReplyPort<ProposedValue<Ctx>>,
-    },
-
     /// Get the validator set at a given height
     GetValidatorSet {
         height: Ctx::Height,
@@ -133,4 +126,13 @@ pub enum HostMsg<Ctx: Context> {
         /// The ID of the peer that left
         peer_id: PeerId,
     },
+
+    /// A network event was received.
+    NetworkEvent(NetworkEvent<Ctx>),
+}
+
+impl<Ctx: Context> From<NetworkEvent<Ctx>> for HostMsg<Ctx> {
+    fn from(event: NetworkEvent<Ctx>) -> Self {
+        Self::NetworkEvent(event)
+    }
 }

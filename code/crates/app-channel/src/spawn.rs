@@ -18,13 +18,15 @@ use crate::connector::Connector;
 use crate::{AppMsg, NetworkMsg};
 
 pub async fn spawn_host_actor<Ctx>(
+    network: NetworkRef<Ctx>,
     metrics: Metrics,
 ) -> Result<(HostRef<Ctx>, mpsc::Receiver<AppMsg<Ctx>>)>
 where
     Ctx: Context,
 {
     let (tx, rx) = mpsc::channel(128);
-    let actor_ref = Connector::spawn(tx, metrics).await?;
+    let actor_ref = Connector::spawn(network, tx, metrics).await?;
+
     Ok((actor_ref, rx))
 }
 

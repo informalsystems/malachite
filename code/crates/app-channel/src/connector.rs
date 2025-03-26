@@ -9,6 +9,7 @@ use tracing::error;
 use malachitebft_app::types::core::ValueOrigin;
 use malachitebft_engine::consensus::ConsensusMsg;
 use malachitebft_engine::host::HostMsg;
+use malachitebft_engine::network::{NetworkEvent, NetworkMsg, NetworkRef};
 
 use crate::app::metrics::Metrics;
 use crate::app::types::core::Context;
@@ -22,6 +23,7 @@ pub struct Connector<Ctx>
 where
     Ctx: Context,
 {
+    network: NetworkRef<Ctx>,
     sender: mpsc::Sender<AppMsg<Ctx>>,
 
     // TODO: add some metrics
@@ -33,18 +35,27 @@ impl<Ctx> Connector<Ctx>
 where
     Ctx: Context,
 {
-    pub fn new(sender: mpsc::Sender<AppMsg<Ctx>>, metrics: Metrics) -> Self {
-        Connector { sender, metrics }
+    pub fn new(
+        network: NetworkRef<Ctx>,
+        sender: mpsc::Sender<AppMsg<Ctx>>,
+        metrics: Metrics,
+    ) -> Self {
+        Connector {
+            network,
+            sender,
+            metrics,
+        }
     }
 
     pub async fn spawn(
+        network: NetworkRef<Ctx>,
         sender: mpsc::Sender<AppMsg<Ctx>>,
         metrics: Metrics,
     ) -> Result<ActorRef<HostMsg<Ctx>>, SpawnErr>
     where
         Ctx: Context,
     {
-        let (actor_ref, _) = Actor::spawn(None, Self::new(sender, metrics), ()).await?;
+        let (actor_ref, _) = Actor::spawn(None, Self::new(network, sender, metrics), ()).await?;
         Ok(actor_ref)
     }
 }
@@ -202,22 +213,6 @@ where
                 reply_to.send(rx.await?)?;
             }
 
-            HostMsg::ReceivedProposalPart {
-                from,
-                part,
-                reply_to,
-            } => {
-                let (reply, rx) = oneshot::channel();
-
-                self.sender
-                    .send(AppMsg::ReceivedProposalPart { from, part, reply })
-                    .await?;
-
-                if let Some(value) = rx.await? {
-                    reply_to.send(value)?;
-                }
-            }
-
             HostMsg::GetValidatorSet { height, reply_to } => {
                 let (reply, rx) = oneshot::channel();
 
@@ -278,6 +273,30 @@ where
                 reply_to.send(rx.await?)?;
             }
 
+            HostMsg::NetworkEvent(NetworkEvent::ProposalPart(from, part)) => {
+                let (reply, rx) = oneshot::channel();
+
+                self.sender
+                    .send(AppMsg::ReceivedProposalPart { from, part, reply })
+                    .await?;
+
+                if let Some(response) = rx.await? {
+                    let Some(consensus) = &state.consensus else {
+                        error!("Consensus actor not set");
+                        return Ok(());
+                    };
+
+                    consensus.cast(ConsensusMsg::ReceivedProposedValue(
+                        response,
+                        ValueOrigin::Consensus,
+                    ))?;
+                }
+            }
+
+            HostMsg::NetworkEvent(_) => {
+                // Ignore other network events
+            }
+
             HostMsg::PeerJoined { peer_id } => {
                 self.sender.send(AppMsg::PeerJoined { peer_id }).await?;
             }
@@ -302,9 +321,11 @@ where
 
     async fn pre_start(
         &self,
-        _myself: ActorRef<Self::Msg>,
+        myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
+        self.network.cast(NetworkMsg::Subscribe(Box::new(myself)))?;
+
         Ok(State::default())
     }
 
