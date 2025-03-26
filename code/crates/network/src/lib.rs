@@ -30,7 +30,7 @@ pub mod handle;
 pub mod pubsub;
 
 mod channel;
-pub use channel::Channel;
+pub use channel::{Channel, ChannelNames};
 
 use behaviour::{Behaviour, NetworkEvent};
 use handle::Handle;
@@ -94,6 +94,7 @@ pub struct Config {
     pub transport: TransportProtocol,
     pub gossipsub: GossipSubConfig,
     pub pubsub_protocol: PubSubProtocol,
+    pub channel_names: ChannelNames,
     pub rpc_max_size: usize,
     pub pubsub_max_size: usize,
     pub enable_sync: bool,

@@ -1,8 +1,29 @@
 use core::fmt;
+use std::sync::OnceLock;
 
+use futures::channel;
 use libp2p::gossipsub;
 use libp2p_broadcast as broadcast;
 use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug)]
+pub struct ChannelNames {
+    pub consensus: &'static str,
+    pub proposal_parts: &'static str,
+    pub sync: &'static str,
+}
+
+impl Default for ChannelNames {
+    fn default() -> Self {
+        Self {
+            consensus: "consensus_votes",
+            proposal_parts: "consensus_proposals",
+            sync: "sync",
+        }
+    }
+}
+
+static CHANNEL_NAMES: OnceLock<ChannelNames> = OnceLock::new();
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Channel {
@@ -12,6 +33,14 @@ pub enum Channel {
 }
 
 impl Channel {
+    pub fn init_channel_names(channel_names: ChannelNames) -> Result<(), ChannelNames> {
+        CHANNEL_NAMES.set(channel_names)
+    }
+
+    fn get_channel_names() -> &'static ChannelNames {
+        CHANNEL_NAMES.get_or_init(ChannelNames::default)
+    }
+
     pub fn all() -> &'static [Channel] {
         &[Channel::Consensus, Channel::ProposalParts, Channel::Sync]
     }
@@ -30,10 +59,11 @@ impl Channel {
     }
 
     pub fn as_str(&self) -> &'static str {
+        let channel_names = Self::get_channel_names();
         match self {
-            Channel::Consensus => "consensus_votes",
-            Channel::ProposalParts => "consensus_proposals",
-            Channel::Sync => "sync",
+            Channel::Consensus => channel_names.consensus,
+            Channel::ProposalParts => channel_names.proposal_parts,
+            Channel::Sync => channel_names.sync,
         }
     }
 
@@ -62,10 +92,11 @@ impl Channel {
     }
 
     pub fn from_broadcast_topic(topic: &broadcast::Topic) -> Option<Self> {
+        let channel_names = Self::get_channel_names();
         match topic.as_ref() {
-            b"consensus_votes" => Some(Channel::Consensus),
-            b"consensus_proposals" => Some(Channel::ProposalParts),
-            b"sync" => Some(Channel::Sync),
+            name if name == channel_names.consensus.as_bytes() => Some(Self::Consensus),
+            name if name == channel_names.proposal_parts.as_bytes() => Some(Self::ProposalParts),
+            name if name == channel_names.sync.as_bytes() => Some(Self::Sync),
             _ => None,
         }
     }

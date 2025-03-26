@@ -5,9 +5,9 @@ const DEFAULT_NUM_INBOUND_PEERS: usize = 20;
 
 const DEFAULT_EPHEMERAL_CONNECTION_TIMEOUT: Duration = Duration::from_secs(15);
 
-const DEFAULT_DIAL_MAX_RETRIES: usize = 10_000;
-const DEFAULT_PEERS_REQUEST_MAX_RETRIES: usize = 10_000;
-const DEFAULT_CONNECT_REQUEST_MAX_RETRIES: usize = 10_000;
+const DEFAULT_DIAL_MAX_RETRIES: usize = 5;
+const DEFAULT_PEERS_REQUEST_MAX_RETRIES: usize = 5;
+const DEFAULT_CONNECT_REQUEST_MAX_RETRIES: usize = 0;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum BootstrapProtocol {

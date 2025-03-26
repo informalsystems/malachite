@@ -246,6 +246,7 @@ async fn spawn_network_actor(
             },
             config::PubSubProtocol::Broadcast => gossip::GossipSubConfig::default(),
         },
+        channel_names: malachitebft_network::ChannelNames::default(),
         rpc_max_size: cfg.consensus.p2p.rpc_max_size.as_u64() as usize,
         pubsub_max_size: cfg.consensus.p2p.pubsub_max_size.as_u64() as usize,
         enable_sync: false,
