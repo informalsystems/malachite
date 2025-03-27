@@ -298,20 +298,9 @@ where
     ) -> Result<(), ActorProcessingErr> {
         match msg {
             Msg::StartHeight(height, validator_set) => {
-                let wal_entries = self.start_wal(height).await?;
+                self.tx_event.send(|| Event::StartedHeight(height));
 
-                if !wal_entries.is_empty() {
-                    if let Some(proposed_value) = wal_entries.iter().find_map(|entry| {
-                        if let WalEntry::ProposedValue(value) = entry {
-                            Some(value)
-                        } else {
-                            None
-                        }
-                    }) {
-                        info!("Found a proposed value in WAL: {proposed_value:?}");
-                        state.wal_proposed_value = Some(proposed_value.clone());
-                    }
-                }
+                let wal_entries = self.start_wal(height, state).await?;
 
                 let result = self
                     .process_input(
@@ -331,8 +320,6 @@ where
                         error!(%height, "Error when notifying sync of started height: {e}")
                     }
                 }
-
-                self.tx_event.send(|| Event::StartedHeight(height));
 
                 if let Err(e) = self.replay_wal(&myself, state, height, wal_entries).await {
                     error!(%height, "Error when checking and replaying WAL: {e}");
@@ -631,6 +618,7 @@ where
     async fn start_wal(
         &self,
         height: Ctx::Height,
+        state: &mut State<Ctx>,
     ) -> Result<Vec<WalEntry<Ctx>>, ActorProcessingErr> {
         let result = ractor::call!(self.wal, WalMsg::StartedHeight, height)?;
 
@@ -643,8 +631,17 @@ where
 
             Ok(Some(entries)) => {
                 info!("Found {} WAL entries to replay", entries.len());
+
+                if let Some(proposed_value) =
+                    entries.iter().find_map(|entry| entry.as_proposed_value())
+                {
+                    info!("Found a proposed value in WAL: {proposed_value:?}");
+                    state.wal_proposed_value = Some(proposed_value.clone());
+                }
+
                 Ok(entries)
             }
+
             Err(e) => {
                 error!(%height, "Error when notifying WAL of started height: {e}");
                 self.tx_event

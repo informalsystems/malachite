@@ -84,6 +84,29 @@ pub enum WalEntry<Ctx: Context> {
     ProposedValue(LocallyProposedValue<Ctx>),
 }
 
+impl<Ctx: Context> WalEntry<Ctx> {
+    pub fn as_consensus_msg(&self) -> Option<&SignedConsensusMsg<Ctx>> {
+        match self {
+            WalEntry::ConsensusMsg(msg) => Some(msg),
+            _ => None,
+        }
+    }
+
+    pub fn as_timeout(&self) -> Option<&Timeout> {
+        match self {
+            WalEntry::Timeout(timeout) => Some(timeout),
+            _ => None,
+        }
+    }
+
+    pub fn as_proposed_value(&self) -> Option<&LocallyProposedValue<Ctx>> {
+        match self {
+            WalEntry::ProposedValue(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum VoteExtensionError {
     #[error("Invalid vote extension signature")]
