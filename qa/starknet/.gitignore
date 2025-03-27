@@ -1,0 +1,4 @@
+logs/*
+!logs/README.md
+config/malachite-node-*/*
+!config/malachite-node-*/config/

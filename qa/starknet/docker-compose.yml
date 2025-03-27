@@ -1,0 +1,66 @@
+volumes:
+
+  logs:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./logs
+      o: bind
+
+  config:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./config
+      o: bind
+
+  malachite:
+    driver: local
+    driver_opts:
+      type: none
+      device: ../../code
+      o: bind
+
+  sequencer:
+    driver: local
+    driver_opts:
+      type: none
+      device: ../../../sequencer
+      o: bind
+
+networks:
+
+  test-network:
+    driver: bridge
+
+services:
+
+  malachite-node-1:
+    container_name: malachite-node-1
+    build:
+      context: .
+      dockerfile: malachite.Dockerfile
+    volumes:
+      - malachite:/malachite
+      - logs:/logs
+      - config:/config
+    networks:
+      - test-network
+    working_dir: /malachite
+    tty: true
+    stdin_open: true
+
+  sequencer-node-1:
+    container_name: sequencer-node-1
+    build:
+      context: ../../../
+      dockerfile: malachite/qa/starknet/sequencer.Dockerfile
+    volumes:
+      - sequencer:/sequencer
+      - logs:/logs
+      - config:/config
+    networks:
+      - test-network
+    working_dir: /sequencer
+    tty: true
+    stdin_open: true
