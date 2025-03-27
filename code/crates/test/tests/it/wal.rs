@@ -1,13 +1,16 @@
 use std::time::Duration;
 
 use eyre::bail;
+use informalsystems_malachitebft_test::middleware::{self, Middleware};
 use tracing::info;
 
-use informalsystems_malachitebft_test as malachitebft_test;
+use informalsystems_malachitebft_test::{
+    self as malachitebft_test, Address, Height, ValueId, Vote,
+};
 
 use malachitebft_config::{ValuePayload, VoteSyncMode};
 use malachitebft_core_consensus::LocallyProposedValue;
-use malachitebft_core_types::SignedVote;
+use malachitebft_core_types::{NilOrVal, Round, SignedVote};
 use malachitebft_engine::util::events::Event;
 use malachitebft_test::TestContext;
 
@@ -487,14 +490,34 @@ async fn wal_multi_rounds(params: TestParams) {
         .wait_until(CRASH_HEIGHT + 2)
         .success();
 
-    test.build()
-        .run_with_params(
-            Duration::from_secs(60),
-            TestParams {
-                enable_value_sync: false,
+    struct PrevoteNil;
 
-                ..params
-            },
-        )
-        .await
+    impl Middleware for PrevoteNil {
+        fn new_prevote(
+            &self,
+            height: Height,
+            round: Round,
+            value_id: NilOrVal<ValueId>,
+            address: Address,
+        ) -> Vote {
+            if round.as_i64() <= 3 {
+                Vote::new_prevote(height, round, NilOrVal::Nil, address)
+            } else {
+                Vote::new_prevote(height, round, value_id, address)
+            }
+        }
+    }
+
+    middleware::scoped(PrevoteNil, async || {
+        test.build()
+            .run_with_params(
+                Duration::from_secs(60),
+                TestParams {
+                    enable_value_sync: false,
+                    ..params
+                },
+            )
+            .await
+    })
+    .await
 }

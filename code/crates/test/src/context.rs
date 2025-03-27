@@ -4,6 +4,7 @@ use malachitebft_core_types::{Context, NilOrVal, Round, ValidatorSet as _};
 
 use crate::address::*;
 use crate::height::*;
+use crate::middleware;
 use crate::proposal::*;
 use crate::proposal_part::*;
 use crate::signing::*;
@@ -78,7 +79,7 @@ impl Context for TestContext {
         value_id: NilOrVal<ValueId>,
         address: Address,
     ) -> Vote {
-        Vote::new_prevote(height, round, value_id, address)
+        middleware::with(|middleware| middleware.new_prevote(height, round, value_id, address))
     }
 
     fn new_precommit(
@@ -87,6 +88,6 @@ impl Context for TestContext {
         value_id: NilOrVal<ValueId>,
         address: Address,
     ) -> Vote {
-        Vote::new_precommit(height, round, value_id, address)
+        middleware::with(|middleware| middleware.new_precommit(height, round, value_id, address))
     }
 }
