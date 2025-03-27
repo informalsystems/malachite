@@ -231,13 +231,23 @@ async fn run(
 
     state.discovery.dial_bootstrap_nodes(&swarm);
 
-    if let Err(e) = pubsub::subscribe(&mut swarm, config.pubsub_protocol, Channel::consensus()) {
+    if let Err(e) = pubsub::subscribe(
+        &mut swarm,
+        config.pubsub_protocol,
+        Channel::consensus(),
+        config.channel_names,
+    ) {
         error!("Error subscribing to consensus channels: {e}");
         return;
     };
 
     if config.enable_sync {
-        if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
+        if let Err(e) = pubsub::subscribe(
+            &mut swarm,
+            PubSubProtocol::Broadcast,
+            &[Channel::Sync],
+            config.channel_names,
+        ) {
             error!("Error subscribing to Sync channel: {e}");
             return;
         };
@@ -290,7 +300,13 @@ async fn handle_ctrl_msg(
     match msg {
         CtrlMsg::Publish(channel, data) => {
             let msg_size = data.len();
-            let result = pubsub::publish(swarm, config.pubsub_protocol, channel, data);
+            let result = pubsub::publish(
+                swarm,
+                config.pubsub_protocol,
+                channel,
+                config.channel_names,
+                data,
+            );
 
             match result {
                 Ok(()) => debug!(%channel, size = %msg_size, "Published message"),
@@ -307,7 +323,13 @@ async fn handle_ctrl_msg(
             }
 
             let msg_size = data.len();
-            let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
+            let result = pubsub::publish(
+                swarm,
+                PubSubProtocol::Broadcast,
+                channel,
+                config.channel_names,
+                data,
+            );
 
             match result {
                 Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
@@ -359,7 +381,7 @@ async fn handle_ctrl_msg(
 
 async fn handle_swarm_event(
     event: SwarmEvent<NetworkEvent>,
-    _config: &Config,
+    config: &Config,
     metrics: &Metrics,
     swarm: &mut swarm::Swarm<Behaviour>,
     state: &mut State,
@@ -494,11 +516,11 @@ async fn handle_swarm_event(
         }
 
         SwarmEvent::Behaviour(NetworkEvent::GossipSub(event)) => {
-            return handle_gossipsub_event(event, metrics, swarm, state, tx_event).await;
+            return handle_gossipsub_event(event, config, metrics, swarm, state, tx_event).await;
         }
 
         SwarmEvent::Behaviour(NetworkEvent::Broadcast(event)) => {
-            return handle_broadcast_event(event, metrics, swarm, state, tx_event).await;
+            return handle_broadcast_event(event, config, metrics, swarm, state, tx_event).await;
         }
 
         SwarmEvent::Behaviour(NetworkEvent::Sync(event)) => {
@@ -519,6 +541,7 @@ async fn handle_swarm_event(
 
 async fn handle_gossipsub_event(
     event: gossipsub::Event,
+    config: &Config,
     _metrics: &Metrics,
     _swarm: &mut swarm::Swarm<Behaviour>,
     _state: &mut State,
@@ -526,7 +549,8 @@ async fn handle_gossipsub_event(
 ) -> ControlFlow<()> {
     match event {
         gossipsub::Event::Subscribed { peer_id, topic } => {
-            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic, config.channel_names)
+            else {
                 trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic}");
                 return ControlFlow::Continue(());
             };
@@ -535,7 +559,8 @@ async fn handle_gossipsub_event(
         }
 
         gossipsub::Event::Unsubscribed { peer_id, topic } => {
-            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic) else {
+            let Some(channel) = Channel::from_gossipsub_topic_hash(&topic, config.channel_names)
+            else {
                 trace!("Peer {peer_id} tried to unsubscribe from unknown topic: {topic}");
                 return ControlFlow::Continue(());
             };
@@ -552,7 +577,9 @@ async fn handle_gossipsub_event(
                 return ControlFlow::Continue(());
             };
 
-            let Some(channel) = Channel::from_gossipsub_topic_hash(&message.topic) else {
+            let Some(channel) =
+                Channel::from_gossipsub_topic_hash(&message.topic, config.channel_names)
+            else {
                 trace!(
                     "Received message {message_id} from {peer_id} on different channel: {}",
                     message.topic
@@ -598,6 +625,7 @@ async fn handle_gossipsub_event(
 
 async fn handle_broadcast_event(
     event: broadcast::Event,
+    config: &Config,
     _metrics: &Metrics,
     _swarm: &mut swarm::Swarm<Behaviour>,
     _state: &mut State,
@@ -605,7 +633,7 @@ async fn handle_broadcast_event(
 ) -> ControlFlow<()> {
     match event {
         broadcast::Event::Subscribed(peer_id, topic) => {
-            if !Channel::has_broadcast_topic(&topic) {
+            if !Channel::has_broadcast_topic(&topic, config.channel_names) {
                 trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic:?}");
                 return ControlFlow::Continue(());
             }
@@ -614,7 +642,7 @@ async fn handle_broadcast_event(
         }
 
         broadcast::Event::Unsubscribed(peer_id, topic) => {
-            if !Channel::has_broadcast_topic(&topic) {
+            if !Channel::has_broadcast_topic(&topic, config.channel_names) {
                 trace!("Peer {peer_id} tried to unsubscribe from unknown topic: {topic:?}");
                 return ControlFlow::Continue(());
             }
@@ -623,7 +651,7 @@ async fn handle_broadcast_event(
         }
 
         broadcast::Event::Received(peer_id, topic, message) => {
-            let Some(channel) = Channel::from_broadcast_topic(&topic) else {
+            let Some(channel) = Channel::from_broadcast_topic(&topic, config.channel_names) else {
                 trace!("Received message from {peer_id} on different channel: {topic:?}");
                 return ControlFlow::Continue(());
             };
