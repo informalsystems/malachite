@@ -656,28 +656,16 @@ where
         height: Ctx::Height,
         entries: Vec<WalEntry<Ctx>>,
     ) {
-        state.phase = Phase::Recovering;
-
-        if let Err(e) = self.replay_wal_entries(myself, state, entries).await {
-            error!(%height, "Failed to replay WAL entries: {e}");
-            self.tx_event.send(|| Event::WalReplayError(Arc::new(e)));
-        }
-    }
-
-    async fn replay_wal_entries(
-        &self,
-        myself: &ActorRef<Msg<Ctx>>,
-        state: &mut State<Ctx>,
-        entries: Vec<WalEntry<Ctx>>,
-    ) -> Result<(), ActorProcessingErr> {
         use SignedConsensusMsg::*;
 
+        state.phase = Phase::Recovering;
+
         if entries.is_empty() {
-            return Ok(());
+            return;
         }
 
         self.tx_event
-            .send(|| Event::WalReplayBegin(state.height(), entries.len()));
+            .send(|| Event::WalReplayBegin(height, entries.len()));
 
         for entry in entries {
             match entry {
@@ -690,6 +678,9 @@ where
                         .await
                     {
                         error!("Error when replaying Vote: {e}");
+
+                        self.tx_event
+                            .send(|| Event::WalReplayError(Arc::new(e.into())));
                     }
                 }
 
@@ -702,6 +693,9 @@ where
                         .await
                     {
                         error!("Error when replaying Proposal: {e}");
+
+                        self.tx_event
+                            .send(|| Event::WalReplayError(Arc::new(e.into())));
                     }
                 }
 
@@ -710,6 +704,8 @@ where
 
                     if let Err(e) = self.timeout_elapsed(myself, state, timeout).await {
                         error!("Error when replaying TimeoutElapsed: {e}");
+
+                        self.tx_event.send(|| Event::WalReplayError(Arc::new(e)));
                     }
                 }
 
@@ -722,14 +718,15 @@ where
                         .await
                     {
                         error!("Error when replaying ProposedValue: {e}");
+
+                        self.tx_event
+                            .send(|| Event::WalReplayError(Arc::new(e.into())));
                     }
                 }
             }
         }
 
         self.tx_event.send(|| Event::WalReplayDone(state.height()));
-
-        Ok(())
     }
 
     fn get_value(
