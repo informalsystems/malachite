@@ -241,17 +241,13 @@ where
 
                 on_proposal(co, state, metrics, signed_proposal.clone()).await?;
 
-                // Proposal messages should not be broadcasted if they are implicit,
-                // instead they should be inferred from the block parts.
-                if state.params.value_payload.include_proposal() {
-                    perform!(
-                        co,
-                        Effect::Publish(
-                            SignedConsensusMsg::Proposal(signed_proposal),
-                            Default::default()
-                        )
-                    );
-                };
+                perform!(
+                    co,
+                    Effect::Publish(
+                        SignedConsensusMsg::Proposal(signed_proposal),
+                        Default::default()
+                    )
+                );
             }
 
             Ok(())
