@@ -11,7 +11,7 @@ module consensus {
 
 	type Vote = (Round, Step, Address)
 	pure def round(v: Vote) : Round = v._1
-	pure def step(v: Vote) : Step = v._2
+	pure def rstep(v: Vote) : Step = v._2
 	pure def sender(v: Vote) : Address = v._3
 
 	type RoundVotes = {
@@ -21,16 +21,12 @@ module consensus {
 
 	pure def addRoundVote(r: RoundVotes, v: Vote) : RoundVotes = {
 		val new = Set(v.sender())
-		match v.step() {
+		match v.rstep() {
 			| Propose => r // Should not happen
 			| Prevote => {...r, prevotes: r.prevotes.union(new)}
 			| Precommit => {...r, precommits: r.precommits.union(new)}
 		}
 	}
-
-	// FIXME: this is a workaround, the quorum should be a const
-	// NOTE: a const is not available for pure def methods though
-	val quorum = 3
 
 	type Consensus = {
 		id: Address,
@@ -97,5 +93,62 @@ module consensus {
 			| Precommit => c.precommitStep()
 		}
 	}
+
+	// State-machine
+
+	// FIXME: this is a workaround, the quorum should be a const
+	// NOTE: a const is not available for pure def methods though
+	val quorum = 3
+
+	var processes : Address -> Consensus
+
+	action init = all {
+		processes' = 1.to(4).mapBy(id => NewConsensus(id)),
+	}
+
+	action deliver(id, vote) = all {
+		processes' = processes.setBy(id,
+			(p => p.addVote(vote).stepLogic())
+		)
+	}
+
+	action consensusStep(id) = all {
+		val p = processes.get(id)
+		val nextP = p.stepLogic()
+		all {
+			nextP != p,
+			processes' = processes.put(id, nextP),
+		}
+	}
+
+	action step = {
+		nondet id = oneOf(processes.keys())
+		any {
+			consensusStep(id),
+			all {
+				size(allMessages) > 0,
+				nondet vote = oneOf(allMessages)
+				deliver(id, vote),
+			}
+		}
+	}
+
+	// Helper to collect all messages produced by processes
+	def allMessages =
+		processes.keys().fold(Set(), (s, id) =>
+			s.union(processes.get(id).messages.
+				foldl(Set(), (ss, v) => ss.union(Set(v)))
+			)
+		)
+
+	// Debugging helpers
+
+	def p = processes
+	def a = allMessages
+	def s =
+		processes.keys().fold(Set(), (s, id) =>
+			val p = processes.get(id)
+			s.union(Set((id, p.round, p.step)))
+		)
 
 }
