@@ -22,6 +22,16 @@ where
         return Ok(());
     }
 
+    if state.driver.round() != value.round {
+        warn!(
+            "Ignoring proposal for round {}, current round: {}",
+            value.round,
+            state.driver.round()
+        );
+
+        return Ok(());
+    }
+
     state.store_value(&ProposedValue {
         height: value.height,
         round: value.round,
@@ -30,16 +40,6 @@ where
         value: value.value.clone(),
         validity: Validity::Valid,
     });
-
-    if state.driver.round() != value.round {
-        warn!(
-            "Ignoring propose value for round {}, current round: {}",
-            value.round,
-            state.driver.round()
-        );
-
-        return Ok(());
-    }
 
     #[cfg(feature = "metrics")]
     metrics.consensus_start();

@@ -17,7 +17,7 @@ use malachitebft_core_consensus::{
 };
 use malachitebft_core_types::{
     Context, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind, ValidatorSet,
-    ValueId, ValueOrigin,
+    Validity, ValueId, ValueOrigin,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -709,15 +709,28 @@ where
                     }
                 }
 
-                WalEntry::ProposedValue(value) => {
+                WalEntry::LocallyProposedValue(value) => {
                     self.tx_event
                         .send(|| Event::WalReplayProposedValue(value.clone()));
 
+                    let proposed = ProposedValue {
+                        height: value.height,
+                        round: value.round,
+                        valid_round: Round::Nil,
+                        proposer: state.consensus.address().clone(),
+                        value: value.value,
+                        validity: Validity::Valid,
+                    };
+
                     if let Err(e) = self
-                        .process_input(myself, state, ConsensusInput::Propose(value))
+                        .process_input(
+                            myself,
+                            state,
+                            ConsensusInput::ProposedValue(proposed, ValueOrigin::Consensus),
+                        )
                         .await
                     {
-                        error!("Error when replaying ProposedValue: {e}");
+                        error!("Error when replaying LocallyProposedValue: {e}");
 
                         self.tx_event
                             .send(|| Event::WalReplayError(Arc::new(e.into())));
