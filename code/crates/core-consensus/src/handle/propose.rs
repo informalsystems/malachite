@@ -46,7 +46,10 @@ where
 
     perform!(
         co,
-        Effect::WalAppend(WalEntry::ProposedValue(value.clone()), Default::default())
+        Effect::WalAppend(
+            WalEntry::LocallyProposedValue(value.clone()),
+            Default::default()
+        )
     );
 
     apply_driver_input(

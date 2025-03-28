@@ -54,7 +54,7 @@ where
         state.store_proposal(signed_proposal);
     }
 
-    let proposals = state.full_proposals_for_value(&proposed_value);
+    let proposals = state.proposals_for_value(&proposed_value);
     for signed_proposal in proposals {
         debug!(
             proposal.height = %signed_proposal.height(),

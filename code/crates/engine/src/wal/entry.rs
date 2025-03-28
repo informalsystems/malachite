@@ -66,7 +66,7 @@ where
             Ok(())
         }
 
-        WalEntry::ProposedValue(value) => {
+        WalEntry::LocallyProposedValue(value) => {
             let bytes = codec.encode(value).map_err(|e| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -129,7 +129,7 @@ where
                 )
             })?;
 
-            Ok(WalEntry::ProposedValue(value))
+            Ok(WalEntry::LocallyProposedValue(value))
         }
 
         _ => Err(io::Error::new(io::ErrorKind::InvalidData, "invalid tag")),

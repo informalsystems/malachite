@@ -183,12 +183,12 @@ where
             .full_proposal_at_round_and_value(height, round, &value.id())
     }
 
-    pub fn full_proposals_for_value(
+    pub fn proposals_for_value(
         &self,
         proposed_value: &ProposedValue<Ctx>,
     ) -> Vec<SignedProposal<Ctx>> {
         self.full_proposal_keeper
-            .full_proposals_for_value(proposed_value)
+            .proposals_for_value(proposed_value)
     }
 
     pub fn store_proposal(&mut self, new_proposal: SignedProposal<Ctx>) {

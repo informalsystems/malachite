@@ -629,7 +629,7 @@ where
 
                 let (proposed_values, other_entries): (Vec<_>, Vec<_>) = entries
                     .into_iter()
-                    .partition(|entry| matches!(entry, WalEntry::ProposedValue(_)));
+                    .partition(|entry| matches!(entry, WalEntry::LocallyProposedValue(_)));
 
                 info!(
                     "Found {} proposed values in WAL and {} other entries",
