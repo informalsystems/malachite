@@ -3,12 +3,15 @@ use std::time::Duration;
 use eyre::bail;
 use tracing::info;
 
-use informalsystems_malachitebft_test as malachitebft_test;
+use informalsystems_malachitebft_test::{
+    self as malachitebft_test, Address, Height, ValueId, Vote,
+};
 
 use malachitebft_config::{ValuePayload, VoteSyncMode};
 use malachitebft_core_consensus::LocallyProposedValue;
-use malachitebft_core_types::SignedVote;
+use malachitebft_core_types::{NilOrVal, Round, SignedVote};
 use malachitebft_engine::util::events::Event;
+use malachitebft_test::middleware::Middleware;
 use malachitebft_test::TestContext;
 
 use crate::{HandlerResult, TestBuilder, TestParams};
@@ -445,6 +448,68 @@ async fn byzantine_proposer_crashes_after_proposing_2(params: TestParams) {
             TestParams {
                 timeout_step: Duration::from_secs(5),
                 value_payload: ValuePayload::PartsOnly,
+                ..params
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+async fn multi_rounds() {
+    wal_multi_rounds(TestParams::default()).await
+}
+
+#[derive(Copy, Clone, Debug)]
+struct PrevoteNil;
+
+impl Middleware for PrevoteNil {
+    fn new_prevote(
+        &self,
+        _ctx: &TestContext,
+        height: Height,
+        round: Round,
+        value_id: NilOrVal<ValueId>,
+        address: Address,
+    ) -> Vote {
+        if round.as_i64() <= 3 {
+            Vote::new_prevote(height, round, NilOrVal::Nil, address)
+        } else {
+            Vote::new_prevote(height, round, value_id, address)
+        }
+    }
+}
+
+async fn wal_multi_rounds(params: TestParams) {
+    const CRASH_HEIGHT: u64 = 1;
+
+    let mut test = TestBuilder::<()>::new();
+
+    test.add_node()
+        .with_middleware(PrevoteNil)
+        .start()
+        .wait_until(CRASH_HEIGHT)
+        .wait_until_round(3)
+        .crash()
+        .restart_after(Duration::from_secs(10))
+        .expect_wal_replay(CRASH_HEIGHT)
+        .wait_until(CRASH_HEIGHT + 2)
+        .success();
+
+    test.add_node()
+        .start()
+        .wait_until(CRASH_HEIGHT + 2)
+        .success();
+
+    test.add_node()
+        .start()
+        .wait_until(CRASH_HEIGHT + 2)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(60),
+            TestParams {
+                enable_value_sync: false,
                 ..params
             },
         )

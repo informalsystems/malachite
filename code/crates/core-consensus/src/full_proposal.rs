@@ -115,7 +115,7 @@ impl<Ctx: Context> FullProposalKeeper<Ctx> {
         Self::default()
     }
 
-    pub fn full_proposals_for_value(
+    pub fn proposals_for_value(
         &self,
         proposed_value: &ProposedValue<Ctx>,
     ) -> Vec<SignedProposal<Ctx>> {

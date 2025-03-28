@@ -1,4 +1,4 @@
-use crate::prelude::*;
+use crate::{prelude::*, WalEntry};
 
 use crate::handle::driver::apply_driver_input;
 use crate::types::{LocallyProposedValue, ProposedValue};
@@ -12,41 +12,51 @@ pub async fn on_propose<Ctx>(
 where
     Ctx: Context,
 {
-    let LocallyProposedValue {
-        height,
-        round,
-        value,
-    } = value;
-
-    if state.driver.height() != height {
+    if state.driver.height() != value.height {
         warn!(
-            "Ignoring proposal for height {height}, current height: {}",
+            "Ignoring proposal for height {}, current height: {}",
+            value.height,
             state.driver.height()
         );
 
         return Ok(());
     }
 
-    if state.driver.round() != round {
+    if state.driver.round() != value.round {
         warn!(
-            "Ignoring propose value for round {round}, current round: {}",
+            "Ignoring proposal for round {}, current round: {}",
+            value.round,
             state.driver.round()
         );
 
         return Ok(());
     }
 
-    #[cfg(feature = "metrics")]
-    metrics.consensus_start();
-
     state.store_value(&ProposedValue {
-        height,
-        round,
+        height: value.height,
+        round: value.round,
         valid_round: Round::Nil,
         proposer: state.address().clone(),
-        value: value.clone(),
+        value: value.value.clone(),
         validity: Validity::Valid,
     });
 
-    apply_driver_input(co, state, metrics, DriverInput::ProposeValue(round, value)).await
+    #[cfg(feature = "metrics")]
+    metrics.consensus_start();
+
+    perform!(
+        co,
+        Effect::WalAppend(
+            WalEntry::LocallyProposedValue(value.clone()),
+            Default::default()
+        )
+    );
+
+    apply_driver_input(
+        co,
+        state,
+        metrics,
+        DriverInput::ProposeValue(value.round, value.value),
+    )
+    .await
 }

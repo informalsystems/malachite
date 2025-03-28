@@ -39,6 +39,7 @@ where
     // b) In any mode if the proposed value was provided by Sync, where we do net get a Proposal message but only the full value and the certificate
     if state.params.value_payload.parts_only() || origin == ValueOrigin::Sync {
         let proposal = Ctx::new_proposal(
+            &state.ctx,
             proposed_value.height,
             proposed_value.round,
             proposed_value.value.clone(),
@@ -53,7 +54,7 @@ where
         state.store_proposal(signed_proposal);
     }
 
-    let proposals = state.full_proposals_for_value(&proposed_value);
+    let proposals = state.proposals_for_value(&proposed_value);
     for signed_proposal in proposals {
         debug!(
             proposal.height = %signed_proposal.height(),

@@ -54,6 +54,7 @@ pub enum Event<Ctx: Context> {
     WalReplayBegin(Ctx::Height, usize),
     WalReplayConsensus(SignedConsensusMsg<Ctx>),
     WalReplayTimeout(Timeout),
+    WalReplayProposedValue(LocallyProposedValue<Ctx>),
     WalReplayDone(Ctx::Height),
     WalReplayError(Arc<ActorProcessingErr>),
 }
@@ -89,6 +90,9 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
             }
             Event::WalReplayConsensus(msg) => write!(f, "WalReplayConsensus(msg: {msg:?})"),
             Event::WalReplayTimeout(timeout) => write!(f, "WalReplayTimeout(timeout: {timeout:?})"),
+            Event::WalReplayProposedValue(value) => {
+                write!(f, "WalReplayProposedValue(value: {value:?})")
+            }
             Event::WalReplayDone(height) => write!(f, "WalReplayDone(height: {height})"),
             Event::WalReplayError(error) => write!(f, "WalReplayError({error})"),
         }
