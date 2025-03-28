@@ -312,9 +312,7 @@ where
                 }
 
                 // Replay the proposed values from the WAL before starting the new height
-                if let Err(e) = self.replay_wal(&myself, state, height, wal_before).await {
-                    error!(%height, "Error when checking and replaying proposed values from the WAL: {e}");
-                }
+                self.replay_wal(&myself, state, height, wal_before).await;
 
                 // Start consensus
                 let result = self
@@ -326,9 +324,7 @@ where
                 }
 
                 // Replay the rest of the WAL after starting the new height
-                if let Err(e) = self.replay_wal(&myself, state, height, wal_after).await {
-                    error!(%height, "Error when checking and replaying WAL: {e}");
-                }
+                self.replay_wal(&myself, state, height, wal_after).await;
 
                 // Notify the sync actor that we have started a new height
                 if let Some(sync) = &self.sync {
@@ -659,15 +655,13 @@ where
         state: &mut State<Ctx>,
         height: Ctx::Height,
         entries: Vec<WalEntry<Ctx>>,
-    ) -> Result<(), ActorProcessingErr> {
+    ) {
         state.phase = Phase::Recovering;
 
         if let Err(e) = self.replay_wal_entries(myself, state, entries).await {
             error!(%height, "Failed to replay WAL entries: {e}");
             self.tx_event.send(|| Event::WalReplayError(Arc::new(e)));
         }
-
-        Ok(())
     }
 
     async fn replay_wal_entries(
@@ -719,16 +713,16 @@ where
                     }
                 }
 
-                WalEntry::ProposedValue(_value) => {
-                    // self.tx_event
-                    //     .send(|| Event::WalReplayProposedValue(value.clone()));
-                    //
-                    // if let Err(e) = self
-                    //     .process_input(myself, state, ConsensusInput::Propose(value))
-                    //     .await
-                    // {
-                    //     error!("Error when replaying ProposedValue: {e}");
-                    // }
+                WalEntry::ProposedValue(value) => {
+                    self.tx_event
+                        .send(|| Event::WalReplayProposedValue(value.clone()));
+
+                    if let Err(e) = self
+                        .process_input(myself, state, ConsensusInput::Propose(value))
+                        .await
+                    {
+                        error!("Error when replaying ProposedValue: {e}");
+                    }
                 }
             }
         }
