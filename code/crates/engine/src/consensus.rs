@@ -189,9 +189,6 @@ pub struct State<Ctx: Context> {
     /// A buffer of messages that were received while
     /// consensus was `Unstarted` or in the `Recovering` phase
     msg_buffer: MessageBuffer<Ctx>,
-
-    /// The value that was proposed by this node
-    wal_proposed_value: Option<LocallyProposedValue<Ctx>>,
 }
 
 impl<Ctx> State<Ctx>
@@ -208,7 +205,6 @@ struct HandlerState<'a, Ctx: Context> {
     height: Ctx::Height,
     timers: &'a mut Timers,
     timeouts: &'a mut Timeouts,
-    wal_proposed_value: Option<&'a LocallyProposedValue<Ctx>>,
 }
 
 impl<Ctx> Consensus<Ctx>
@@ -265,7 +261,6 @@ where
                     height,
                     timers: &mut state.timers,
                     timeouts: &mut state.timeouts,
-                    wal_proposed_value: state.wal_proposed_value.as_ref(),
                 };
 
                 self.handle_effect(myself, handler_state, effect).await
@@ -300,7 +295,12 @@ where
             Msg::StartHeight(height, validator_set) => {
                 self.tx_event.send(|| Event::StartedHeight(height));
 
-                let wal_entries = self.start_wal(height, state).await?;
+                let (wal_before, wal_after) = self.start_wal(height).await?;
+
+                // Replay the proposed values from the WAL before starting the new height
+                if let Err(e) = self.replay_wal(&myself, state, height, wal_before).await {
+                    error!(%height, "Error when checking and replaying proposed values from the WAL: {e}");
+                }
 
                 let result = self
                     .process_input(
@@ -314,15 +314,16 @@ where
                     error!(%height, "Error when starting height: {e}");
                 }
 
+                // Replay the rest of the WAL after starting the new height
+                if let Err(e) = self.replay_wal(&myself, state, height, wal_after).await {
+                    error!(%height, "Error when checking and replaying WAL: {e}");
+                }
+
                 // Notify the sync actor that we have started a new height
                 if let Some(sync) = &self.sync {
                     if let Err(e) = sync.cast(SyncMsg::StartedHeight(height)) {
                         error!(%height, "Error when notifying sync of started height: {e}")
                     }
-                }
-
-                if let Err(e) = self.replay_wal(&myself, state, height, wal_entries).await {
-                    error!(%height, "Error when checking and replaying WAL: {e}");
                 }
 
                 self.process_buffered_msgs(&myself, state).await;
@@ -606,35 +607,37 @@ where
     async fn start_wal(
         &self,
         height: Ctx::Height,
-        state: &mut State<Ctx>,
-    ) -> Result<Vec<WalEntry<Ctx>>, ActorProcessingErr> {
+    ) -> Result<(Vec<WalEntry<Ctx>>, Vec<WalEntry<Ctx>>), ActorProcessingErr> {
         let result = ractor::call!(self.wal, WalMsg::StartedHeight, height)?;
 
         match result {
             Ok(None) => {
                 // Nothing to replay
                 debug!(%height, "No WAL entries to replay");
-                Ok(Vec::new())
+                Ok(Default::default())
             }
 
             Ok(Some(entries)) => {
                 info!("Found {} WAL entries to replay", entries.len());
 
-                if let Some(proposed_value) =
-                    entries.iter().find_map(|entry| entry.as_proposed_value())
-                {
-                    info!("Found a proposed value in WAL: {proposed_value:?}");
-                    state.wal_proposed_value = Some(proposed_value.clone());
-                }
+                let (proposed_values, other_entries): (Vec<_>, Vec<_>) = entries
+                    .into_iter()
+                    .partition(|entry| matches!(entry, WalEntry::ProposedValue(_)));
 
-                Ok(entries)
+                info!(
+                    "Found {} proposed values in WAL and {} other entries",
+                    proposed_values.len(),
+                    other_entries.len()
+                );
+
+                Ok((proposed_values, other_entries))
             }
 
             Err(e) => {
                 error!(%height, "Error when notifying WAL of started height: {e}");
                 self.tx_event
                     .send(|| Event::WalReplayError(Arc::new(e.into())));
-                Ok(Vec::new())
+                Ok(Default::default())
             }
         }
     }
@@ -1000,23 +1003,12 @@ where
             }
 
             Effect::GetValue(height, round, timeout, r) => {
-                match state.wal_proposed_value {
-                    Some(value) if value.height == height && value.round == round => {
-                        info!("Using proposed value found in WAL: {value:?}");
+                let timeout_duration = state.timeouts.duration_for(timeout.kind);
 
-                        myself.cast(Msg::ProposeValue(value.clone())).map_err(|e| {
-                            eyre!("Error when processing proposed value message: {e:?}")
-                        })?;
-                    }
-                    _ => {
-                        let timeout_duration = state.timeouts.duration_for(timeout.kind);
-
-                        self.get_value(myself, height, round, timeout_duration)
-                            .map_err(|e| {
-                                eyre!("Error when asking application for value to propose: {e:?}")
-                            })?;
-                    }
-                }
+                self.get_value(myself, height, round, timeout_duration)
+                    .map_err(|e| {
+                        eyre!("Error when asking application for value to propose: {e:?}")
+                    })?;
 
                 Ok(r.resume_with(()))
             }
@@ -1168,7 +1160,6 @@ where
             connected_peers: BTreeSet::new(),
             phase: Phase::Unstarted,
             msg_buffer: MessageBuffer::new(MAX_BUFFER_SIZE),
-            wal_proposed_value: None,
         })
     }
 
