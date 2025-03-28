@@ -508,28 +508,6 @@ where
                         }
                     }
 
-                    NetworkEvent::ProposalPart(from, part) => {
-                        if state.consensus.params.value_payload.proposal_only() {
-                            error!(%from, "Properly configured peer should never send proposal part messages in Proposal mode");
-                            return Ok(());
-                        }
-
-                        self.host
-                            .call_and_forward(
-                                |reply_to| HostMsg::ReceivedProposalPart {
-                                    from,
-                                    part,
-                                    reply_to,
-                                },
-                                &myself,
-                                |value| Msg::ReceivedProposedValue(value, ValueOrigin::Consensus),
-                                None,
-                            )
-                            .map_err(|e| {
-                                eyre!("Error when forwarding proposal parts to host: {e}")
-                            })?;
-                    }
-
                     _ => {}
                 }
 

@@ -49,7 +49,7 @@ where
     let wal = spawn_wal_actor(&ctx, codec, &node.get_home_dir(), &registry).await?;
 
     // Spawn the host actor
-    let (connector, rx_consensus) = spawn_host_actor(metrics.clone()).await?;
+    let (connector, rx_consensus) = spawn_host_actor(network.clone(), metrics.clone()).await?;
 
     let sync = spawn_sync_actor(
         ctx.clone(),
