@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{debug, warn};
+use tracing::warn;
 
 use malachitebft_core_driver::Driver;
 use malachitebft_core_types::*;
@@ -31,14 +31,17 @@ where
     /// Store Precommit votes to be sent along the decision to the host
     pub signed_precommits: BTreeMap<(Ctx::Height, Round), BTreeSet<SignedVote<Ctx>>>,
 
-    /// Decision per height
-    pub decision: BTreeMap<(Ctx::Height, Round), SignedProposal<Ctx>>,
-
     /// Last prevote broadcasted by this node
     pub last_prevote: Option<SignedVote<Ctx>>,
 
     /// Last precommit broadcasted by this node
     pub last_precommit: Option<SignedVote<Ctx>>,
+
+    /// The height has been decided and the effect has been sent to the host.
+    /// Used as a guard to ensure `decide` is only called once
+    /// TODO - the consensus <-> driver need to be redesigned to avoid this.
+    ///
+    pub decided: bool,
 }
 
 impl<Ctx> State<Ctx>
@@ -61,9 +64,9 @@ where
             input_queue: Default::default(),
             full_proposal_keeper: Default::default(),
             signed_precommits: Default::default(),
-            decision: Default::default(),
             last_prevote: None,
             last_precommit: None,
+            decided: false,
         }
     }
 
@@ -106,19 +109,6 @@ where
             .entry((height, round))
             .or_default()
             .insert(precommit);
-    }
-
-    pub fn store_decision(&mut self, height: Ctx::Height, round: Round, proposal: Ctx::Proposal) {
-        if let Some(full_proposal) = self.full_proposal_keeper.full_proposal_at_round_and_value(
-            &height,
-            proposal.round(),
-            &proposal.value().id(),
-        ) {
-            self.decision.insert(
-                (self.driver.height(), round),
-                full_proposal.proposal.clone(),
-            );
-        }
     }
 
     pub fn restore_precommits(
@@ -203,9 +193,25 @@ where
         self.full_proposal_keeper.store_value(new_value);
     }
 
-    pub fn remove_full_proposals(&mut self, height: Ctx::Height) {
-        debug!(%height, "Pruning full proposals");
-        self.full_proposal_keeper.remove_full_proposals(height)
+    pub fn reset_and_start_height(
+        &mut self,
+        height: Ctx::Height,
+        validator_set: Ctx::ValidatorSet,
+    ) {
+        self.full_proposal_keeper
+            .remove_full_proposals(self.driver.height());
+
+        self.signed_precommits.clear();
+        self.last_prevote = None;
+        self.last_precommit = None;
+        self.decided = false;
+
+        self.driver.move_to_height(height, validator_set);
+    }
+
+    /// Return the round and value id of the decided value.
+    pub fn decided_value(&self) -> Option<(Round, Ctx::Value)> {
+        self.driver.decided_value()
     }
 
     /// Queue an input for later processing, only keep inputs for the highest height seen so far.
