@@ -548,25 +548,7 @@ where
                     return Ok(());
                 };
 
-                state.timeouts.increase_timeout(timeout.kind);
-
-                if matches!(
-                    timeout.kind,
-                    TimeoutKind::Prevote
-                        | TimeoutKind::Precommit
-                        | TimeoutKind::PrevoteTimeLimit
-                        | TimeoutKind::PrecommitTimeLimit
-                ) {
-                    warn!(step = ?timeout.kind, "Timeout elapsed");
-
-                    state.consensus.print_state();
-                }
-
-                let result = self
-                    .process_input(&myself, state, ConsensusInput::TimeoutElapsed(timeout))
-                    .await;
-
-                if let Err(e) = result {
+                if let Err(e) = self.timeout_elapsed(&myself, state, timeout).await {
                     error!("Error when processing TimeoutElapsed message: {e:?}");
                 }
 
@@ -603,7 +585,13 @@ where
         state.timeouts.increase_timeout(timeout.kind);
 
         // Print debug information if the timeout is for a prevote or precommit
-        if matches!(timeout.kind, TimeoutKind::Prevote | TimeoutKind::Precommit) {
+        if matches!(
+            timeout.kind,
+            TimeoutKind::Prevote
+                | TimeoutKind::Precommit
+                | TimeoutKind::PrevoteTimeLimit
+                | TimeoutKind::PrecommitTimeLimit
+        ) {
             warn!(step = ?timeout.kind, "Timeout elapsed");
             state.consensus.print_state();
         }
