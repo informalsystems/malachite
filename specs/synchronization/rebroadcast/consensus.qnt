@@ -22,9 +22,9 @@ module consensus {
 	pure def addRoundVote(r: RoundVotes, v: Vote) : RoundVotes = {
 		val new = Set(v.sender())
 		match v.rstep() {
-			| Propose => r // Should not happen
 			| Prevote => {...r, prevotes: r.prevotes.union(new)}
 			| Precommit => {...r, precommits: r.precommits.union(new)}
+			| _ => r // Should not happen
 		}
 	}
 
@@ -150,5 +150,22 @@ module consensus {
 			val p = processes.get(id)
 			s.union(Set((id, p.round, p.step)))
 		)
+
+	// Invariants and Witnesses
+
+	def allRounds =
+		processes.keys().fold(Set(), (s, id) =>
+			s.union(Set(processes.get(id).round))
+		)
+
+	// Processes are in different rounds (common)
+	def diffRoundsWitness =
+		size(allRounds) > 1
+
+	// Processes are in different rounds, with delta at least 2
+	// Less common, but try with --max-steps 100 [--seed=0xced99098f568]
+	def diff2RoundsWitness =
+		size(allRounds) > 2
+
 
 }
