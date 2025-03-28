@@ -1,4 +1,4 @@
-moniker = "node-1"
+moniker = "node-2"
 
 [logging]
 log_level = "debug"
