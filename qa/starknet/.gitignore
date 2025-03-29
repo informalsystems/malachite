@@ -3,4 +3,4 @@ logs/*
 config/malachite-node-*/*
 !config/malachite-node-*/config/
 build/*/*
-!build/README.md
+!build/*/README.md

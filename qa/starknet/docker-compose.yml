@@ -21,6 +21,13 @@ volumes:
       device: ./build
       o: bind
 
+  scripts:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./scripts
+      o: bind
+
   malachite:
     driver: local
     driver_opts:
@@ -50,13 +57,17 @@ services:
     environment:
       - CARGO_HOME=/build/malachite-node-1
       - CARGO_TARGET_DIR=/build/malachite-node-1
+      - LOCAL_DNS=malachite-node-1
     volumes:
       - malachite:/malachite
       - logs:/logs
       - config:/config
       - build:/build
+      - scripts:/scripts
     networks:
       - test-network
+    cap_add:
+      - NET_ADMIN
     working_dir: /malachite
     tty: true
     stdin_open: true
@@ -69,13 +80,17 @@ services:
     environment:
       - CARGO_HOME=/build/malachite-node-2
       - CARGO_TARGET_DIR=/build/malachite-node-2
+      - LOCAL_DNS=malachite-node-2
     volumes:
       - malachite:/malachite
       - logs:/logs
       - config:/config
       - build:/build
+      - scripts:/scripts
     networks:
       - test-network
+    cap_add:
+      - NET_ADMIN
     working_dir: /malachite
     tty: true
     stdin_open: true
@@ -88,13 +103,17 @@ services:
     environment:
       - CARGO_HOME=/build/sequencer-node-1
       - CARGO_TARGET_DIR=/build/sequencer-node-1
+      - LOCAL_DNS=sequencer-node-1
     volumes:
       - sequencer:/sequencer
       - logs:/logs
       - config:/config
       - build:/build
+      - scripts:/scripts
     networks:
       - test-network
+    cap_add:
+      - NET_ADMIN
     working_dir: /sequencer
     tty: true
     stdin_open: true
@@ -107,13 +126,17 @@ services:
     environment:
       - CARGO_HOME=/build/sequencer-node-2
       - CARGO_TARGET_DIR=/build/sequencer-node-2
+      - LOCAL_DNS=sequencer-node-2
     volumes:
       - sequencer:/sequencer
       - logs:/logs
       - config:/config
       - build:/build
+      - scripts:/scripts
     networks:
       - test-network
+    cap_add:
+      - NET_ADMIN
     working_dir: /sequencer
     tty: true
     stdin_open: true

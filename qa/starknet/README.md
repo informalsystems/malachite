@@ -17,6 +17,14 @@ docker exec -it <CONTAINER NAME> /bin/bash
 
 The names can be found in the `docker-compose.yml` file.
 
+### Latency
+
+Latencies between nodes is defined in `scripts/latencies.csv`. To apply it, run:
+
+```bash
+./scripts/apply-tc-rules-all.sh
+```
+
 ## Run
 
 ### Malachite
