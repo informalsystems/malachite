@@ -19,10 +19,10 @@ The names can be found in the `docker-compose.yml` file.
 
 ### Latency
 
-Latencies between nodes is defined in `scripts/latencies.csv`. To apply it, run:
+Latencies between nodes is defined in `shared/scripts/latencies.csv`. To apply it, run:
 
 ```bash
-./scripts/apply-tc-rules-all.sh
+./shared/scripts/apply-tc-rules-all.sh
 ```
 
 ## Build
