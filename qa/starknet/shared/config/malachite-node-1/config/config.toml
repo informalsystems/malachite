@@ -1,4 +1,4 @@
-moniker = "node-2"
+moniker = "node-1"
 
 [logging]
 log_level = "debug"
@@ -19,6 +19,7 @@ timeout_step = "300s"
 [consensus.p2p]
 listen_addr = "/ip4/0.0.0.0/tcp/27000"
 persistent_peers = [
+    "/dns/malachite-node-2/tcp/27000",
     "/dns/sequencer-node-1/tcp/27000",
     "/dns/sequencer-node-2/tcp/27000",
 ]

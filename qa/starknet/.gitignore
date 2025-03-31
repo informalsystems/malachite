@@ -1,6 +1,6 @@
-logs/*
-!logs/README.md
-config/malachite-node-*/*
-!config/malachite-node-*/config/
-build/*/*
-!build/*/README.md
+shared/logs/*
+!shared/logs/README.md
+shared/config/malachite-node-*/*
+!shared/config/malachite-node-*/config/
+shared/build/*/*
+!shared/build/*/README.md
