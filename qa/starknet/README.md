@@ -41,11 +41,18 @@ The builds will persist in the `/shared/build` directory and you will not need t
 
 ### Build version
 
-#### Malachite
+#### Malachite #1
 
 ```bash
-rm -rf /shared/config/malachite-node-<NODE>/db /shared/config/malachite-node-<NODE>/wal
-/shared/build/malachite/release/informalsystems-malachitebft-starknet-app start --home /shared/config/malachite-node-<NODE>
+rm -rf /shared/config/malachite-node-1/db /shared/config/malachite-node-1/wal
+/shared/build/malachite/release/informalsystems-malachitebft-starknet-app start --home /shared/config/malachite-node-1
+```
+
+#### Malachite #2
+
+```bash
+rm -rf /shared/config/malachite-node-2/db /shared/config/malachite-node-2/wal
+/shared/build/malachite/release/informalsystems-malachitebft-starknet-app start --home /shared/config/malachite-node-2
 ```
 
 #### Sequencer #1
