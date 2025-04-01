@@ -198,6 +198,13 @@ where
     pub fn height(&self) -> Ctx::Height {
         self.consensus.height()
     }
+
+    fn set_phase(&mut self, phase: Phase) {
+        if self.phase != phase {
+            info!(prev = ?self.phase, new = ?phase, "Phase transition");
+            self.phase = phase;
+        }
+    }
 }
 
 struct HandlerState<'a, Ctx: Context> {
@@ -326,16 +333,18 @@ where
                 // Replay the rest of the WAL after starting the new height
                 self.replay_wal(&myself, state, height, wal_after).await;
 
+                // Set the phase to `Running` after starting the new height
+                state.set_phase(Phase::Running);
+
+                // Process any buffered messages, now that we are in the `Running` phase
+                self.process_buffered_msgs(&myself, state).await;
+
                 // Notify the sync actor that we have started a new height
                 if let Some(sync) = &self.sync {
                     if let Err(e) = sync.cast(SyncMsg::StartedHeight(height)) {
                         error!(%height, "Error when notifying sync of started height: {e}")
                     }
                 }
-
-                self.process_buffered_msgs(&myself, state).await;
-
-                state.phase = Phase::Running;
 
                 Ok(())
             }
@@ -363,7 +372,7 @@ where
                         info!(%address, "Listening");
 
                         if state.phase == Phase::Unstarted {
-                            state.phase = Phase::Ready;
+                            state.set_phase(Phase::Ready);
 
                             self.host.cast(HostMsg::ConsensusReady(myself.clone()))?;
                         }
