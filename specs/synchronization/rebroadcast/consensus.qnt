@@ -1,3 +1,5 @@
+// -*- mode: Bluespec; -*-
+//
 // .load consensus.qnt consensus
 
 module consensus {
@@ -19,6 +21,11 @@ module consensus {
 		precommits: Set[Address],
 	}
 
+	pure def NewRoundVotes() : RoundVotes = {
+		prevotes: Set(),
+		precommits: Set(),
+	}
+
 	pure def addRoundVote(r: RoundVotes, v: Vote) : RoundVotes = {
 		val new = Set(v.sender())
 		match v.rstep() {
@@ -27,6 +34,10 @@ module consensus {
 			| _ => r // Should not happen
 		}
 	}
+
+	// FIXME: this is a workaround, the quorum should be a const
+	// NOTE: a const is not available for pure def methods though
+	val quorum = 3
 
 	type Consensus = {
 		id: Address,
@@ -46,16 +57,17 @@ module consensus {
 		votes: Map(),
 	}
 
-	pure def addVote(c: Consensus, v: Vote) : Consensus = {
-		// Ensure that RoundVotes exists for
-		val votes = 0.to(v.round()).fold(c.votes, (v, r) =>
-			if (v.keys().contains(r))
-				v
-			else
-				v.put(r, {prevotes: Set(), precommits: Set()})
-		)
+	pure def ensureRound(c: Consensus, r: Round) : Consensus = {
 		{...c,
-		votes: votes.setBy(v.round(), (orig => orig.addRoundVote(v)))}
+		votes: 0.to(r).fold(c.votes, (v, r) =>
+			if (not(v.keys().contains(r))) v.put(r, NewRoundVotes)
+			else v
+		)}
+	}
+
+	pure def addVote(c: Consensus, v: Vote) : Consensus = {
+		{...c.ensureRound(v.round()),
+		votes: c.votes.setBy(v.round(), (orig => orig.addRoundVote(v)))}
 	}
 
 	pure def proposeStep(c: Consensus) : Consensus = {
@@ -66,24 +78,20 @@ module consensus {
 	}
 
 	pure def prevoteStep(c: Consensus) : Consensus = {
-		val numVotes = c.votes.get(c.round).prevotes.size()
-		if (numVotes < quorum)
-			c
-		else
+		if (c.votes.get(c.round).prevotes.size() >= quorum)
 			val precommit = (c.round, Precommit, c.id)
 			{...c.addVote(precommit),
 			messages: c.messages.append(precommit),
 			step: Precommit}
+		else	c
 	}
 
 	pure def precommitStep(c: Consensus) : Consensus = {
-		val numVotes = c.votes.get(c.round).precommits.size()
-		if (numVotes < quorum)
-			c
-		else
+		if (c.votes.get(c.round).precommits.size() >= quorum)
 			{...c,
 			step: Propose,
 			round: c.round + 1}
+		else	c
 	}
 
 	pure def stepLogic(c: Consensus) : Consensus = {
@@ -96,14 +104,10 @@ module consensus {
 
 	// State-machine
 
-	// FIXME: this is a workaround, the quorum should be a const
-	// NOTE: a const is not available for pure def methods though
-	val quorum = 3
-
 	var processes : Address -> Consensus
 
 	action init = all {
-		processes' = 1.to(4).mapBy(id => NewConsensus(id)),
+		processes' = 1.to(quorum+1).mapBy(id => NewConsensus(id)),
 	}
 
 	action deliver(id, vote) = all {
@@ -166,6 +170,5 @@ module consensus {
 	// Less common, but try with --max-steps 100 [--seed=0xced99098f568]
 	def diff2RoundsWitness =
 		size(allRounds) > 2
-
 
 }
