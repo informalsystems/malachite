@@ -134,6 +134,12 @@ module consensus {
 		)
 	}
 
+	action deliverAll(id) = all {
+		val p = allMessages.fold(processes.get(id), (out, m) =>
+			out.addVote(m).stepLogic())
+		processes' = processes.put(id, p)
+	}
+
 	action consensusStep(id) = all {
 		val p = processes.get(id)
 		val nextP = p.stepLogic()
@@ -188,5 +194,42 @@ module consensus {
 	// Less common, but try with --max-steps 100 [--seed=0xced99098f568]
 	def diff2RoundsWitness =
 		size(allRounds) > 2
+
+	run precommitExitTest =
+		init
+		.then(consensusStep(1))
+		.then(consensusStep(2))
+		.then(consensusStep(3))
+		// Deliver prevotes to 1 and 2 only
+		.then(deliver(2, processes.get(1).messages[0]))
+		.then(deliver(1, processes.get(2).messages[0]))
+		.then(deliver(1, processes.get(3).messages[0]))
+		.then(deliver(2, processes.get(3).messages[0]))
+		// Deliver precommits from 1 and 2
+		.then(deliver(2, processes.get(1).messages[1]))
+		.then(deliver(3, processes.get(1).messages[1]))
+		.then(deliver(1, processes.get(2).messages[1]))
+		.then(deliver(3, processes.get(2).messages[1]))
+		// Deliver precommit from Byzantine 4 to 3
+		.then(deliver(3, (0, Precommit, 4)))
+		.then(all{
+			assert(processes.get(3).timeout),
+			processes' = processes,
+		})
+		.then(consensusStep(3))
+		.then(all{
+			assert(processes.get(3).timeout == false),
+			assert(processes.get(3).round == 1),
+			processes' = processes,
+		})
+		// Other processes should be able to proceed to round 1
+		// NOTE: but this does not happen
+		.then(deliverAll(1))
+		.then(deliverAll(2))
+		.then(all{
+			assert(processes.get(1).round == 1),
+			assert(processes.get(2).round == 1),
+			processes' = processes,
+		})
 
 }
