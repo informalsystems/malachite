@@ -46,6 +46,7 @@ module consensus {
 		round: Round,
 		step: Step,
 		votes: Round -> RoundVotes,
+		timeout: bool,
 	}
 
 	pure def NewConsensus(id: Address) : Consensus = {
@@ -55,19 +56,14 @@ module consensus {
 		round: 0,
 		step: Propose,
 		votes: Map(),
+		timeout: false,
 	}
 
-	pure def ensureRound(c: Consensus, r: Round) : Consensus = {
-		{...c,
-		votes: 0.to(r).fold(c.votes, (v, r) =>
-			if (not(v.keys().contains(r))) v.put(r, NewRoundVotes)
-			else v
-		)}
-	}
-
-	pure def addVote(c: Consensus, v: Vote) : Consensus = {
-		{...c.ensureRound(v.round()),
-		votes: c.votes.setBy(v.round(), (orig => orig.addRoundVote(v)))}
+	pure def startRound(c: Consensus, r: Round) : Consensus = {
+		...c,
+		step: Propose,
+		round: r,
+		timeout: false,
 	}
 
 	pure def proposeStep(c: Consensus) : Consensus = {
@@ -88,18 +84,40 @@ module consensus {
 
 	pure def precommitStep(c: Consensus) : Consensus = {
 		if (c.votes.get(c.round).precommits.size() >= quorum)
+			c.startRound(c.round + 1)
+		else	c
+	}
+
+	pure def precommitExitStep(c: Consensus) : Consensus = {
+		if (c.votes.get(c.round).precommits.size() >= quorum)
 			{...c,
-			step: Propose,
-			round: c.round + 1}
+			timeout: true}
 		else	c
 	}
 
 	pure def stepLogic(c: Consensus) : Consensus = {
-		match c.step {
-			| Propose => c.proposeStep()
-			| Prevote => c.prevoteStep()
-			| Precommit => c.precommitStep()
-		}
+		if (c.timeout)
+			c.startRound(c.round + 1)
+		else
+			match c.step {
+				| Propose => c.proposeStep().precommitExitStep()
+				| Prevote => c.prevoteStep().precommitExitStep()
+				| Precommit => c.precommitStep()
+			}
+	}
+
+	pure def ensureRound(c: Consensus, r: Round) : Consensus = {
+		{...c,
+		votes: 0.to(r).fold(c.votes, (v, r) =>
+			if (not(v.keys().contains(r))) v.put(r, NewRoundVotes)
+			else v
+		)}
+	}
+
+	pure def addVote(c: Consensus, v: Vote) : Consensus = {
+		val out = c.ensureRound(v.round())
+		{...out,
+		votes: out.votes.setBy(v.round(), (orig => orig.addRoundVote(v)))}
 	}
 
 	// State-machine
