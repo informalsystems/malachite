@@ -159,7 +159,28 @@ impl<Ctx: Context> FullProposalKeeper<Ctx> {
         None
     }
 
-    #[allow(clippy::type_complexity)]
+    pub fn full_proposal_at_round_and_proposer(
+        &self,
+        height: &Ctx::Height,
+        round: Round,
+        proposer: &Ctx::Address,
+    ) -> Option<&FullProposal<Ctx>> {
+        let entries = self
+            .keeper
+            .get(&(*height, round))
+            .filter(|entries| !entries.is_empty())?;
+
+        for entry in entries {
+            if let Entry::Full(p) = entry {
+                if p.proposal.validator_address() == proposer {
+                    return Some(p);
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn get_value<'a>(
         &self,
         height: &Ctx::Height,

@@ -38,22 +38,13 @@ where
     }
 
     info!(
-        height = %consensus_height,
-        %proposal_height,
-        address = %proposer_address,
+        consensus.height = %consensus_height,
+        proposal.height = %proposal_height,
+        proposal.round = %proposal_round,
+        proposer = %proposer_address,
         message = %PrettyProposal::<Ctx>(&signed_proposal.message),
         "Received proposal"
     );
-
-    // // Queue messages if driver is not initialized, or if they are for higher height.
-    // // Process messages received for the current height.
-    // // Drop all others.
-    // if state.driver.round() == Round::Nil {
-    //     debug!("Received proposal at round -1, queuing for later");
-    //     state.buffer_input(signed_proposal.height(), Input::Proposal(signed_proposal));
-    //
-    //     return Ok(());
-    // }
 
     if proposal_height > consensus_height {
         debug!("Received proposal for higher height, queuing for later");

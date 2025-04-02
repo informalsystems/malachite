@@ -183,6 +183,16 @@ where
             .full_proposal_at_round_and_value(height, round, &value.id())
     }
 
+    pub fn full_proposal_at_round_and_proposer(
+        &self,
+        height: &Ctx::Height,
+        round: Round,
+        address: &Ctx::Address,
+    ) -> Option<&FullProposal<Ctx>> {
+        self.full_proposal_keeper
+            .full_proposal_at_round_and_proposer(height, round, address)
+    }
+
     pub fn proposals_for_value(
         &self,
         proposed_value: &ProposedValue<Ctx>,
