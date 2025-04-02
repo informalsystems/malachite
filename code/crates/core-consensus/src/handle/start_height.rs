@@ -22,10 +22,10 @@ where
     #[cfg(not(feature = "metrics"))]
     let _ = metrics;
 
-    state.driver.move_to_height(height, validator_set);
+    state.reset_and_start_height(height, validator_set);
 
-    debug_assert_eq!(state.driver.height(), height);
-    debug_assert_eq!(state.driver.round(), Round::Nil);
+    debug_assert_eq!(state.height(), height);
+    debug_assert_eq!(state.round(), Round::Nil);
 
     Ok(())
 }

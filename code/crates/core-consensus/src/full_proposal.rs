@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 
 use derive_where::derive_where;
-use tracing::debug;
 
-use malachitebft_core_types::{Context, Height, Proposal, Round, SignedProposal, Validity, Value};
+use malachitebft_core_types::{Context, Proposal, Round, SignedProposal, Validity, Value};
 
 use crate::ProposedValue;
 
@@ -64,7 +63,7 @@ impl<Ctx: Context> Default for Entry<Ctx> {
     }
 }
 
-/// Keeper for collecting proposed values and consensus proposal messages for a given height and round.
+/// Keeper for collecting proposed values and consensus proposals for a given height and round.
 ///
 /// When a new_value is received from the value builder the following entry is stored:
 /// `Entry::ValueOnly(new_value.value, new_value.validity)`
@@ -77,7 +76,7 @@ impl<Ctx: Context> Default for Entry<Ctx> {
 ///
 /// It is possible that a proposer sends two (builder_value, proposal) pairs for same `(height, round)`.
 /// In this case both are stored, and we consider that the proposer is equivocating.
-/// Currently, the actual equivocation is caught deeper in the consensus crate, through consensus actor
+/// Currently, the actual equivocation is caught in the driver, through consensus actor
 /// propagating both proposals.
 ///
 /// When a new_proposal is received at most one complete proposal can be created. If a value at
@@ -88,9 +87,8 @@ impl<Ctx: Context> Default for Entry<Ctx> {
 /// at higher round with pol_round equal to the value round (L28). Therefore when a value is added
 /// multiple complete proposals may form.
 ///
-/// Note: In the future when we support implicit proposal message:
-/// - [`FullProposalKeeper::store_proposal()`] will never be called
-/// - [`FullProposalKeeper::full_proposal_at_round_and_value()`] should only check the presence of `builder_value`
+/// Note: For `parts_only` mode there is no explicit proposal wire message, instead
+/// one is synthesized by the caller (`on_proposed_value` handler) before it invokes the `store_proposal` method.
 #[derive_where(Clone, Debug, Default)]
 pub struct FullProposalKeeper<Ctx: Context> {
     keeper: BTreeMap<(Ctx::Height, Round), Vec<Entry<Ctx>>>,
@@ -373,10 +371,7 @@ impl<Ctx: Context> FullProposalKeeper<Ctx> {
         }
     }
 
-    pub fn remove_full_proposals(&mut self, last_height: Ctx::Height) {
-        // Keep last two decided heights
-        debug!(%last_height, "Removing proposals, keep the last two");
-        self.keeper
-            .retain(|(height, _), _| height.increment() >= last_height);
+    pub fn clear(&mut self) {
+        self.keeper.clear();
     }
 }

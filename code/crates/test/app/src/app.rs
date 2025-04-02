@@ -186,6 +186,7 @@ pub async fn run(
                     value = %certificate.value_id,
                     "Consensus has decided on value"
                 );
+                assert!(!certificate.aggregated_signature.signatures.is_empty());
 
                 // When that happens, we store the decided value in our store
                 state.commit(certificate).await?;
