@@ -634,19 +634,23 @@ where
             }
 
             Ok(Some(entries)) => {
-                info!("Found {} WAL entries to replay", entries.len());
+                info!("Found {} WAL entries", entries.len());
 
-                let (proposed_values, other_entries): (Vec<_>, Vec<_>) = entries
-                    .into_iter()
-                    .partition(|entry| matches!(entry, WalEntry::LocallyProposedValue(_)));
+                let (proposals, other): (Vec<_>, Vec<_>) = entries.into_iter().partition(|entry| {
+                    matches!(
+                        entry,
+                        WalEntry::ConsensusMsg(SignedConsensusMsg::Proposal(_))
+                            | WalEntry::LocallyProposedValue(_)
+                    )
+                });
 
                 info!(
-                    "Found {} proposed values in WAL and {} other entries",
-                    proposed_values.len(),
-                    other_entries.len()
+                    "Found {} proposals/values in WAL and {} other entries",
+                    proposals.len(),
+                    other.len()
                 );
 
-                Ok((proposed_values, other_entries))
+                Ok((proposals, other))
             }
 
             Err(e) => {
@@ -667,6 +671,8 @@ where
     ) {
         use SignedConsensusMsg::*;
 
+        info!("Replaying {} WAL entries", entries.len());
+
         state.phase = Phase::Recovering;
 
         if entries.is_empty() {
@@ -679,6 +685,8 @@ where
         for entry in entries {
             match entry {
                 WalEntry::ConsensusMsg(Vote(vote)) => {
+                    info!("Replaying vote: {vote:?}");
+
                     self.tx_event
                         .send(|| Event::WalReplayConsensus(Vote(vote.clone())));
 
@@ -686,7 +694,7 @@ where
                         .process_input(myself, state, ConsensusInput::Vote(vote))
                         .await
                     {
-                        error!("Error when replaying Vote: {e}");
+                        error!("Error when replaying vote: {e}");
 
                         self.tx_event
                             .send(|| Event::WalReplayError(Arc::new(e.into())));
@@ -694,6 +702,8 @@ where
                 }
 
                 WalEntry::ConsensusMsg(Proposal(proposal)) => {
+                    info!("Replaying proposal: {proposal:?}");
+
                     self.tx_event
                         .send(|| Event::WalReplayConsensus(Proposal(proposal.clone())));
 
@@ -709,6 +719,8 @@ where
                 }
 
                 WalEntry::Timeout(timeout) => {
+                    info!("Replaying timeout: {timeout:?}");
+
                     self.tx_event.send(|| Event::WalReplayTimeout(timeout));
 
                     if let Err(e) = self.timeout_elapsed(myself, state, timeout).await {
@@ -719,6 +731,8 @@ where
                 }
 
                 WalEntry::LocallyProposedValue(value) => {
+                    info!("Replaying locally proposed value: {value:?}");
+
                     self.tx_event
                         .send(|| Event::WalReplayProposedValue(value.clone()));
 
