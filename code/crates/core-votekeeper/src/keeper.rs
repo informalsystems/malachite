@@ -234,8 +234,8 @@ where
             }) => {
                 // This is an equivocating vote
                 self.evidence.add(existing.clone(), conflicting);
-                //panic!("Equivocating vote {:?}, existing {:?}", &vote, &existing);
-                return None;
+                panic!("Equivocating vote {:?}, existing {:?}", &vote, &existing);
+                //return None;
             }
         }
 

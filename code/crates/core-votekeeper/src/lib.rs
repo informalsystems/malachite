@@ -9,7 +9,7 @@
     rustdoc::private_intra_doc_links,
     variant_size_differences
 )]
-#![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::panic))]
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 extern crate alloc;
 

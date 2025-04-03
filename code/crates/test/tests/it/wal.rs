@@ -471,7 +471,7 @@ async fn wal_multi_rounds(params: TestParams) {
         .with_middleware(PrevoteNil)
         .start()
         .wait_until(CRASH_HEIGHT)
-        .wait_until_round(3)
+        .wait_until_round(5)
         .crash()
         .restart_after(Duration::from_secs(10))
         .expect_wal_replay(CRASH_HEIGHT)
@@ -493,6 +493,7 @@ async fn wal_multi_rounds(params: TestParams) {
             Duration::from_secs(60),
             TestParams {
                 enable_value_sync: false,
+                value_payload: ValuePayload::PartsOnly,
                 ..params
             },
         )
@@ -552,7 +553,7 @@ impl Middleware for PrevoteNil {
         value_id: NilOrVal<ValueId>,
         address: Address,
     ) -> Vote {
-        if round.as_i64() <= 3 {
+        if round.as_i64() <= 5 && height.as_u64() <= 1 {
             Vote::new_prevote(height, round, NilOrVal::Nil, address)
         } else {
             Vote::new_prevote(height, round, value_id, address)
