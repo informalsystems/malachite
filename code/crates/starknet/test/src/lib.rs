@@ -212,7 +212,7 @@ fn make_validators<S>(
     let mut validators = Vec::new();
     let mut private_keys = HashMap::new();
 
-    for (i, node) in nodes.iter().enumerate() {
+    for (_, node) in nodes.iter().enumerate() {
         let sk = PrivateKey::generate(&mut rng);
         let address = Address::from(sk.public_key());
         let val = Validator::new(address, sk.public_key(), node.voting_power);

@@ -73,7 +73,7 @@ mesh_n_low = 4
 mesh_outbound_min = 2
 
 [value_sync]
-enabled = true
+enabled = false
 status_update_interval = "10s"
 request_timeout = "10s"
 

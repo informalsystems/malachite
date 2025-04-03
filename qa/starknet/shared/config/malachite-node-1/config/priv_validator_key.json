@@ -1,11 +1,11 @@
 {
   "private_key": {
     "type": "tendermint/PrivKeyEd25519",
-    "value": "z1exB2b1hS8Ajtr/Qf/PvjD0ES/m7RoEwzaT69t2+Ow="
+    "value": "Z3XxCitCu85qI9/Nx7hveX6ii3U+fIpFh0JRkbzEsOM="
   },
   "public_key": {
     "type": "tendermint/PubKeyEd25519",
-    "value": "Hhaz5Ebr1Yx1VKNOVBnbazs5B5IyWN8P0qxkmE2oIn8="
+    "value": "bLWO9y+9GkCABubrWE0xsW6Bakjgv/FlMoBON4A5WJc="
   },
-  "address": "0x0000000000000000000000000000000000000000000000000000000000000065"
+  "address": "0x4b58ef72fbd19638006e6eb584d31b16e816a48e0bff16532804e378039588a"
 }
