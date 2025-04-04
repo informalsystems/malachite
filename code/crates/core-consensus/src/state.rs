@@ -174,16 +174,30 @@ where
             .full_proposal_at_round_and_value(height, round, &value.id())
     }
 
-    pub fn full_proposals_for_value(
+    pub fn full_proposal_at_round_and_proposer(
+        &self,
+        height: &Ctx::Height,
+        round: Round,
+        address: &Ctx::Address,
+    ) -> Option<&FullProposal<Ctx>> {
+        self.full_proposal_keeper
+            .full_proposal_at_round_and_proposer(height, round, address)
+    }
+
+    pub fn proposals_for_value(
         &self,
         proposed_value: &ProposedValue<Ctx>,
     ) -> Vec<SignedProposal<Ctx>> {
         self.full_proposal_keeper
-            .full_proposals_for_value(proposed_value)
+            .proposals_for_value(proposed_value)
     }
 
     pub fn store_proposal(&mut self, new_proposal: SignedProposal<Ctx>) {
         self.full_proposal_keeper.store_proposal(new_proposal)
+    }
+
+    pub fn value_exists(&mut self, new_value: &ProposedValue<Ctx>) -> bool {
+        self.full_proposal_keeper.value_exists(new_value)
     }
 
     pub fn store_value(&mut self, new_value: &ProposedValue<Ctx>) {
