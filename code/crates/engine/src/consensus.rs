@@ -811,10 +811,10 @@ where
             return Ok(());
         }
 
-        let should_append = !(matches!(
+        let should_append = !matches!(
             entry,
             WalEntry::ConsensusMsg(SignedConsensusMsg::Proposal(_))
-        ) || value_payload.include_proposal());
+        ) || value_payload.include_proposal();
 
         if should_append {
             let result = ractor::call!(self.wal, WalMsg::Append, height, entry);
