@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eyre::eyre;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // use malachitebft_app_channel::app::config::ValuePayload;
 use malachitebft_app_channel::app::streaming::StreamContent;
@@ -88,33 +88,31 @@ pub async fn run(
                 // then we would need to respect the timeout and stop at a certain point.
 
                 info!(%height, %round, "Consensus is requesting a value to propose");
+                tracing::debug!(%height, %round, "Middleware: {:?}", state.ctx.middleware());
 
                 // Here it is important that, if we have previously built a value for this height and round,
                 // we send back the very same value.
                 // However, for testing purposes a node may be configured to be a byzantine proposer.
                 // In that case, we will not send back the previously built value but a new one.
                 let proposal = match state.get_previously_built_value(height, round).await? {
-                    Some(proposal) => {
-                        if state.config.test.is_byzantine_proposer {
-                            let new_proposal = state.propose_value(height, round).await?;
-                            error!(
-                                "XXX Not Re-using previously built value {:} but a new one {:}",
-                                proposal.value.id(),
-                                new_proposal.value.id()
-                            );
-                            new_proposal
-                        } else {
-                            proposal
-                        }
+                    Some(mut proposal) => {
+                        state
+                            .ctx
+                            .middleware()
+                            .on_propose_value(&state.ctx, &mut proposal, true);
+
+                        proposal
                     }
                     None => {
                         // If we have not previously built a value for that very same height and round,
                         // we need to create a new value to propose and send it back to consensus.
-                        let proposal = state.propose_value(height, round).await?;
-                        error!(
-                            "XXX Building a new value to propose {:}",
-                            proposal.value.id()
-                        );
+                        let mut proposal = state.propose_value(height, round).await?;
+
+                        state
+                            .ctx
+                            .middleware()
+                            .on_propose_value(&state.ctx, &mut proposal, false);
+
                         proposal
                     }
                 };
@@ -131,7 +129,8 @@ pub async fn run(
                 // Now what's left to do is to break down the value to propose into parts,
                 // and send those parts over the network to our peers, for them to re-assemble the full value.
                 for stream_message in state.stream_proposal(proposal, pol_round) {
-                    info!(%height, %round, "Streaming proposal part: {stream_message:?}");
+                    debug!(%height, %round, "Streaming proposal part: {stream_message:?}");
+
                     channels
                         .network
                         .send(NetworkMsg::PublishProposalPart(stream_message))
@@ -150,7 +149,7 @@ pub async fn run(
                     StreamContent::Fin => "end of stream",
                 };
 
-                info!(%from, %part.sequence, part.type = %part_type, "Received proposal part");
+                debug!(%from, %part.sequence, part.type = %part_type, "Received proposal part");
 
                 let proposed_value = state.received_proposal_part(from, part).await?;
 
@@ -187,6 +186,7 @@ pub async fn run(
                     value = %certificate.value_id,
                     "Consensus has decided on value"
                 );
+                assert!(!certificate.aggregated_signature.signatures.is_empty());
 
                 // When that happens, we store the decided value in our store
                 state.commit(certificate).await?;
@@ -297,7 +297,7 @@ pub async fn run(
 
                     for stream_message in state.stream_proposal(locally_proposed_value, valid_round)
                     {
-                        info!(%height, %valid_round, "Publishing proposal part: {stream_message:?}");
+                        debug!(%height, %valid_round, "Publishing proposal part: {stream_message:?}");
 
                         channels
                             .network

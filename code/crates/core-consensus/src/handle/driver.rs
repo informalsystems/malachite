@@ -8,7 +8,10 @@ use crate::handle::vote::on_vote;
 use crate::prelude::*;
 use crate::types::SignedConsensusMsg;
 use crate::util::pretty::PrettyVal;
+use crate::LocallyProposedValue;
 use crate::VoteSyncMode;
+
+use super::propose::on_propose;
 
 #[async_recursion]
 pub async fn apply_driver_input<Ctx>(
@@ -301,9 +304,6 @@ where
                 "Decided",
             );
 
-            // Store value decided on for retrieval when timeout commit elapses
-            state.store_decision(state.driver.height(), consensus_round, proposal.clone());
-
             perform!(
                 co,
                 Effect::ScheduleTimeout(Timeout::commit(consensus_round), Default::default())
@@ -321,12 +321,26 @@ where
         }
 
         DriverOutput::GetValue(height, round, timeout) => {
-            info!(%height, %round, "Requesting value");
+            if let Some(full_proposal) =
+                state.full_proposal_at_round_and_proposer(&height, round, state.address())
+            {
+                info!(%height, %round, "Using already existing value");
 
-            perform!(
-                co,
-                Effect::GetValue(height, round, timeout, Default::default())
-            );
+                let local_value = LocallyProposedValue {
+                    height: full_proposal.proposal.height(),
+                    round: full_proposal.proposal.round(),
+                    value: full_proposal.builder_value.clone(),
+                };
+
+                on_propose(co, state, metrics, local_value).await?;
+            } else {
+                info!(%height, %round, "Requesting value from application");
+
+                perform!(
+                    co,
+                    Effect::GetValue(height, round, timeout, Default::default())
+                );
+            }
 
             Ok(())
         }

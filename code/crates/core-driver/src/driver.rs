@@ -174,6 +174,14 @@ where
         &self.round_state
     }
 
+    /// Return the round and value of the decided proposal
+    pub fn decided_value(&self) -> Option<(Round, Ctx::Value)> {
+        self.round_state
+            .decision
+            .as_ref()
+            .map(|decision| (decision.round, decision.value.clone()))
+    }
+
     /// Return the address of the node.
     pub fn address(&self) -> &Ctx::Address {
         &self.address
@@ -217,6 +225,15 @@ where
     /// Get all polka certificates
     pub fn polka_certificates(&self) -> &[PolkaCertificate<Ctx>] {
         &self.polka_certificates
+    }
+
+    /// Get the proposal for the given round.
+    pub fn proposal_and_validity_for_round(
+        &self,
+        round: Round,
+    ) -> Option<&(SignedProposal<Ctx>, Validity)> {
+        self.proposal_keeper
+            .get_proposal_and_validity_for_round(round)
     }
 
     /// Store the last vote that we have cast
@@ -501,7 +518,7 @@ where
         let info = Info::new(input_round, &self.address, proposer.address());
 
         // Apply the input to the round state machine
-        let transition = round_state.apply(&info, input);
+        let transition = round_state.apply(&self.ctx, &info, input);
 
         // Update state
         self.round_state = transition.next_state;
