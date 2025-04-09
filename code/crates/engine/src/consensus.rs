@@ -18,7 +18,7 @@ use malachitebft_core_consensus::{
 use malachitebft_core_types::{
     CertificateError, CommitCertificate, Context, NilOrVal, Proposal, Round, SignedProposal,
     SignedVote, SigningProvider, SigningProviderExt, ThresholdParams, Timeout, TimeoutKind,
-    Validator, ValidatorSet, ValueId, ValueOrigin, ValuePayload, Vote, VoteType,
+    Validator, ValidatorSet, Validity, ValueId, ValueOrigin, ValuePayload, Vote, VoteType,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -557,6 +557,32 @@ where
 
                         if !self.verify_signed_proposal(state, &proposal).await {
                             return Ok(());
+                        }
+
+                        if state.consensus.params.value_payload.proposal_only() {
+                            // TODO - pass the received value up to the host that will verify and give back validity and extension.
+                            let proposed_value = ProposedValue {
+                                height: proposal.height(),
+                                round: proposal.round(),
+                                valid_round: proposal.pol_round(),
+                                proposer: proposal.validator_address().clone(),
+                                value: proposal.value().clone(),
+                                validity: Validity::Valid,
+                            };
+                            if let Err(e) = self
+                                .process_input(
+                                    &myself,
+                                    state,
+                                    ConsensusInput::ProposedValue(
+                                        proposed_value,
+                                        ValueOrigin::Consensus,
+                                    ),
+                                )
+                                .await
+                            {
+                                error!("Error when processing proposal: {e}");
+                                return Ok(());
+                            }
                         }
 
                         if let Err(e) = self
