@@ -53,7 +53,7 @@ This setup generates networks composed of any combination of Malachite and Seque
 
 8. Reset the state:
 
- Y  ou might want to reset the state (db, wal, etc.) of the nodes. You can do this by running the following command:
+    You might want to reset the state (db, wal, etc.) of the nodes. You can do this by running the following command:
     ```bash
     # INSIDE THE CONTAINER
     reset
