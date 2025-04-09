@@ -1,0 +1,26 @@
+#!/bin/bash
+
+RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info \
+    /shared/build/sequencer/release/starknet_sequencer_node \
+    --chain_id MY_CUSTOM_CHAIN_ID \
+    --eth_fee_token_address 0x1001 \
+    --strk_fee_token_address 0x1002 \
+    --recorder_url http://invalid_address.com \
+    --base_layer_config.node_url http://invalid_address.com \
+    --batcher_config.storage.db_config.path_prefix /shared/networks/{{ network_name }}/sequencer-node-{{ id }}/storage/batcher_data \
+    --class_manager_config.class_storage_config.class_hash_storage_config.path_prefix /shared/networks/{{ network_name }}/sequencer-node-{{ id }}/storage/class_manager_data \
+    --state_sync_config.storage_config.db_config.path_prefix /shared/networks/{{ network_name }}/sequencer-node-{{ id }}/storage/sync_data \
+    --consensus_manager_config.network_config.tcp_port 27000 \
+    --mempool_p2p_config.network_config.tcp_port 11000 \
+    --state_sync_config.network_config.tcp_port 12000 \
+    --http_server_config.port 13000 \
+    --monitoring_endpoint_config.port 14000 \
+    --consensus_manager_config.network_config.secret_key {{ consensus_secret_key }} \
+    --validator_id {{ validator_id }} \
+    --consensus_manager_config.context_config.num_validators {{ num_validators }} \
+    --consensus_manager_config.context_config.validator_ids {{ validator_ids }} \
+    {% if bootstrap_peer is defined and bootstrap_peer %}--consensus_manager_config.network_config.bootstrap_peer_multiaddr {{ bootstrap_peer }} \
+    --consensus_manager_config.network_config.bootstrap_peer_multiaddr.#is_none false{% endif %} \
+    --consensus_manager_config.consensus_config.timeouts.proposal_timeout {{ proposal_timeout }} \
+    --consensus_manager_config.consensus_config.timeouts.prevote_timeout {{ prevote_timeout }} \
+    --consensus_manager_config.consensus_config.timeouts.precommit_timeout {{ precommit_timeout }}

@@ -5,6 +5,7 @@ import subprocess
 import os
 import socket
 
+
 def read_matrix(csv_file):
     with open(csv_file) as f:
         reader = csv.reader(f)
@@ -14,14 +15,17 @@ def read_matrix(csv_file):
             row_zone = row[0]
             matrix[row_zone] = {}
             for i, col_zone in enumerate(header):
-                matrix[row_zone][col_zone] = int(row[i+1])
+                matrix[row_zone][col_zone] = int(row[i + 1])
     return header, matrix
+
 
 def resolve_ips(hostnames):
     return {host: socket.gethostbyname(host) for host in hostnames}
 
+
 def execute_command(cmd):
     subprocess.run(cmd, shell=True, check=True)
+
 
 def build_tc_commands(header, matrix, local_dns, ip_map):
     commands = []
@@ -38,11 +42,18 @@ def build_tc_commands(header, matrix, local_dns, ip_map):
         latency = matrix[local_dns][zone]
         if latency > 0:
             delta = latency // 20 or 1
-            commands.append(f"tc class add dev eth0 parent 1:1 classid 1:{handle} htb rate 1gbit")
-            commands.append(f"tc qdisc add dev eth0 parent 1:{handle} handle {handle}: netem delay {latency}ms {delta}ms distribution normal")
-            commands.append(f"tc filter add dev eth0 protocol ip parent 1: prio 1 u32 match ip dst {ip_map[zone]}/32 flowid 1:{handle}")
+            commands.append(
+                f"tc class add dev eth0 parent 1:1 classid 1:{handle} htb rate 1gbit"
+            )
+            commands.append(
+                f"tc qdisc add dev eth0 parent 1:{handle} handle {handle}: netem delay {latency}ms {delta}ms distribution normal"
+            )
+            commands.append(
+                f"tc filter add dev eth0 protocol ip parent 1: prio 1 u32 match ip dst {ip_map[zone]}/32 flowid 1:{handle}"
+            )
             handle += 1
     return commands
+
 
 def main():
     csv_file = sys.argv[1]
@@ -52,6 +63,7 @@ def main():
     commands = build_tc_commands(header, matrix, local_dns, ip_map)
     for cmd in commands:
         execute_command(cmd)
+
 
 if __name__ == "__main__":
     main()

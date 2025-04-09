@@ -1,0 +1,72 @@
+volumes:
+
+  shared:
+    driver: local
+    driver_opts:
+      type: none
+      device: ../../../shared
+      o: bind
+{% if malachite_count > 0 %}
+  malachite:
+    driver: local
+    driver_opts:
+      type: none
+      device: {{ malachite_path }}/code
+      o: bind{% endif %}
+{% if sequencer_count > 0 %}
+  sequencer:
+    driver: local
+    driver_opts:
+      type: none
+      device: {{ sequencer_path }}
+      o: bind{% endif %}
+
+networks:
+  test-network:
+    driver: bridge
+
+services:
+{% for i in range(1, malachite_count+1) %}
+  malachite-node-{{ i }}:
+    container_name: malachite-node-{{ i }}
+    build:
+      context: {{ malachite_path }}/qa/starknet
+      dockerfile: malachite.Dockerfile
+    environment:
+      - CARGO_HOME=/shared/build/malachite
+      - CARGO_TARGET_DIR=/shared/build/malachite
+      - LOCAL_DNS=malachite-node-{{ i }}
+    volumes:
+      - malachite:/malachite
+      - shared:/shared
+      - ../../../shared/networks/{{ network_name }}/malachite-node-{{ i }}/.bashrc:/root/.bashrc
+    networks:
+      - test-network
+    cap_add:
+      - NET_ADMIN
+    working_dir: /
+    tty: true
+    stdin_open: true
+{% endfor %}
+{% for i in range(1, sequencer_count+1) %}
+  sequencer-node-{{ i }}:
+    container_name: sequencer-node-{{ i }}
+    build:
+      context: {{ sequencer_path }}
+      dockerfile: {{ malachite_path }}/qa/starknet/sequencer.Dockerfile
+    environment:
+      - CARGO_HOME=/shared/build/sequencer
+      - CARGO_TARGET_DIR=/shared/build/sequencer
+      - LOCAL_DNS=sequencer-node-{{ i }}
+    volumes:
+      - sequencer:/sequencer
+      - shared:/shared
+      - ../../../shared/networks/{{ network_name }}/sequencer-node-{{ i }}/.bashrc:/root/.bashrc
+    networks:
+      - test-network
+    cap_add:
+      - NET_ADMIN
+    working_dir: /
+    tty: true
+    stdin_open: true
+{% endfor %}

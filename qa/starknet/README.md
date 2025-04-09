@@ -1,112 +1,92 @@
 # Starknet Interoperability Setup
 
-## Setup
+This setup generates networks composed of any combination of Malachite and Sequencer nodes. It uses a containerized architecture with configurable latency between nodes.
 
-Clone the Starknet sequencer fork:
+## Usage
 
-```bash
-git clone https://github.com/bastienfaivre/sequencer.git
-cd sequencer
-git checkout for_informalsystems/mock_batcher_to_return_empty_proposals
-```
-
-> [!CAUTION]
-> The setup assumes that both malachite and sequencer repositories are cloned in the same directory.
-
-```bash
-cd malachite/qa/starknet
-docker compose up -d
-```
-
-Then, you need to manually enter into the containers to start the nodes.
-
-```bash
-docker exec -it <CONTAINER NAME> /bin/bash
-```
-
-The names can be found in the `docker-compose.yml` file.
-
-### Latency
-
-Latencies between nodes is defined in `shared/scripts/latencies.csv`. To apply it, run:
-
-```bash
-./shared/scripts/apply-tc-rules-all.sh
-```
-
-## Build
-
-You might want to build the nodes to avoid re-building when running with `cargo run`. For that, simply run:
-
-```bash
-cargo build --release
-```
+1. Install dependencies:
+    
+    Run the appropriate script based on your OS from the `setup/` folder.
 
 >[!NOTE]
-> The flag `--release` is not necessary. But if you remove it, you need to change the path of all executables in the commands below to `/shared/build/<malachite|sequencer>/debug/<executable>`.
+> If you encounter an `error: externally-managed-environment` error while running the script, please refer to the last section of this document.
 
-Once per node type (malachite and sequencer) in one of the respective containers.
+2. Clone the Starknet sequencer fork:
+    ```bash
+    git clone https://github.com/bastienfaivre/sequencer.git
+    cd sequencer
+    git checkout shahak/for_informalsystems/mock_batcher_to_return_empty_proposals
+    ```
 
-The builds will persist in the `/shared/build` directory and you will not need to rebuild them when restarting the containers.
+3. Generate a network:
+    ```bash
+    python3 generate.py --help
+    ```
 
-## Run
+4. Apply the latency:
+    ```bash
+    ./apply-latency.sh <network name>
+    ```
 
-### Build version
+5. Spawn the network:
+    ```bash
+    ./manage.sh <network name> up
+    ```
 
-#### Malachite #1
+>[!NOTE]
+> Spawning the network does not mean that the nodes have started yet. It only means that the containers are up and running. You need to start the nodes manually. The `manage.sh` script provides the commands to enter the containers.
+
+6. Build the nodes:
+    
+    If it is the first time you are running the nodes, or if you made changes to the code, you need to build the nodes. You can do this by running the following command:
+    ```bash
+    # INSIDE THE CONTAINER
+    build
+    ```
+    You only need to do it once per node type (malachite and sequencer). All containers from the same node type share the same build.
+
+7. Start the nodes:
+    ```bash
+    # INSIDE THE CONTAINER
+    start
+    ```
+
+8. Reset the state:
+
+ Y  ou might want to reset the state (db, wal, etc.) of the nodes. You can do this by running the following command:
+    ```bash
+    # INSIDE THE CONTAINER
+    reset
+    ```
+
+9. Stop the network:
+    ```bash
+    ./manage.sh <network name> down
+    ```
+
+## Advanced usage
+
+You might want to make modifications to the config files of the nodes. You can find them under the `shared/networks/<network name>/<node name>/` folder. The config files are mounted in the containers so that you can edit them directly from your host machine.
+
+>[!WARNING]
+> Some Docker engines (e.g., Docker Desktop) sometimes have synchronization issues with mounted volumes, leading to corrupted config files in the containers. If you encounter such issues, stop the network, make your changes to the config files, and start the network again. It will ensure that the changes are applied correctly.
+
+Moreover, for the latency, you can edit it in detail in the `shared/networks/<network name>/latencies.csv` file. Then, you can apply it again by running the `./apply-latency.sh <network name>` command. It will update the latency between the nodes without stopping the network.
+
+If you plan to make more long-term changes to the configuration, feel free to edit the templates under the `templates/` directory.
+
+## Troubleshooting
+
+### Error: `error: externally-managed-environment`
+
+The easiest way to fix this error without using `--break-system-packages` is to create a global virtual environment imitating the system environment. It can be done by running the following setup:
 
 ```bash
-rm -rf /shared/config/malachite-node-1/db /shared/config/malachite-node-1/wal
-/shared/build/malachite/release/informalsystems-malachitebft-starknet-app start --home /shared/config/malachite-node-1
+# 1. Create a virtual environment
+python3 -m venv ~/.venv
+# 2. Create aliases to activate/deactivate the virtual environment anywhere
+echo "alias py-start='source ~/.venv/bin/activate'" >> ~/.bashrc
+echo "alias py-stop='deactivate'" >> ~/.bashrc
 ```
 
-#### Malachite #2
-
-```bash
-rm -rf /shared/config/malachite-node-2/db /shared/config/malachite-node-2/wal
-/shared/build/malachite/release/informalsystems-malachitebft-starknet-app start --home /shared/config/malachite-node-2
-```
-
-#### Sequencer #1
-
-```bash
-rm -rf /shared/logs/sequencer-node-1/*
-RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info /shared/build/sequencer/release/starknet_sequencer_node --chain_id MY_CUSTOM_CHAIN_ID --eth_fee_token_address 0x1001 --strk_fee_token_address 0x1002 --recorder_url http://invalid_address.com --base_layer_config.node_url http://invalid_address.com --batcher_config.storage.db_config.path_prefix /shared/logs/sequencer-node-1/batcher_data --class_manager_config.class_storage_config.class_hash_storage_config.path_prefix /shared/logs/sequencer-node-1/class_manager_data --state_sync_config.storage_config.db_config.path_prefix /shared/logs/sequencer-node-1/sync_data --consensus_manager_config.network_config.tcp_port 27000 --mempool_p2p_config.network_config.tcp_port 11000 --state_sync_config.network_config.tcp_port 12000 --http_server_config.port 13000 --monitoring_endpoint_config.port 14000 --consensus_manager_config.network_config.secret_key 0x1111111111111111111111111111111111111111111111111111111111111111 --state_sync_config.network_config.secret_key 0x2222222222222222222222222222222222222222222222222222222222222222 --validator_id 0x64 --consensus_manager_config.context_config.num_validators 4 --consensus_manager_config.context_config.validator_ids 0x64,0x65,0x4b58ef72fbd19638006e6eb584d31b16e816a48e0bff16532804e378039588a,0xf2e1d11cae728b3c5cde867cc0fd5d81e3958d52652ec546526e8f8002d0f8 --consensus_manager_config.consensus_config.timeouts.precommit_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.prevote_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.proposal_timeout 1.1
-```
-
-#### Sequencer #2
-
-```bash
-rm -rf /shared/logs/sequencer-node-2/*
-RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info /shared/build/sequencer/release/starknet_sequencer_node --chain_id MY_CUSTOM_CHAIN_ID --eth_fee_token_address 0x1001 --strk_fee_token_address 0x1002 --recorder_url http://invalid_address.com --base_layer_config.node_url http://invalid_address.com --batcher_config.storage.db_config.path_prefix /shared/logs/sequencer-node-2/batcher_data --class_manager_config.class_storage_config.class_hash_storage_config.path_prefix /shared/logs/sequencer-node-2/class_manager_data --state_sync_config.storage_config.db_config.path_prefix /shared/logs/sequencer-node-2/sync_data --consensus_manager_config.network_config.tcp_port 27000 --mempool_p2p_config.network_config.tcp_port 11000 --state_sync_config.network_config.tcp_port 12000 --http_server_config.port 13000 --monitoring_endpoint_config.port 14000 --consensus_manager_config.network_config.secret_key 0x3333333333333333333333333333333333333333333333333333333333333333 --state_sync_config.network_config.secret_key 0x4444444444444444444444444444444444444444444444444444444444444444 --validator_id 0x65 --consensus_manager_config.context_config.num_validators 4 --consensus_manager_config.context_config.validator_ids 0x64,0x65,0x4b58ef72fbd19638006e6eb584d31b16e816a48e0bff16532804e378039588a,0xf2e1d11cae728b3c5cde867cc0fd5d81e3958d52652ec546526e8f8002d0f8 --consensus_manager_config.network_config.bootstrap_peer_multiaddr /dns/sequencer-node-1/tcp/27000/p2p/12D3KooWPqT2nMDSiXUSx5D7fasaxhxKigVhcqfkKqrLghCq9jxz --consensus_manager_config.network_config.bootstrap_peer_multiaddr.#is_none false --consensus_manager_config.consensus_config.timeouts.precommit_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.prevote_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.proposal_timeout 1.1
-```
-
-### Cargo run version
-
-#### Malachite #1
-
-```bash
-rm -rf /shared/config/malachite-node-1/db /shared/config/malachite-node-1/wal
-cargo run --bin informalsystems-malachitebft-starknet-app -- start --home /shared/config/malachite-node-1
-```
-
-#### Malachite #2
-
-```bash
-rm -rf /shared/config/malachite-node-2/db /shared/config/malachite-node-2/wal
-cargo run --bin informalsystems-malachitebft-starknet-app -- start --home /shared/config/malachite-node-2
-```
-
-#### Sequencer #1
-
-```bash
-rm -rf /shared/logs/sequencer-node-1/*
-RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info cargo run --bin starknet_sequencer_node -- --chain_id MY_CUSTOM_CHAIN_ID --eth_fee_token_address 0x1001 --strk_fee_token_address 0x1002 --recorder_url http://invalid_address.com --base_layer_config.node_url http://invalid_address.com --batcher_config.storage.db_config.path_prefix /shared/logs/sequencer-node-1/batcher_data --class_manager_config.class_storage_config.class_hash_storage_config.path_prefix /shared/logs/sequencer-node-1/class_manager_data --state_sync_config.storage_config.db_config.path_prefix /shared/logs/sequencer-node-1/sync_data --consensus_manager_config.network_config.tcp_port 27000 --mempool_p2p_config.network_config.tcp_port 11000 --state_sync_config.network_config.tcp_port 12000 --http_server_config.port 13000 --monitoring_endpoint_config.port 14000 --consensus_manager_config.network_config.secret_key 0x1111111111111111111111111111111111111111111111111111111111111111 --state_sync_config.network_config.secret_key 0x2222222222222222222222222222222222222222222222222222222222222222 --validator_id 0x64 --consensus_manager_config.context_config.num_validators 4 --consensus_manager_config.context_config.validator_ids 0x64,0x65,0x4b58ef72fbd19638006e6eb584d31b16e816a48e0bff16532804e378039588a,0xf2e1d11cae728b3c5cde867cc0fd5d81e3958d52652ec546526e8f8002d0f8 --consensus_manager_config.consensus_config.timeouts.precommit_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.prevote_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.proposal_timeout 1.1
-```
-
-#### Sequencer #2
-
-```bash
-rm -rf /shared/logs/sequencer-node-2/*
-RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info cargo run --bin starknet_sequencer_node -- --chain_id MY_CUSTOM_CHAIN_ID --eth_fee_token_address 0x1001 --strk_fee_token_address 0x1002 --recorder_url http://invalid_address.com --base_layer_config.node_url http://invalid_address.com --batcher_config.storage.db_config.path_prefix /shared/logs/sequencer-node-2/batcher_data --class_manager_config.class_storage_config.class_hash_storage_config.path_prefix /shared/logs/sequencer-node-2/class_manager_data --state_sync_config.storage_config.db_config.path_prefix /shared/logs/sequencer-node-2/sync_data --consensus_manager_config.network_config.tcp_port 27000 --mempool_p2p_config.network_config.tcp_port 11000 --state_sync_config.network_config.tcp_port 12000 --http_server_config.port 13000 --monitoring_endpoint_config.port 14000 --consensus_manager_config.network_config.secret_key 0x3333333333333333333333333333333333333333333333333333333333333333 --state_sync_config.network_config.secret_key 0x4444444444444444444444444444444444444444444444444444444444444444 --validator_id 0x67 --consensus_manager_config.context_config.num_validators 4 --consensus_manager_config.context_config.validator_ids 0x64,0x65,0x4b58ef72fbd19638006e6eb584d31b16e816a48e0bff16532804e378039588a,0xf2e1d11cae728b3c5cde867cc0fd5d81e3958d52652ec546526e8f8002d0f8 --consensus_manager_config.network_config.bootstrap_peer_multiaddr /dns/sequencer-node-1/tcp/27000/p2p/12D3KooWPqT2nMDSiXUSx5D7fasaxhxKigVhcqfkKqrLghCq9jxz --consensus_manager_config.network_config.bootstrap_peer_multiaddr.#is_none false --consensus_manager_config.consensus_config.timeouts.precommit_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.prevote_timeout 1.1 --consensus_manager_config.consensus_config.timeouts.proposal_timeout 1.1
-```
+Then, you can activate the virtual environment by running `py-start` and deactivate it by running `py-stop`. You should now be able to install any package without any issues.
