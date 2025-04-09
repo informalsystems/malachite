@@ -16,8 +16,9 @@ use malachitebft_core_consensus::{
     Effect, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError, VoteSyncMode,
 };
 use malachitebft_core_types::{
-    Context, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind, ValidatorSet,
-    ValueId, ValueOrigin, ValuePayload,
+    CertificateError, CommitCertificate, Context, NilOrVal, Proposal, Round, SignedProposal,
+    SignedVote, SigningProvider, SigningProviderExt, ThresholdParams, Timeout, TimeoutKind,
+    Validator, ValidatorSet, ValueId, ValueOrigin, ValuePayload, Vote, VoteType,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -414,44 +415,73 @@ where
                         };
 
                         if let Err(e) = self
+                            .verify_signed_certificate(
+                                state.consensus.params.threshold_params,
+                                &value.certificate,
+                            )
+                            .await
+                        {
+                            error!(%height, %request_id, "Error when verifying synced block certificate: {e}");
+                            if let Some(sync) = self.sync.as_ref() {
+                                sync.cast(SyncMsg::InvalidCertificate(
+                                    peer,
+                                    value.certificate.clone(),
+                                    e,
+                                ))
+                                .map_err(|e| {
+                                    eyre!("Error when notifying sync of invalid certificate: {e}")
+                                })?;
+                            }
+
+                            return Ok(());
+                        }
+
+                        let result = self
                             .process_input(
                                 &myself,
                                 state,
                                 ConsensusInput::CommitCertificate(value.certificate.clone()),
                             )
                             .await
-                        {
-                            error!(%height, %request_id, "Error when processing received synced block: {e}");
+                            .map_err(|e| eyre!("Error processing certificate: {e}"))
+                            .and_then(|_| {
+                                self.host
+                                    .call_and_forward(
+                                        |reply_to| HostMsg::ProcessSyncedValue {
+                                            height: value.certificate.height,
+                                            round: value.certificate.round,
+                                            validator_address: state.consensus.address().clone(),
+                                            value_bytes: value.value_bytes.clone(),
+                                            reply_to,
+                                        },
+                                        &myself,
+                                        |proposed| {
+                                            Msg::<Ctx>::ReceivedProposedValue(
+                                                proposed,
+                                                ValueOrigin::Sync,
+                                            )
+                                        },
+                                        None,
+                                    )
+                                    .map_err(|e| eyre!("Error forwarding to host: {e}"))
+                            });
 
-                            let Some(sync) = self.sync.as_ref() else {
-                                warn!("Received sync response but sync actor is not available");
-                                return Ok(());
-                            };
+                        if let Err(e) = result {
+                            error!(%height, %request_id, "Error when processing synced block: {e}");
 
-                            if let ConsensusError::InvalidCertificate(certificate, e) = e {
-                                sync.cast(SyncMsg::InvalidCertificate(peer, certificate, e))
-                                    .map_err(|e| {
-                                        eyre!(
-                                            "Error when notifying sync of invalid certificate: {e}"
-                                        )
-                                    })?;
+                            if let Some(sync) = self.sync.as_ref() {
+                                let error_str = format!("{:?}", e);
+                                sync.cast(SyncMsg::InvalidCertificate(
+                                    peer,
+                                    value.certificate.clone(),
+                                    CertificateError::ProcessingError(error_str),
+                                ))
+                                .map_err(|e| {
+                                    eyre!("Error when notifying sync of invalid certificate: {e}")
+                                })?;
                             }
+                            return Ok(());
                         }
-
-                        self.host.call_and_forward(
-                            |reply_to| HostMsg::ProcessSyncedValue {
-                                height: value.certificate.height,
-                                round: value.certificate.round,
-                                validator_address: state.consensus.address().clone(),
-                                value_bytes: value.value_bytes.clone(),
-                                reply_to,
-                            },
-                            &myself,
-                            |proposed| {
-                                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync)
-                            },
-                            None,
-                        )?;
                     }
 
                     NetworkEvent::Request(
@@ -507,6 +537,10 @@ where
                     }
 
                     NetworkEvent::Vote(from, vote) => {
+                        if !self.verify_signed_vote(state, &vote).await {
+                            return Ok(());
+                        }
+
                         if let Err(e) = self
                             .process_input(&myself, state, ConsensusInput::Vote(vote))
                             .await
@@ -518,6 +552,10 @@ where
                     NetworkEvent::Proposal(from, proposal) => {
                         if state.consensus.params.value_payload.parts_only() {
                             error!(%from, "Properly configured peer should never send proposal messages in BlockPart mode");
+                            return Ok(());
+                        }
+
+                        if !self.verify_signed_proposal(state, &proposal).await {
                             return Ok(());
                         }
 
@@ -585,6 +623,142 @@ where
                 Ok(())
             }
         }
+    }
+
+    async fn verify_signed_vote(&self, state: &State<Ctx>, vote: &SignedVote<Ctx>) -> bool {
+        let consensus_height = state.consensus.driver.height();
+        let vote_height = vote.height();
+        let vote_round = vote.round();
+        let validator_address = vote.validator_address();
+
+        let Some(validator_set) = self
+            .get_validator_set(vote_height)
+            .await
+            .map_err(|e| warn!("No validator set found for height {vote_height}: {e:?}"))
+            .ok()
+        else {
+            return false;
+        };
+
+        let Some(validator) = validator_set.get_by_address(validator_address) else {
+            warn!(
+                consensus.height = %consensus_height,
+                vote.height = %vote_height,
+                vote.round = %vote_round,
+                validator = %validator_address,
+                "Received vote from unknown validator"
+            );
+            return false;
+        };
+
+        if !self.signing_provider.verify_signed_vote(
+            &vote.message,
+            &vote.signature,
+            validator.public_key(),
+        ) {
+            warn!(
+                consensus.height = %consensus_height,
+                vote.height = %vote_height,
+                vote.round = %vote_round,
+                validator = %validator_address,
+                "Received vote with invalid signature: {:?}",
+                &vote.message
+            );
+            return false;
+        }
+
+        // Verify vote extension if it's a precommit vote with a value
+        if vote.vote_type() == VoteType::Precommit {
+            if let NilOrVal::Val(value_id) = vote.value().as_ref() {
+                if let Some(extension) = vote.extension() {
+                    if self
+                        .verify_vote_extension(
+                            vote_height,
+                            vote_round,
+                            value_id.clone(),
+                            extension.message.clone(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            warn!(
+                                consensus.height = %consensus_height,
+                                vote.height = %vote_height,
+                                vote.round = %vote_round,
+                                validator = %validator_address,
+                                "Error verifying vote extension: {e}"
+                            );
+                            e
+                        })
+                        .is_err()
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    async fn verify_signed_proposal(
+        &self,
+        state: &State<Ctx>,
+        proposal: &SignedProposal<Ctx>,
+    ) -> bool {
+        let consensus_height = state.consensus.driver.height();
+        let proposal_height = proposal.height();
+        let proposal_round = proposal.round();
+        let proposer_address = proposal.validator_address();
+
+        let Some(validator_set) = self
+            .get_validator_set(proposal_height)
+            .await
+            .map_err(|e| warn!("No validator set found for height {proposal_height}: {e:?}"))
+            .ok()
+        else {
+            return false;
+        };
+
+        let Some(proposer) = validator_set.get_by_address(proposer_address) else {
+            warn!(
+                consensus.height = %consensus_height,
+                proposal.height = %proposal_height,
+                proposer = %proposer_address,
+                "Received proposal from unknown validator"
+            );
+            return false;
+        };
+
+        let expected_proposer = state
+            .consensus
+            .get_proposer(proposal_height, proposal_round);
+        if expected_proposer != proposer_address {
+            warn!(
+                consensus.height = %consensus_height,
+                proposal.height = %proposal_height,
+                proposer = %proposer_address,
+                expected = %expected_proposer,
+                "Received proposal from a non-proposer"
+            );
+            return false;
+        };
+
+        if !self.signing_provider.verify_signed_proposal(
+            &proposal.message,
+            &proposal.signature,
+            proposer.public_key(),
+        ) {
+            warn!(
+                consensus.height = %consensus_height,
+                proposal.height = %proposal_height,
+                proposer = %proposer_address,
+                "Received invalid signature for proposal: {:?}",
+                &proposal.message
+            );
+            return false;
+        }
+
+        true
     }
 
     async fn timeout_elapsed(
@@ -800,6 +974,29 @@ where
         .map_err(|e| eyre!("Failed to verify vote extension: {e:?}").into())
     }
 
+    async fn verify_signed_certificate(
+        &self,
+        threshold_params: ThresholdParams,
+        certificate: &CommitCertificate<Ctx>,
+    ) -> Result<(), CertificateError<Ctx>> {
+        let Some(validator_set) = self
+            .get_validator_set(certificate.height)
+            .await
+            .map_err(|e| {
+                warn!(
+                    "No validator set found for height {}: {:?}",
+                    certificate.height, e
+                )
+            })
+            .ok()
+        else {
+            return Err(CertificateError::ValidatorSetNotFound(certificate.height));
+        };
+
+        self.signing_provider
+            .verify_certificate(certificate, &validator_set, threshold_params)
+    }
+
     async fn wal_append(
         &self,
         height: Ctx::Height,
@@ -924,39 +1121,6 @@ where
                 Ok(r.resume_with(signed_vote))
             }
 
-            Effect::VerifySignature(msg, pk, r) => {
-                use malachitebft_core_consensus::ConsensusMsg as Msg;
-
-                let start = Instant::now();
-
-                let valid = match msg.message {
-                    Msg::Vote(v) => {
-                        self.signing_provider
-                            .verify_signed_vote(&v, &msg.signature, &pk)
-                    }
-                    Msg::Proposal(p) => {
-                        self.signing_provider
-                            .verify_signed_proposal(&p, &msg.signature, &pk)
-                    }
-                };
-
-                self.metrics
-                    .signature_verification_time
-                    .observe(start.elapsed().as_secs_f64());
-
-                Ok(r.resume_with(valid))
-            }
-
-            Effect::VerifyCertificate(certificate, validator_set, thresholds, r) => {
-                let valid = self.signing_provider.verify_certificate(
-                    &certificate,
-                    &validator_set,
-                    thresholds,
-                );
-
-                Ok(r.resume_with(valid))
-            }
-
             Effect::ExtendVote(height, round, value_id, r) => {
                 if let Some(extension) = self.extend_vote(height, round, value_id).await? {
                     let signed_extension = self.signing_provider.sign_vote_extension(extension);
@@ -964,24 +1128,6 @@ where
                 } else {
                     Ok(r.resume_with(None))
                 }
-            }
-
-            Effect::VerifyVoteExtension(height, round, value_id, signed_extension, pk, r) => {
-                let valid = self.signing_provider.verify_signed_vote_extension(
-                    &signed_extension.message,
-                    &signed_extension.signature,
-                    &pk,
-                );
-
-                if !valid {
-                    return Ok(r.resume_with(Err(VoteExtensionError::InvalidSignature)));
-                }
-
-                let result = self
-                    .verify_vote_extension(height, round, value_id, signed_extension.message)
-                    .await?;
-
-                Ok(r.resume_with(result))
             }
 
             Effect::Publish(msg, r) => {
@@ -1028,16 +1174,6 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::GetValidatorSet(height, r) => {
-                let validator_set = self
-                    .get_validator_set(height)
-                    .await
-                    .map_err(|e| warn!("No validator set found for height {height}: {e:?}"))
-                    .ok();
-
-                Ok(r.resume_with(validator_set))
-            }
-
             Effect::RestreamProposal(height, round, valid_round, address, value_id, r) => {
                 self.host
                     .cast(HostMsg::RestreamValue {
@@ -1054,6 +1190,10 @@ where
 
             Effect::Decide(certificate, extensions, r) => {
                 assert!(!certificate.aggregated_signature.signatures.is_empty());
+                assert!(self
+                    .verify_signed_certificate(self.params.threshold_params, &certificate,)
+                    .await
+                    .is_ok());
 
                 self.wal_flush(state.phase).await?;
 
