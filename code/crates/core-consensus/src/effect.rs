@@ -4,7 +4,7 @@ use malachitebft_core_types::*;
 
 use crate::input::RequestId;
 use crate::types::SignedConsensusMsg;
-use crate::{ConsensusMsg, VoteExtensionError, WalEntry};
+use crate::WalEntry;
 
 /// Provides a way to construct the appropriate [`Resume`] value to
 /// resume execution after handling an [`Effect`].
@@ -20,10 +20,6 @@ use crate::{ConsensusMsg, VoteExtensionError, WalEntry};
 ///    Effect::ResetTimeouts(r) => {
 ///      reset_timeouts();
 ///      Ok(r.resume_with(()))
-///    }
-///    Effect::GetValidatorSet(height, r) => {)
-///        let validator_set = get_validator_set(height);
-///        Ok(r.resume_with(validator_set))
 ///    }
 ///    // ...
 /// }
@@ -68,11 +64,6 @@ where
     ///
     /// Resume with: [`resume::Continue`]
     ScheduleTimeout(Timeout, resume::Continue),
-
-    /// Get the validator set at the given height
-    ///
-    /// Resume with: [`resume::ValidatorSet`]
-    GetValidatorSet(Ctx::Height, resume::ValidatorSet),
 
     /// Consensus is starting a new round with the given proposer
     ///
@@ -146,25 +137,6 @@ where
     /// Resume with: [`resume::SignedProposal`]
     SignProposal(Ctx::Proposal, resume::SignedProposal),
 
-    /// Verify a signature
-    ///
-    /// Resume with: [`resume::SignatureValidity`]
-    VerifySignature(
-        SignedMessage<Ctx, ConsensusMsg<Ctx>>,
-        PublicKey<Ctx>,
-        resume::SignatureValidity,
-    ),
-
-    /// Verify a commit certificate
-    ///
-    /// Resume with: [`resume::CertificateValidity`]
-    VerifyCertificate(
-        CommitCertificate<Ctx>,
-        Ctx::ValidatorSet,
-        ThresholdParams,
-        resume::CertificateValidity,
-    ),
-
     /// Consensus has been stuck in Prevote or Precommit step, ask for vote sets from peers
     ///
     /// Resume with: [`resume::Continue`]
@@ -196,24 +168,6 @@ where
     ///
     /// Only emitted if vote extensions are enabled.
     ExtendVote(Ctx::Height, Round, ValueId<Ctx>, resume::VoteExtension),
-
-    /// Verify a vote extension
-    ///
-    /// If the vote extension is deemed invalid, the vote it was part of
-    /// will be discarded altogether.
-    ///
-    ///
-    /// Only emitted if vote extensions are enabled.
-    ///
-    /// Resume with: [`resume::VoteExtensionValidity`]
-    VerifyVoteExtension(
-        Ctx::Height,
-        Round,
-        ValueId<Ctx>,
-        SignedExtension<Ctx>,
-        PublicKey<Ctx>,
-        resume::VoteExtensionValidity,
-    ),
 }
 
 /// A value with which the consensus process can be resumed after yielding an [`Effect`].
@@ -235,9 +189,6 @@ where
     /// was successfully fetched, or `None` otherwise.
     ValidatorSet(Option<Ctx::ValidatorSet>),
 
-    /// Resume execution with the validity of the signature
-    SignatureValidity(bool),
-
     /// Resume execution with the signed vote
     SignedVote(SignedMessage<Ctx, Ctx::Vote>),
 
@@ -247,16 +198,9 @@ where
     /// Resume with an optional vote extension.
     /// See the [`Effect::ExtendVote`] effect for more information.
     VoteExtension(Option<SignedExtension<Ctx>>),
-
-    /// Resume execution with the result of the verification of the [`SignedExtension`]
-    VoteExtensionValidity(Result<(), VoteExtensionError>),
-
-    /// Resume execution with the result of the verification of the [`CommitCertificate`]
-    CertificateValidity(Result<(), CertificateError<Ctx>>),
 }
 
 pub mod resume {
-    use crate::VoteExtensionError;
 
     use super::*;
 
@@ -279,17 +223,6 @@ pub mod resume {
 
         fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
             Resume::ValidatorSet(value)
-        }
-    }
-
-    #[derive(Debug, Default)]
-    pub struct SignatureValidity;
-
-    impl<Ctx: Context> Resumable<Ctx> for SignatureValidity {
-        type Value = bool;
-
-        fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
-            Resume::SignatureValidity(value)
         }
     }
 
@@ -323,28 +256,6 @@ pub mod resume {
 
         fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
             Resume::VoteExtension(value)
-        }
-    }
-
-    #[derive(Debug, Default)]
-    pub struct CertificateValidity;
-
-    impl<Ctx: Context> Resumable<Ctx> for CertificateValidity {
-        type Value = Result<(), CertificateError<Ctx>>;
-
-        fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
-            Resume::CertificateValidity(value)
-        }
-    }
-
-    #[derive(Debug, Default)]
-    pub struct VoteExtensionValidity;
-
-    impl<Ctx: Context> Resumable<Ctx> for VoteExtensionValidity {
-        type Value = Result<(), VoteExtensionError>;
-
-        fn resume_with(self, value: Self::Value) -> Resume<Ctx> {
-            Resume::VoteExtensionValidity(value)
         }
     }
 }
