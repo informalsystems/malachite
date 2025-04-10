@@ -670,79 +670,17 @@ where
         }
     }
 
-    async fn verify_signed_vote(&self, state: &State<Ctx>, vote: &SignedVote<Ctx>) -> bool {
-        let consensus_height = state.consensus.driver.height();
-        let vote_height = vote.height();
-        let vote_round = vote.round();
-        let validator_address = vote.validator_address();
+    async fn get_validator_set(
+        &self,
+        height: Ctx::Height,
+    ) -> Result<Ctx::ValidatorSet, ActorProcessingErr> {
+        let validator_set = ractor::call!(self.host, |reply_to| HostMsg::GetValidatorSet {
+            height,
+            reply_to
+        })
+        .map_err(|e| eyre!("Failed to get validator set at height {height}: {e:?}"))?;
 
-        let Some(validator_set) = self
-            .get_validator_set(vote_height)
-            .await
-            .map_err(|e| warn!("No validator set found for height {vote_height}: {e:?}"))
-            .ok()
-        else {
-            return false;
-        };
-
-        let Some(validator) = validator_set.get_by_address(validator_address) else {
-            warn!(
-                consensus.height = %consensus_height,
-                vote.height = %vote_height,
-                vote.round = %vote_round,
-                validator = %validator_address,
-                "Received vote from unknown validator"
-            );
-            return false;
-        };
-
-        if !self.signing_provider.verify_signed_vote(
-            &vote.message,
-            &vote.signature,
-            validator.public_key(),
-        ) {
-            warn!(
-                consensus.height = %consensus_height,
-                vote.height = %vote_height,
-                vote.round = %vote_round,
-                validator = %validator_address,
-                "Received vote with invalid signature: {:?}",
-                &vote.message
-            );
-            return false;
-        }
-
-        // Verify vote extension if it's a precommit vote with a value
-        if vote.vote_type() == VoteType::Precommit {
-            if let NilOrVal::Val(value_id) = vote.value().as_ref() {
-                if let Some(extension) = vote.extension() {
-                    if self
-                        .verify_vote_extension(
-                            vote_height,
-                            vote_round,
-                            value_id.clone(),
-                            extension.message.clone(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            warn!(
-                                consensus.height = %consensus_height,
-                                vote.height = %vote_height,
-                                vote.round = %vote_round,
-                                validator = %validator_address,
-                                "Error verifying vote extension: {e}"
-                            );
-                            e
-                        })
-                        .is_err()
-                    {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        true
+        Ok(validator_set)
     }
 
     async fn verify_signed_proposal(
@@ -804,6 +742,134 @@ where
         }
 
         true
+    }
+
+    async fn verify_signed_vote(&self, state: &State<Ctx>, vote: &SignedVote<Ctx>) -> bool {
+        let consensus_height = state.consensus.driver.height();
+        let vote_height = vote.height();
+        let vote_round = vote.round();
+        let validator_address = vote.validator_address();
+
+        let Some(validator_set) = self
+            .get_validator_set(vote_height)
+            .await
+            .map_err(|e| warn!("No validator set found for height {vote_height}: {e:?}"))
+            .ok()
+        else {
+            return false;
+        };
+
+        let Some(validator) = validator_set.get_by_address(validator_address) else {
+            warn!(
+                consensus.height = %consensus_height,
+                vote.height = %vote_height,
+                vote.round = %vote_round,
+                validator = %validator_address,
+                "Received vote from unknown validator"
+            );
+            return false;
+        };
+
+        if !self.signing_provider.verify_signed_vote(
+            &vote.message,
+            &vote.signature,
+            validator.public_key(),
+        ) {
+            warn!(
+                consensus.height = %consensus_height,
+                vote.height = %vote_height,
+                vote.round = %vote_round,
+                validator = %validator_address,
+                "Received vote with invalid signature: {:?}",
+                &vote.message
+            );
+            return false;
+        }
+
+        // Verify vote extension
+        self.verify_signed_vote_extension(state, vote).await
+    }
+
+    async fn verify_signed_vote_extension(
+        &self,
+        state: &State<Ctx>,
+        vote: &SignedVote<Ctx>,
+    ) -> bool {
+        let consensus_height = state.consensus.driver.height();
+        let vote_height = vote.height();
+        let vote_round = vote.round();
+        let validator_address = vote.validator_address();
+
+        if vote.vote_type() == VoteType::Precommit {
+            if let NilOrVal::Val(value_id) = vote.value().as_ref() {
+                if let Some(extension) = vote.extension() {
+                    if self
+                        .verify_vote_extension(
+                            vote_height,
+                            vote_round,
+                            value_id.clone(),
+                            extension.message.clone(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            warn!(
+                                consensus.height = %consensus_height,
+                                vote.height = %vote_height,
+                                vote.round = %vote_round,
+                                validator = %validator_address,
+                                "Error verifying vote extension: {e}"
+                            );
+                            e
+                        })
+                        .is_err()
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    async fn verify_vote_extension(
+        &self,
+        height: Ctx::Height,
+        round: Round,
+        value_id: ValueId<Ctx>,
+        extension: Ctx::Extension,
+    ) -> Result<Result<(), VoteExtensionError>, ActorProcessingErr> {
+        ractor::call!(self.host, |reply_to| HostMsg::VerifyVoteExtension {
+            height,
+            round,
+            value_id,
+            extension,
+            reply_to
+        })
+        .map_err(|e| eyre!("Failed to verify vote extension: {e:?}").into())
+    }
+
+    async fn verify_signed_certificate(
+        &self,
+        threshold_params: ThresholdParams,
+        certificate: &CommitCertificate<Ctx>,
+    ) -> Result<(), CertificateError<Ctx>> {
+        let Some(validator_set) = self
+            .get_validator_set(certificate.height)
+            .await
+            .map_err(|e| {
+                warn!(
+                    "No validator set found for height {}: {:?}",
+                    certificate.height, e
+                )
+            })
+            .ok()
+        else {
+            return Err(CertificateError::ValidatorSetNotFound(certificate.height));
+        };
+
+        self.signing_provider
+            .verify_certificate(certificate, &validator_set, threshold_params)
     }
 
     async fn timeout_elapsed(
@@ -974,19 +1040,6 @@ where
         Ok(())
     }
 
-    async fn get_validator_set(
-        &self,
-        height: Ctx::Height,
-    ) -> Result<Ctx::ValidatorSet, ActorProcessingErr> {
-        let validator_set = ractor::call!(self.host, |reply_to| HostMsg::GetValidatorSet {
-            height,
-            reply_to
-        })
-        .map_err(|e| eyre!("Failed to get validator set at height {height}: {e:?}"))?;
-
-        Ok(validator_set)
-    }
-
     async fn extend_vote(
         &self,
         height: Ctx::Height,
@@ -1000,46 +1053,6 @@ where
             reply_to
         })
         .map_err(|e| eyre!("Failed to get earliest block height: {e:?}").into())
-    }
-
-    async fn verify_vote_extension(
-        &self,
-        height: Ctx::Height,
-        round: Round,
-        value_id: ValueId<Ctx>,
-        extension: Ctx::Extension,
-    ) -> Result<Result<(), VoteExtensionError>, ActorProcessingErr> {
-        ractor::call!(self.host, |reply_to| HostMsg::VerifyVoteExtension {
-            height,
-            round,
-            value_id,
-            extension,
-            reply_to
-        })
-        .map_err(|e| eyre!("Failed to verify vote extension: {e:?}").into())
-    }
-
-    async fn verify_signed_certificate(
-        &self,
-        threshold_params: ThresholdParams,
-        certificate: &CommitCertificate<Ctx>,
-    ) -> Result<(), CertificateError<Ctx>> {
-        let Some(validator_set) = self
-            .get_validator_set(certificate.height)
-            .await
-            .map_err(|e| {
-                warn!(
-                    "No validator set found for height {}: {:?}",
-                    certificate.height, e
-                )
-            })
-            .ok()
-        else {
-            return Err(CertificateError::ValidatorSetNotFound(certificate.height));
-        };
-
-        self.signing_provider
-            .verify_certificate(certificate, &validator_set, threshold_params)
     }
 
     async fn wal_append(
