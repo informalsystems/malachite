@@ -101,6 +101,16 @@ pub enum Msg<Ctx: Context> {
 
     /// Received and assembled the full value proposed by a validator
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
+
+    /// Instructs consensus to restart at a given height with the given validator set.
+    ///
+    /// On this input consensus resets the Write-Ahead Log.
+    /// # Warning
+    /// This operation should be used with extreme caution as it can lead to safety violations:
+    /// 1. The application must clean all state associated with the height for which commit has failed
+    /// 2. Since consensus resets its write-ahead log, the node may equivocate on proposals and votes
+    ///    for the restarted height, potentially violating protocol safety
+    RestartHeight(Ctx::Height, Ctx::ValidatorSet),
 }
 
 impl<Ctx: Context> From<NetworkEvent<Ctx>> for Msg<Ctx> {
@@ -302,12 +312,20 @@ where
         state: &mut State<Ctx>,
         msg: Msg<Ctx>,
     ) -> Result<(), ActorProcessingErr> {
-        match msg {
-            Msg::StartHeight(height, validator_set) => {
-                self.tx_event.send(|| Event::StartedHeight(height));
+        let is_restart = matches!(msg, Msg::RestartHeight(_, _));
 
-                // Fetch entries from the WAL
-                let wal_entries = self.wal_fetch(height).await?;
+        match msg {
+            Msg::StartHeight(height, validator_set) | Msg::RestartHeight(height, validator_set) => {
+                self.tx_event
+                    .send(|| Event::StartedHeight(height, is_restart));
+
+                // Fetch entries from the WAL or reset the WAL if this is a restart
+                let wal_entries = if is_restart {
+                    self.wal_reset(height).await?;
+                    vec![]
+                } else {
+                    self.wal_fetch(height).await?
+                };
 
                 if !wal_entries.is_empty() {
                     // Set the phase to `Recovering` while we replay the WAL
@@ -328,8 +346,7 @@ where
                 }
 
                 if !wal_entries.is_empty() {
-                    // Replay the entries from the WAL
-                    self.replay_wal(&myself, state, height, wal_entries).await;
+                    self.wal_replay(&myself, state, height, wal_entries).await;
                 }
 
                 // Set the phase to `Running` now that we have replayed the WAL
@@ -340,7 +357,7 @@ where
 
                 // Notify the sync actor that we have started a new height
                 if let Some(sync) = &self.sync {
-                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height)) {
+                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height, is_restart)) {
                         error!(%height, "Error when notifying sync of started height: {e}")
                     }
                 }
@@ -902,6 +919,24 @@ where
         Ok(())
     }
 
+    async fn wal_reset(&self, height: Ctx::Height) -> Result<(), ActorProcessingErr> {
+        let result = ractor::call!(self.wal, WalMsg::Reset, height);
+
+        match result {
+            Ok(Ok(())) => {
+                // Success
+            }
+            Ok(Err(e)) => {
+                error!("Resetting the WAL failed: {e}");
+            }
+            Err(e) => {
+                error!("Failed to send Reset command to WAL actor: {e}");
+            }
+        }
+
+        Ok(())
+    }
+
     async fn wal_fetch(
         &self,
         height: Ctx::Height,
@@ -930,7 +965,7 @@ where
         }
     }
 
-    async fn replay_wal(
+    async fn wal_replay(
         &self,
         myself: &ActorRef<Msg<Ctx>>,
         state: &mut State<Ctx>,

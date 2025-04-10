@@ -211,14 +211,12 @@ impl State {
                 "Trying to commit a value with value id {value_id} at height {height} and round {round} for which there is no proposal"
             ));
         };
+        self.store
+            .remove_undecided_proposals_by_value_id(value_id)
+            .await?;
 
         self.store
             .store_decided_value(&certificate, proposal.value)
-            .await?;
-
-        // Remove all proposals with the given value id.
-        self.store
-            .remove_undecided_proposals_by_value_id(value_id)
             .await?;
 
         // Prune the store, keep the last HISTORY_LENGTH values
@@ -227,7 +225,7 @@ impl State {
 
         // Move to next height
         self.current_height = self.current_height.increment();
-        self.current_round = Round::new(0);
+        self.current_round = Round::Nil;
 
         Ok(())
     }
