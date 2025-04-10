@@ -102,12 +102,12 @@ where
         initial_validator_set,
         address,
         threshold_params: Default::default(),
-        value_payload,
         vote_sync_mode,
     };
 
     Consensus::spawn(
         ctx,
+        value_payload,
         consensus_params,
         cfg.timeouts,
         signing_provider,

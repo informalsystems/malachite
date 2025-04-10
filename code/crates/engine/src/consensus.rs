@@ -80,6 +80,7 @@ where
     metrics: Metrics,
     tx_event: TxEvent<Ctx>,
     span: tracing::Span,
+    value_payload: ValuePayload,
 }
 
 pub type ConsensusMsg<Ctx> = Msg<Ctx>;
@@ -213,7 +214,6 @@ struct HandlerState<'a, Ctx: Context> {
     height: Ctx::Height,
     timers: &'a mut Timers,
     timeouts: &'a mut Timeouts,
-    value_payload: ValuePayload,
 }
 
 impl<Ctx> Consensus<Ctx>
@@ -223,6 +223,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         ctx: Ctx,
+        value_payload: ValuePayload,
         params: ConsensusParams<Ctx>,
         timeout_config: TimeoutConfig,
         signing_provider: Box<dyn SigningProvider<Ctx>>,
@@ -246,6 +247,7 @@ where
             metrics,
             tx_event,
             span,
+            value_payload,
         };
 
         let (actor_ref, _) = Actor::spawn(None, node, ()).await?;
@@ -259,7 +261,6 @@ where
         input: ConsensusInput<Ctx>,
     ) -> Result<(), ConsensusError<Ctx>> {
         let height = state.height();
-        let value_payload = state.consensus.params.value_payload;
 
         malachitebft_core_consensus::process!(
             input: input,
@@ -271,7 +272,6 @@ where
                     height,
                     timers: &mut state.timers,
                     timeouts: &mut state.timeouts,
-                    value_payload,
                 };
 
                 self.handle_effect(myself, handler_state, effect).await
@@ -550,7 +550,7 @@ where
                     }
 
                     NetworkEvent::Proposal(from, proposal) => {
-                        if state.consensus.params.value_payload.parts_only() {
+                        if self.value_payload.parts_only() {
                             error!(%from, "Properly configured peer should never send proposal messages in BlockPart mode");
                             return Ok(());
                         }
@@ -559,7 +559,7 @@ where
                             return Ok(());
                         }
 
-                        if state.consensus.params.value_payload.proposal_only() {
+                        if self.value_payload.proposal_only() {
                             // TODO - pass the received value up to the host that will verify and give back validity and extension.
                             let proposed_value = ProposedValue {
                                 height: proposal.height(),
@@ -594,7 +594,7 @@ where
                     }
 
                     NetworkEvent::ProposalPart(from, part) => {
-                        if state.consensus.params.value_payload.proposal_only() {
+                        if self.value_payload.proposal_only() {
                             error!(%from, "Properly configured peer should never send proposal part messages in Proposal mode");
                             return Ok(());
                         }
@@ -638,8 +638,7 @@ where
                 self.tx_event
                     .send(|| Event::ReceivedProposedValue(value.clone(), origin));
 
-                if state.consensus.params.value_payload.parts_only() || origin == ValueOrigin::Sync
-                {
+                if self.value_payload.parts_only() || origin == ValueOrigin::Sync {
                     let proposal = Ctx::new_proposal(
                         &self.ctx,
                         value.height,
@@ -1194,7 +1193,7 @@ where
                 self.wal_flush(state.phase).await?;
 
                 let should_broadcast = !matches!(msg, SignedConsensusMsg::Proposal(_))
-                    || state.value_payload.include_proposal();
+                    || self.value_payload.include_proposal();
 
                 if should_broadcast {
                     self.tx_event.send(|| Event::Published(msg.clone()));
@@ -1335,7 +1334,7 @@ where
             }
 
             Effect::WalAppend(entry, r) => {
-                self.wal_append(state.height, entry, state.phase, state.value_payload)
+                self.wal_append(state.height, entry, state.phase, self.value_payload)
                     .await?;
                 Ok(r.resume_with(()))
             }

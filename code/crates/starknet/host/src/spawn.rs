@@ -176,7 +176,6 @@ async fn spawn_consensus_actor(
         initial_validator_set,
         address,
         threshold_params: Default::default(),
-        value_payload: ValuePayload::PartsOnly,
         vote_sync_mode: match cfg.consensus.vote_sync.mode {
             config::VoteSyncMode::RequestResponse => VoteSyncMode::RequestResponse,
             config::VoteSyncMode::Rebroadcast => VoteSyncMode::Rebroadcast,
@@ -185,6 +184,7 @@ async fn spawn_consensus_actor(
 
     Consensus::spawn(
         ctx,
+        ValuePayload::PartsOnly,
         consensus_params,
         cfg.consensus.timeouts,
         Box::new(signing_provider),

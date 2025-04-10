@@ -1,8 +1,7 @@
 use derive_where::derive_where;
 
-use malachitebft_core_types::{Context, ValuePayload};
-
 pub use malachitebft_core_driver::ThresholdParams;
+use malachitebft_core_types::Context;
 
 /// Consensus parameters.
 #[derive_where(Clone, Debug)]
@@ -18,9 +17,6 @@ pub struct Params<Ctx: Context> {
 
     /// The quorum and honest thresholds
     pub threshold_params: ThresholdParams,
-
-    /// The messages required to deliver proposals
-    pub value_payload: ValuePayload,
 
     /// The VoteSync mode
     pub vote_sync_mode: VoteSyncMode,
