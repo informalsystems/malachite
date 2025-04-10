@@ -63,7 +63,7 @@ case "$action" in
     echo "Running for $duration seconds..."
     sleep "$duration"
     for container in "${containers[@]}"; do
-      docker exec -it "$container" /bin/bash -lic "pkill -f start"
+      docker exec -it "$container" /bin/bash -lic "pkill -f shared"
     done
     ;;
   reset)
