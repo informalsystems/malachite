@@ -34,35 +34,34 @@ This setup generates networks composed of any combination of Malachite and Seque
     ```
 
 >[!NOTE]
-> Spawning the network does not mean that the nodes have started yet. It only means that the containers are up and running. You need to start the nodes manually. The `manage.sh` script provides the commands to enter the containers.
+> Spawning the network does not mean that the nodes have started yet. It only means that the containers are up and running. The `manage.sh` script outputs the commands to enter the containers if needed.
 
 6. Build the nodes:
     
     If it is the first time you are running the nodes, or if you made changes to the code, you need to build the nodes. You can do this by running the following command:
     ```bash
-    # INSIDE THE CONTAINER
-    build
+    ./manage.sh <network name> build
     ```
-    You only need to do it once per node type (malachite and sequencer). All containers from the same node type share the same build.
 
 7. Start the nodes:
     ```bash
-    # INSIDE THE CONTAINER
-    start
+    ./manage.sh <network name> start <duration in seconds>
     ```
 
 8. Reset the state:
 
     You might want to reset the state (db, wal, etc.) of the nodes. You can do this by running the following command:
     ```bash
-    # INSIDE THE CONTAINER
-    reset
+    ./manage.sh <network name> reset
     ```
 
 9. Stop the network:
     ```bash
     ./manage.sh <network name> down
     ```
+
+>[!NOTE]
+> The `build`, `start`, and `reset` commands are also available inside each node's container. This can be useful if you want to run a command inside a specific node. Simply enter the container (with the command provided by the `manage.sh` script) and run the command: `build`, `start`, or `reset`.
 
 ## Advanced usage
 

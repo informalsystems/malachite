@@ -290,6 +290,9 @@ def main():
         writer = csv.writer(f)
         writer.writerows(data)
 
+    # Create logs directory
+    os.makedirs(f"{base_dir}/logs", exist_ok=True)
+
 
 if __name__ == "__main__":
     main()
