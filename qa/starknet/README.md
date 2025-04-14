@@ -47,6 +47,7 @@ This setup generates networks composed of any combination of Malachite and Seque
     ```bash
     ./manage.sh <network name> start <duration in seconds>
     ```
+    The logs are located in the `shared/networks/<network name>/logs/` folder.
 
 8. Reset the state:
 
