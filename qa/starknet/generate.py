@@ -155,6 +155,7 @@ def main():
             peers.append(f"sequencer-node-{k}")
 
         rendered_config = malachite_config_template.render(
+            id=i,
             persistent_peers=peers,
             proposal_timeout=f"{args.proposal_timeout}ms",
             prevote_timeout=f"{args.prevote_timeout}ms",
