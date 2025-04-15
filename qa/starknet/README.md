@@ -71,7 +71,7 @@ You might want to make modifications to the config files of the nodes. You can f
 >[!WARNING]
 > Some Docker engines (e.g., Docker Desktop) sometimes have synchronization issues with mounted volumes, leading to corrupted config files in the containers. If you encounter such issues, stop the network, make your changes to the config files, and start the network again. It will ensure that the changes are applied correctly.
 
-Moreover, for the latency, you can edit it in detail in the `shared/networks/<network name>/latencies.csv` file. Then, you can apply it again by running the `./apply-latency.sh <network name>` command. It will update the latency between the nodes without stopping the network.
+Moreover, for the latency, you can edit it in detail in the `shared/networks/<network name>/latencies.csv` file. Then, you can apply it again by running the `./apply-latency.sh <network name>` command. It will update the latency between the nodes without stopping the network. The `latencies.csv` file is a _from/to_ matrix, where the first column is the source node and the first row is the destination node. The values are the latencies in milliseconds. 
 
 If you plan to make more long-term changes to the configuration, feel free to edit the templates under the `templates/` directory.
 
