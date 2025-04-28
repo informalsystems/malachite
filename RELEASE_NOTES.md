@@ -2,7 +2,16 @@
 
 ## Unreleased
 
+- Reply to `GetValidatorSet` is now optional ([#990](https://github.com/informalsystems/malachite/issues/990))
+
+## 0.2.0
+
+*April 16th, 2025*
+
 - Add the capability to re-run consensus for a given height ([#893](https://github.com/informalsystems/malachite/issues/893))
+- Verify polka certificates ([#974](https://github.com/informalsystems/malachite/issues/974))
+- Use aggregated signatures in polka certificates ([#915](https://github.com/informalsystems/malachite/issues/915))
+- Improve verification of commit certificates ([#974](https://github.com/informalsystems/malachite/issues/974))
 
 ## 0.1.0
 

@@ -165,7 +165,7 @@ pub async fn run(
             // In our case, our validator set stays constant between heights so we can
             // send back the validator set found in our genesis state.
             AppMsg::GetValidatorSet { height: _, reply } => {
-                if reply.send(genesis.validator_set.clone()).is_err() {
+                if reply.send(Some(genesis.validator_set.clone())).is_err() {
                     error!("Failed to send GetValidatorSet reply");
                 }
             }
@@ -186,7 +186,7 @@ pub async fn run(
                     value = %certificate.value_id,
                     "Consensus has decided on value, committing..."
                 );
-                assert!(!certificate.aggregated_signature.signatures.is_empty());
+                assert!(!certificate.commit_signatures.is_empty());
 
                 // When that happens, we store the decided value in our store
                 match state.commit(certificate).await {

@@ -16,9 +16,10 @@ use malachitebft_core_consensus::{
     Effect, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError, VoteSyncMode,
 };
 use malachitebft_core_types::{
-    CertificateError, CommitCertificate, Context, NilOrVal, Proposal, Round, SignedProposal,
-    SignedVote, SigningProvider, SigningProviderExt, ThresholdParams, Timeout, TimeoutKind,
-    Validator, ValidatorSet, Validity, ValueId, ValueOrigin, ValuePayload, Vote, VoteType,
+    CertificateError, CommitCertificate, Context, NilOrVal, PolkaCertificate, Proposal, Round,
+    SignedProposal, SignedVote, SigningProvider, SigningProviderExt, ThresholdParams, Timeout,
+    TimeoutKind, Validator, ValidatorSet, Validity, ValueId, ValueOrigin, ValuePayload, Vote,
+    VoteSet, VoteType,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -147,7 +148,6 @@ impl Timeouts {
             TimeoutKind::Propose => self.config.timeout_propose,
             TimeoutKind::Prevote => self.config.timeout_prevote,
             TimeoutKind::Precommit => self.config.timeout_precommit,
-            TimeoutKind::Commit => self.config.timeout_commit,
             TimeoutKind::PrevoteTimeLimit => self.config.timeout_step,
             TimeoutKind::PrecommitTimeLimit => self.config.timeout_step,
             TimeoutKind::PrevoteRebroadcast => self.config.timeout_prevote,
@@ -161,7 +161,6 @@ impl Timeouts {
             TimeoutKind::Propose => c.timeout_propose += c.timeout_propose_delta,
             TimeoutKind::Prevote => c.timeout_prevote += c.timeout_prevote_delta,
             TimeoutKind::Precommit => c.timeout_precommit += c.timeout_precommit_delta,
-            TimeoutKind::Commit => (),
             TimeoutKind::PrevoteTimeLimit => (),
             TimeoutKind::PrecommitTimeLimit => (),
             TimeoutKind::PrevoteRebroadcast => (),
@@ -432,7 +431,7 @@ where
                         };
 
                         if let Err(e) = self
-                            .verify_signed_certificate(
+                            .verify_commit_certificate(
                                 state.consensus.params.threshold_params,
                                 &value.certificate,
                             )
@@ -440,7 +439,7 @@ where
                         {
                             error!(%height, %request_id, "Error when verifying synced block certificate: {e}");
                             if let Some(sync) = self.sync.as_ref() {
-                                sync.cast(SyncMsg::InvalidCertificate(
+                                sync.cast(SyncMsg::InvalidCommitCertificate(
                                     peer,
                                     value.certificate.clone(),
                                     e,
@@ -488,7 +487,7 @@ where
 
                             if let Some(sync) = self.sync.as_ref() {
                                 let error_str = format!("{:?}", e);
-                                sync.cast(SyncMsg::InvalidCertificate(
+                                sync.cast(SyncMsg::InvalidCommitCertificate(
                                     peer,
                                     value.certificate.clone(),
                                     CertificateError::ProcessingError(error_str),
@@ -534,6 +533,13 @@ where
                             polka_certificates,
                         }),
                     ) => {
+                        if !self
+                            .verify_vote_set_response(state, &vote_set, &polka_certificates)
+                            .await
+                        {
+                            return Ok(());
+                        }
+
                         if vote_set.votes.is_empty() {
                             debug!(%height, %round, %request_id, %peer, "Received an empty vote set response");
                             return Ok(());
@@ -689,7 +695,7 @@ where
     async fn get_validator_set(
         &self,
         height: Ctx::Height,
-    ) -> Result<Ctx::ValidatorSet, ActorProcessingErr> {
+    ) -> Result<Option<Ctx::ValidatorSet>, ActorProcessingErr> {
         let validator_set = ractor::call!(self.host, |reply_to| HostMsg::GetValidatorSet {
             height,
             reply_to
@@ -712,9 +718,14 @@ where
         let Some(validator_set) = self
             .get_validator_set(proposal_height)
             .await
-            .map_err(|e| warn!("No validator set found for height {proposal_height}: {e:?}"))
             .ok()
+            .and_then(|result| result)
         else {
+            warn!(
+                consensus.height = %consensus_height,
+                proposal.height = %proposal_height,
+                "No validator set found"
+            );
             return false;
         };
 
@@ -769,9 +780,14 @@ where
         let Some(validator_set) = self
             .get_validator_set(vote_height)
             .await
-            .map_err(|e| warn!("No validator set found for height {vote_height}: {e:?}"))
             .ok()
+            .and_then(|result| result)
         else {
+            warn!(
+                consensus.height = %consensus_height,
+                vote.height = %vote_height,
+                "No validator set found"
+            );
             return false;
         };
 
@@ -865,27 +881,42 @@ where
         .map_err(|e| eyre!("Failed to verify vote extension: {e:?}").into())
     }
 
-    async fn verify_signed_certificate(
+    async fn verify_commit_certificate(
         &self,
         threshold_params: ThresholdParams,
         certificate: &CommitCertificate<Ctx>,
     ) -> Result<(), CertificateError<Ctx>> {
-        let Some(validator_set) = self
-            .get_validator_set(certificate.height)
+        self.get_validator_set(certificate.height)
             .await
-            .map_err(|e| {
-                warn!(
-                    "No validator set found for height {}: {:?}",
-                    certificate.height, e
+            .map_err(|e| CertificateError::ProcessingError(e.to_string()))?
+            .ok_or_else(|| CertificateError::ValidatorSetNotFound(certificate.height))
+            .and_then(|validator_set| {
+                self.signing_provider.verify_commit_certificate(
+                    &self.ctx,
+                    certificate,
+                    &validator_set,
+                    threshold_params,
                 )
             })
-            .ok()
-        else {
-            return Err(CertificateError::ValidatorSetNotFound(certificate.height));
-        };
+    }
 
-        self.signing_provider
-            .verify_certificate(certificate, &validator_set, threshold_params)
+    async fn verify_polka_certificate(
+        &self,
+        threshold_params: ThresholdParams,
+        certificate: &PolkaCertificate<Ctx>,
+    ) -> Result<(), CertificateError<Ctx>> {
+        self.get_validator_set(certificate.height)
+            .await
+            .map_err(|e| CertificateError::ProcessingError(e.to_string()))?
+            .ok_or_else(|| CertificateError::ValidatorSetNotFound(certificate.height))
+            .and_then(|validator_set| {
+                self.signing_provider.verify_polka_certificate(
+                    &self.ctx,
+                    certificate,
+                    &validator_set,
+                    threshold_params,
+                )
+            })
     }
 
     async fn timeout_elapsed(
@@ -1281,9 +1312,9 @@ where
             }
 
             Effect::Decide(certificate, extensions, r) => {
-                assert!(!certificate.aggregated_signature.signatures.is_empty());
+                assert!(!certificate.commit_signatures.is_empty());
                 assert!(self
-                    .verify_signed_certificate(self.params.threshold_params, &certificate,)
+                    .verify_commit_certificate(self.params.threshold_params, &certificate,)
                     .await
                     .is_ok());
 
@@ -1374,6 +1405,47 @@ where
                 Ok(r.resume_with(()))
             }
         }
+    }
+
+    async fn verify_vote_set_response(
+        &self,
+        state: &State<Ctx>,
+        vote_set: &VoteSet<Ctx>,
+        polka_certificates: &[PolkaCertificate<Ctx>],
+    ) -> bool {
+        let consensus_height = state.consensus.driver.height();
+
+        // Verify each vote in the vote set
+        for vote in vote_set.votes.iter() {
+            if !self.verify_signed_vote(state, vote).await {
+                warn!(
+                    consensus.height = %consensus_height,
+                    vote.height = %vote.height(),
+                    vote.round = %vote.round(),
+                    validator = %vote.validator_address(),
+                    "Received invalid vote in vote set response"
+                );
+                return false;
+            }
+        }
+
+        // Verify each polka certificate
+        for certificate in polka_certificates {
+            if let Err(e) = self
+                .verify_polka_certificate(state.consensus.params.threshold_params, certificate)
+                .await
+            {
+                warn!(
+                    consensus.height = %consensus_height,
+                    certificate.height = %certificate.height,
+                    certificate.round = %certificate.round,
+                    "Received invalid polka certificate in vote set response: {e}"
+                );
+                return false;
+            }
+        }
+
+        true
     }
 }
 

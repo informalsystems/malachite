@@ -1,3 +1,5 @@
+use tracing::error;
+
 use crate::handle::driver::apply_driver_input;
 use crate::handle::vote::on_vote;
 use crate::input::RequestId;
@@ -38,7 +40,7 @@ pub async fn on_vote_set_response<Ctx>(
     state: &mut State<Ctx>,
     metrics: &Metrics,
     vote_set: VoteSet<Ctx>,
-    polka_certificates: Vec<PolkaCertificate<Ctx>>,
+    certificates: Vec<PolkaCertificate<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -46,23 +48,61 @@ where
     debug!(
         height = %state.height(), round = %state.round(),
         votes.count = %vote_set.len(),
-        polka_certificates.count = %polka_certificates.len(),
+        polka_certificates.count = %certificates.len(),
         "Received vote set response"
     );
 
-    for polka_certificate in polka_certificates {
-        apply_driver_input(
-            co,
-            state,
-            metrics,
-            DriverInput::PolkaCertificate(polka_certificate),
-        )
-        .await?;
-    }
+    apply_polka_certificates(co, state, metrics, certificates).await?;
 
     for vote in vote_set.votes {
         on_vote(co, state, metrics, vote).await?;
     }
 
     Ok(())
+}
+
+async fn apply_polka_certificates<Ctx>(
+    co: &Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    certificates: Vec<PolkaCertificate<Ctx>>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    for certificate in certificates {
+        if let Err(e) = apply_polka_certificate(co, state, metrics, certificate).await {
+            error!("Failed to apply polka certificate: {e}");
+        }
+    }
+
+    Ok(())
+}
+
+async fn apply_polka_certificate<Ctx>(
+    co: &Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    certificate: PolkaCertificate<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    if certificate.height != state.height() {
+        warn!(
+            %certificate.height,
+            consensus.height = %state.height(),
+            "Polka certificate height mismatch"
+        );
+
+        return Ok(());
+    }
+
+    apply_driver_input(
+        co,
+        state,
+        metrics,
+        DriverInput::PolkaCertificate(certificate),
+    )
+    .await
 }

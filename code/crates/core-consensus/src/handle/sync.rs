@@ -1,4 +1,3 @@
-use crate::handle::decide::try_decide;
 use crate::handle::driver::apply_driver_input;
 use crate::prelude::*;
 
@@ -13,7 +12,7 @@ where
 {
     debug!(
         certificate.height = %certificate.height,
-        signatures = certificate.aggregated_signature.signatures.len(),
+        signatures = certificate.commit_signatures.len(),
         "Processing certificate"
     );
 
@@ -23,11 +22,5 @@ where
         metrics,
         DriverInput::CommitCertificate(certificate),
     )
-    .await?;
-
-    // The CommitCertificate is provided by Value Sync, try to decide immediately, without waiting for the Commit timeout.
-    // `try_decide` will check that we are in the commit step after applying the certificate to the state machine.
-    try_decide(co, state, metrics).await?;
-
-    Ok(())
+    .await
 }

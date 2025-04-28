@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 #[cfg_attr(not(feature = "metrics"), allow(unused_variables))]
-pub async fn try_decide<Ctx>(
+pub async fn decide<Ctx>(
     co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -9,9 +9,7 @@ pub async fn try_decide<Ctx>(
 where
     Ctx: Context,
 {
-    if !state.driver.step_is_commit() {
-        return Ok(());
-    }
+    assert!(state.driver.step_is_commit());
 
     let height = state.driver.height();
     let consensus_round = state.driver.round();
@@ -91,17 +89,8 @@ where
 
     perform!(
         co,
-        Effect::CancelTimeout(Timeout::commit(state.driver.round()), Default::default())
+        Effect::Decide(certificate, extensions, Default::default())
     );
-
-    if !state.decided_sent {
-        state.decided_sent = true;
-
-        perform!(
-            co,
-            Effect::Decide(certificate, extensions, Default::default())
-        );
-    }
 
     Ok(())
 }
