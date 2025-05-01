@@ -3,10 +3,11 @@ use prost::Message;
 
 use malachitebft_app::engine::util::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::{ProposedValue, SignedConsensusMsg};
+use malachitebft_core_consensus::{GossipMsg, ProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{
-    CommitCertificate, CommitSignature, PolkaCertificate, PolkaSignature, Round, SignedExtension,
-    SignedProposal, SignedVote, Validity, VoteSet,
+    CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
+    RoundCertificate, RoundSignature, SignedExtension, SignedProposal, SignedVote, Validity,
+    VoteSet, VoteType,
 };
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_signing_ed25519::Signature;
@@ -108,6 +109,111 @@ impl Codec<SignedConsensusMsg<TestContext>> for ProtobufCodec {
                     signature: Some(encode_signature(&proposal.signature)),
                 };
                 Ok(Bytes::from(proto.encode_to_vec()))
+            }
+        }
+    }
+}
+
+pub fn encode_round_certificate(
+    certificate: &RoundCertificate<TestContext>,
+) -> Result<proto::RoundCertificate, ProtoError> {
+    Ok(proto::RoundCertificate {
+        height: certificate.height.as_u64(),
+        round: certificate.round.as_u32().expect("round should not be nil"),
+        signatures: certificate
+            .round_signatures
+            .iter()
+            .map(|sig| -> Result<proto::RoundSignature, ProtoError> {
+                let value_id = match sig.value_id {
+                    NilOrVal::Nil => None,
+                    NilOrVal::Val(value_id) => Some(value_id.to_proto()?),
+                };
+                Ok(proto::RoundSignature {
+                    validator_address: Some(sig.address.to_proto()?),
+                    signature: Some(encode_signature(&sig.signature)),
+                    value_id,
+                    vote_type: match sig.vote_type {
+                        VoteType::Prevote => 0,
+                        VoteType::Precommit => 1,
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+pub fn decode_round_certificate(
+    certificate: proto::RoundCertificate,
+) -> Result<RoundCertificate<TestContext>, ProtoError> {
+    Ok(RoundCertificate {
+        height: Height::new(certificate.height),
+        round: Round::new(certificate.round),
+        round_signatures: certificate
+            .signatures
+            .into_iter()
+            .map(|sig| -> Result<RoundSignature<TestContext>, ProtoError> {
+                let vote_type = match sig.vote_type {
+                    0 => VoteType::Prevote,
+                    1 => VoteType::Precommit,
+                    _ => return Err(ProtoError::Other("Invalid vote type".to_string())),
+                };
+
+                let address = sig.validator_address.ok_or_else(|| {
+                    ProtoError::missing_field::<proto::RoundCertificate>("validator_address")
+                })?;
+
+                let signature = sig.signature.ok_or_else(|| {
+                    ProtoError::missing_field::<proto::RoundCertificate>("signature")
+                })?;
+
+                let value_id = match sig.value_id {
+                    None => NilOrVal::Nil,
+                    Some(value_id) => NilOrVal::Val(ValueId::from_proto(value_id)?),
+                };
+
+                let signature = decode_signature(signature)?;
+                let address = Address::from_proto(address)?;
+                Ok(RoundSignature::new(vote_type, value_id, address, signature))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+impl Codec<GossipMsg<TestContext>> for ProtobufCodec {
+    type Error = ProtoError;
+
+    fn decode(&self, bytes: Bytes) -> Result<GossipMsg<TestContext>, Self::Error> {
+        let msg = proto::GossipMessage::decode(bytes.as_ref())?;
+        match msg.message {
+            Some(proto::gossip_message::Message::PolkaCertificate(cert)) => {
+                Ok(GossipMsg::PolkaCertificate(decode_polka_certificate(cert)?))
+            }
+            Some(proto::gossip_message::Message::RoundCertificate(cert)) => Ok(
+                GossipMsg::SkipRoundCertificate(decode_round_certificate(cert)?),
+            ),
+            None => Err(ProtoError::missing_field::<proto::GossipMessage>("message")),
+        }
+    }
+
+    fn encode(&self, msg: &GossipMsg<TestContext>) -> Result<Bytes, Self::Error> {
+        match msg {
+            GossipMsg::PolkaCertificate(cert) => {
+                let message = encode_polka_certificate(cert)?;
+                Ok(Bytes::from(
+                    proto::GossipMessage {
+                        message: Some(proto::gossip_message::Message::PolkaCertificate(message)),
+                    }
+                    .encode_to_vec(),
+                ))
+            }
+            GossipMsg::SkipRoundCertificate(cert) => {
+                let message = encode_round_certificate(cert)?;
+                Ok(Bytes::from(
+                    proto::GossipMessage {
+                        message: Some(proto::gossip_message::Message::RoundCertificate(message)),
+                    }
+                    .encode_to_vec(),
+                ))
             }
         }
     }

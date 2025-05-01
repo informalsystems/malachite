@@ -13,7 +13,8 @@ use tracing::{debug, error, error_span, info, warn};
 use malachitebft_codec as codec;
 use malachitebft_config::TimeoutConfig;
 use malachitebft_core_consensus::{
-    Effect, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError, VoteSyncMode,
+    Effect, GossipMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
+    VoteSyncMode,
 };
 use malachitebft_core_types::{
     Context, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind, ValidatorSet,
@@ -43,12 +44,14 @@ pub use malachitebft_core_consensus::State as ConsensusState;
 /// This trait is automatically implemented for any type that implements:
 /// - [`codec::Codec<Ctx::ProposalPart>`]
 /// - [`codec::Codec<SignedConsensusMsg<Ctx>>`]
+/// - [`codec::Codec<PolkaCertificate<Ctx>>`]
 /// - [`codec::Codec<StreamMessage<Ctx::ProposalPart>>`]
 pub trait ConsensusCodec<Ctx>
 where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
+    Self: codec::Codec<GossipMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -58,6 +61,7 @@ where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
+    Self: codec::Codec<GossipMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -538,6 +542,32 @@ where
                             .await
                         {
                             error!(%from, "Error when processing proposal: {e}");
+                        }
+                    }
+
+                    NetworkEvent::PolkaCertificate(from, certificate) => {
+                        if let Err(e) = self
+                            .process_input(
+                                &myself,
+                                state,
+                                ConsensusInput::PolkaCertificate(certificate),
+                            )
+                            .await
+                        {
+                            error!(%from, "Error when processing polka certificate: {e}");
+                        }
+                    }
+
+                    NetworkEvent::RoundCertificate(from, certificate) => {
+                        if let Err(e) = self
+                            .process_input(
+                                &myself,
+                                state,
+                                ConsensusInput::RoundCertificate(certificate),
+                            )
+                            .await
+                        {
+                            error!(%from, "Error when processing round certificate: {e}");
                         }
                     }
 
@@ -1028,6 +1058,14 @@ where
 
                 self.network
                     .cast(NetworkMsg::Publish(msg))
+                    .map_err(|e| eyre!("Error when broadcasting consensus message: {e:?}"))?;
+
+                Ok(r.resume_with(()))
+            }
+
+            Effect::PublishGossipMessage(msg, r) => {
+                self.network
+                    .cast(NetworkMsg::PublishGossipMsg(msg))
                     .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
 
                 Ok(r.resume_with(()))

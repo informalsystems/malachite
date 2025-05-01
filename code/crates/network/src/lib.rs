@@ -147,7 +147,8 @@ pub enum Event {
     Listening(Multiaddr),
     PeerConnected(PeerId),
     PeerDisconnected(PeerId),
-    Message(Channel, PeerId, Bytes),
+    ConsensusMessage(Channel, PeerId, Bytes),
+    GossipMessage(Channel, PeerId, Bytes),
     Sync(sync::RawMessage),
 }
 
@@ -569,7 +570,7 @@ async fn handle_gossipsub_event(
                 message.data.len()
             );
 
-            let event = Event::Message(
+            let event = Event::ConsensusMessage(
                 channel,
                 PeerId::from_libp2p(&peer_id),
                 Bytes::from(message.data),
@@ -636,7 +637,7 @@ async fn handle_broadcast_event(
                 message.len()
             );
 
-            let event = Event::Message(
+            let event = Event::ConsensusMessage(
                 channel,
                 PeerId::from_libp2p(&peer_id),
                 Bytes::copy_from_slice(message.as_ref()),

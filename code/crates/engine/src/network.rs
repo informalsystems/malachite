@@ -15,8 +15,10 @@ use malachitebft_sync::{
 };
 
 use malachitebft_codec as codec;
-use malachitebft_core_consensus::SignedConsensusMsg;
-use malachitebft_core_types::{Context, SignedProposal, SignedVote};
+use malachitebft_core_consensus::{GossipMsg, SignedConsensusMsg};
+use malachitebft_core_types::{
+    Context, PolkaCertificate, RoundCertificate, SignedProposal, SignedVote,
+};
 use malachitebft_metrics::SharedRegistry;
 use malachitebft_network::handle::CtrlHandle;
 use malachitebft_network::{Channel, Config, Event, Multiaddr, PeerId};
@@ -106,6 +108,10 @@ pub enum NetworkEvent<Ctx: Context> {
     Proposal(PeerId, SignedProposal<Ctx>),
     ProposalPart(PeerId, StreamMessage<Ctx::ProposalPart>),
 
+    PolkaCertificate(PeerId, PolkaCertificate<Ctx>),
+
+    RoundCertificate(PeerId, RoundCertificate<Ctx>),
+
     Status(PeerId, Status<Ctx>),
 
     Request(InboundRequestId, PeerId, Request<Ctx>),
@@ -146,6 +152,9 @@ pub enum Msg<Ctx: Context> {
     /// Publish a signed consensus message
     Publish(SignedConsensusMsg<Ctx>),
 
+    /// Publish a gossip message
+    PublishGossipMsg(GossipMsg<Ctx>),
+
     /// Publish a proposal part
     PublishProposalPart(StreamMessage<Ctx::ProposalPart>),
 
@@ -177,6 +186,7 @@ where
     Codec: codec::Codec<sync::Status<Ctx>>,
     Codec: codec::Codec<sync::Request<Ctx>>,
     Codec: codec::Codec<sync::Response<Ctx>>,
+    Codec: codec::Codec<GossipMsg<Ctx>>,
 {
     type Msg = Msg<Ctx>;
     type State = State<Ctx>;
@@ -255,6 +265,11 @@ where
                 Err(e) => error!("Failed to encode gossip message: {e:?}"),
             },
 
+            Msg::PublishGossipMsg(msg) => match self.codec.encode(&msg) {
+                Ok(data) => ctrl_handle.publish(Channel::Consensus, data).await?,
+                Err(e) => error!("Failed to encode polka certificate: {e:?}"),
+            },
+
             Msg::PublishProposalPart(msg) => {
                 trace!(
                     stream_id = %msg.stream_id,
@@ -328,7 +343,7 @@ where
                 output_port.send(NetworkEvent::PeerDisconnected(peer_id));
             }
 
-            Msg::NewEvent(Event::Message(Channel::Consensus, from, data)) => {
+            Msg::NewEvent(Event::ConsensusMessage(Channel::Consensus, from, data)) => {
                 let msg = match self.codec.decode(data) {
                     Ok(msg) => msg,
                     Err(e) => {
@@ -347,7 +362,30 @@ where
                 output_port.send(event);
             }
 
-            Msg::NewEvent(Event::Message(Channel::ProposalParts, from, data)) => {
+            Msg::NewEvent(Event::GossipMessage(channel, from, data)) => {
+                if channel == Channel::Consensus {
+                    let msg = match self.codec.decode(data) {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            error!(%from, "Failed to decode gossip message: {e:?}");
+                            return Ok(());
+                        }
+                    };
+
+                    let event = match msg {
+                        GossipMsg::PolkaCertificate(polka_cert) => {
+                            NetworkEvent::PolkaCertificate(from, polka_cert)
+                        }
+                        GossipMsg::SkipRoundCertificate(round_cert) => {
+                            NetworkEvent::RoundCertificate(from, round_cert)
+                        }
+                    };
+
+                    output_port.send(event);
+                }
+            }
+
+            Msg::NewEvent(Event::ConsensusMessage(Channel::ProposalParts, from, data)) => {
                 let msg: StreamMessage<Ctx::ProposalPart> = match self.codec.decode(data) {
                     Ok(stream_msg) => stream_msg,
                     Err(e) => {
@@ -366,7 +404,7 @@ where
                 output_port.send(NetworkEvent::ProposalPart(from, msg));
             }
 
-            Msg::NewEvent(Event::Message(Channel::Sync, from, data)) => {
+            Msg::NewEvent(Event::ConsensusMessage(Channel::Sync, from, data)) => {
                 let status: sync::Status<Ctx> = match self.codec.decode(data) {
                     Ok(status) => status,
                     Err(e) => {

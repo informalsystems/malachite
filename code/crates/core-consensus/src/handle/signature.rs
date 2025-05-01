@@ -78,3 +78,16 @@ where
 
     Ok(result)
 }
+
+pub async fn verify_round_certificate<Ctx>(
+    _co: &Co<Ctx>,
+    _certificate: RoundCertificate<Ctx>,
+    _validator_set: Ctx::ValidatorSet,
+    _threshold_params: ThresholdParams,
+) -> Result<Result<(), CertificateError<Ctx>>, Error<Ctx>>
+where
+    Ctx: Context,
+{
+    // TODO: Implement round certificate verification
+    Ok(Ok(()))
+}

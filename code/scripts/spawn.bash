@@ -49,7 +49,7 @@ export MALACHITE__CONSENSUS__TIMEOUT_STEP="2s"
 export MALACHITE__CONSENSUS__VOTE_SYNC__MODE="request-response"
 export MALACHITE__MEMPOOL__MAX_TX_COUNT="10000"
 export MALACHITE__MEMPOOL__GOSSIP_BATCH_SIZE=0
-export MALACHITE__TEST__MAX_BLOCK_SIZE="50KiB"
+export MALACHITE__TEST__MAX_BLOCK_SIZE="1024KiB"
 # Only use "parts-only" with starknet app for now, but for the channel app use "proposal-and-parts".
 # "proposal-and-parts" also works for starknet app
 export MALACHITE__TEST__VALUE_PAYLOAD="proposal-and-parts"

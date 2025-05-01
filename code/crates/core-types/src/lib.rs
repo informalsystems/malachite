@@ -55,6 +55,7 @@ pub type SignedExtension<Ctx> = SignedMessage<Ctx, <Ctx as Context>::Extension>;
 
 pub use certificate::{
     CertificateError, CommitCertificate, CommitSignature, PolkaCertificate, PolkaSignature,
+    RoundCertificate, RoundSignature,
 };
 pub use context::Context;
 pub use height::Height;

@@ -7,12 +7,14 @@ use crate::handle::signature::sign_proposal;
 use crate::handle::signature::sign_vote;
 use crate::handle::vote::on_vote;
 use crate::prelude::*;
-use crate::types::SignedConsensusMsg;
+use crate::types::{GossipMsg, SignedConsensusMsg};
 use crate::util::pretty::PrettyVal;
 use crate::LocallyProposedValue;
 use crate::VoteSyncMode;
 
 use super::propose::on_propose;
+
+const HIDDEN_LOCK_ROUND: Round = Round::new(10);
 
 #[async_recursion]
 pub async fn apply_driver_input<Ctx>(
@@ -28,6 +30,27 @@ where
         DriverInput::NewRound(height, round, proposer) => {
             #[cfg(feature = "metrics")]
             metrics.round.set(round.as_i64());
+
+            if round > &Round::new(0) {
+                if let Some((votes, _)) = state.restore_votes(*height, Round::new(0)) {
+                    if let Some(round_certificate) = RoundCertificate::new_from_votes(
+                        *height,
+                        *round,
+                        votes,
+                        state.params.threshold_params,
+                        state.validator_set().clone(),
+                    ) {
+                        info!(?round_certificate, "Sending round certificate");
+                        perform!(
+                            co,
+                            Effect::PublishGossipMessage(
+                                GossipMsg::SkipRoundCertificate(round_certificate),
+                                Default::default()
+                            )
+                        );
+                    }
+                }
+            }
 
             info!(%height, %round, %proposer, "Starting new round");
 
@@ -227,7 +250,7 @@ where
 
             // Only sign and publish if we're in the validator set
             if state.is_validator() {
-                let signed_proposal = sign_proposal(co, proposal).await?;
+                let signed_proposal = sign_proposal(co, proposal.clone()).await?;
 
                 if signed_proposal.pol_round().is_defined() {
                     perform!(
@@ -256,6 +279,20 @@ where
                         )
                     );
                 };
+
+                if proposal.pol_round().is_defined() {
+                    // Broadcast the polka certificate at pol_round
+                    let polka_certificate = state.polka_certificate_at_round(proposal.pol_round());
+                    if let Some(polka_certificate) = polka_certificate {
+                        perform!(
+                            co,
+                            Effect::PublishGossipMessage(
+                                GossipMsg::PolkaCertificate(polka_certificate),
+                                Default::default()
+                            )
+                        );
+                    }
+                }
             }
 
             Ok(())
@@ -268,6 +305,23 @@ where
                 round = %vote.round(),
                 "Voting",
             );
+
+            if vote.vote_type() == VoteType::Precommit
+                && vote.value().is_val()
+                && state.driver.round() > HIDDEN_LOCK_ROUND
+            {
+                // TODO: signal the app to restream the proposal
+                let polka_certificate = state.polka_certificate_at_round(vote.round());
+                if let Some(polka_certificate) = polka_certificate {
+                    perform!(
+                        co,
+                        Effect::PublishGossipMessage(
+                            GossipMsg::PolkaCertificate(polka_certificate),
+                            Default::default()
+                        )
+                    );
+                }
+            }
 
             if state.is_validator() {
                 let vote_type = vote.vote_type();
