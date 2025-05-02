@@ -347,7 +347,7 @@ where
                 let msg = match self.codec.decode(data) {
                     Ok(msg) => msg,
                     Err(e) => {
-                        error!(%from, "Failed to decode gossip message: {e:?}");
+                        error!(%from, "Failed to decode consensus message: {e:?}");
                         return Ok(());
                     }
                 };

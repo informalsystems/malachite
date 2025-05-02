@@ -129,13 +129,13 @@ pub fn encode_round_certificate(
                     NilOrVal::Val(value_id) => Some(value_id.to_proto()?),
                 };
                 Ok(proto::RoundSignature {
-                    validator_address: Some(sig.address.to_proto()?),
-                    signature: Some(encode_signature(&sig.signature)),
-                    value_id,
                     vote_type: match sig.vote_type {
                         VoteType::Prevote => 0,
                         VoteType::Precommit => 1,
                     },
+                    validator_address: Some(sig.address.to_proto()?),
+                    signature: Some(encode_signature(&sig.signature)),
+                    value_id,
                 })
             })
             .collect::<Result<Vec<_>, _>>()?,
@@ -662,4 +662,56 @@ pub fn decode_signature(signature: proto::Signature) -> Result<Signature, ProtoE
     let bytes = <[u8; 64]>::try_from(signature.bytes.as_ref())
         .map_err(|_| ProtoError::Other("Invalid signature length".to_string()))?;
     Ok(Signature::from_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Address, Height};
+    use malachitebft_core_types::{NilOrVal, Round, RoundSignature, VoteType};
+    use malachitebft_signing_ed25519::Signature;
+
+    #[test]
+    fn test_round_certificate_encode_decode() {
+        // Create test data
+        let height = Height::new(1);
+        let round = Round::new(2);
+        let address = Address::new([1; 20]);
+        let signature = Signature::from_bytes([2; 64]);
+
+        // Create a round signature
+        let round_sig = RoundSignature::new(VoteType::Prevote, NilOrVal::Nil, address, signature);
+
+        // Create the round certificate
+        let certificate = RoundCertificate {
+            height,
+            round,
+            round_signatures: vec![round_sig],
+        };
+
+        // Encode the certificate
+        let encoded = encode_round_certificate(&certificate).unwrap();
+
+        // Decode the certificate
+        let decoded = decode_round_certificate(encoded).unwrap();
+
+        // Verify the decoded data matches the original
+        assert_eq!(decoded.height, certificate.height);
+        assert_eq!(decoded.round, certificate.round);
+        assert_eq!(
+            decoded.round_signatures.len(),
+            certificate.round_signatures.len()
+        );
+
+        // Verify the signature details
+        let decoded_sig = &decoded.round_signatures[0];
+        let original_sig = &certificate.round_signatures[0];
+        assert_eq!(decoded_sig.vote_type, original_sig.vote_type);
+        assert_eq!(decoded_sig.value_id, original_sig.value_id);
+        assert_eq!(decoded_sig.address, original_sig.address);
+        assert_eq!(
+            decoded_sig.signature.to_bytes(),
+            original_sig.signature.to_bytes()
+        );
+    }
 }
