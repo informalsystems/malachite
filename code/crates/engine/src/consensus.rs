@@ -1085,12 +1085,22 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::Decide(certificate, extensions, r) => {
+            Effect::Decide(
+                certificate,
+                extensions,
+                proposal_equivocation_evidence_map,
+                vote_equivocation_evidence_map,
+                r,
+            ) => {
                 assert!(!certificate.commit_signatures.is_empty());
 
                 self.wal_flush(state.phase).await?;
 
-                self.tx_event.send(|| Event::Decided(certificate.clone()));
+                self.tx_event.send(|| Event::Decided {
+                    commit_certificate: certificate.clone(),
+                    proposal_equivocation_evidence_map,
+                    vote_equivocation_evidence_map,
+                });
 
                 let height = certificate.height;
 

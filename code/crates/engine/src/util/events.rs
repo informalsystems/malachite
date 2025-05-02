@@ -47,7 +47,11 @@ pub enum Event<Ctx: Context> {
     Published(SignedConsensusMsg<Ctx>),
     ProposedValue(LocallyProposedValue<Ctx>),
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
-    Decided(CommitCertificate<Ctx>),
+    Decided {
+        commit_certificate: CommitCertificate<Ctx>,
+        proposal_equivocation_evidence_map: malachitebft_core_driver::EvidenceMap<Ctx>,
+        vote_equivocation_evidence_map: malachitebft_core_votekeeper::EvidenceMap<Ctx>,
+    },
     Rebroadcast(SignedVote<Ctx>),
     RequestedVoteSet(Ctx::Height, Round),
     SentVoteSetResponse(Ctx::Height, Round, usize, usize),
@@ -74,7 +78,11 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
                     "ReceivedProposedValue(value: {value:?}, origin: {origin:?})"
                 )
             }
-            Event::Decided(cert) => write!(f, "Decided(value: {})", cert.value_id),
+            Event::Decided {
+                commit_certificate,
+                proposal_equivocation_evidence_map: _,
+                vote_equivocation_evidence_map: _,
+            } => write!(f, "Decided(value: {})", commit_certificate.value_id),
             Event::Rebroadcast(msg) => write!(f, "Rebroadcast(msg: {msg:?})"),
             Event::RequestedVoteSet(height, round) => {
                 write!(f, "RequestedVoteSet(height: {height}, round: {round})")
