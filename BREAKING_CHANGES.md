@@ -2,8 +2,21 @@
 
 ## Unreleased
 
+### `malachitebft-core-consensus`
+- Added new variants to `Input` enum: `PolkaCertificate` and `RoundCertificate`
+- Added new variant to `Effect` enum: `PublishGossipMessage`
+
 ### `malachitebft-engine`
 - Changed the reply channel of `GetValidatorSet` message to take an `Option<Ctx::ValidatorSet>` instead of `Ctx::ValidatorSet`.
+- Added new variant to `Msg` enum: `PublishGossipMsg`
+- Added new variants to `NetworkEvent` enum: `PolkaCertificate` and `RoundCertificate`
+
+### `malachitebft-network`
+- Added new variant to `Channel` enum: `Gossip`
+- Renamed `Event::Message` variant to `Event::ConsensusMessage`
+- Added new variant to `Event::GossipMessage`
+
+### `malachitebft-engine`
 
 ## 0.2.0
 
