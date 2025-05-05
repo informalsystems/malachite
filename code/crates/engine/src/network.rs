@@ -262,12 +262,12 @@ where
 
             Msg::Publish(msg) => match self.codec.encode(&msg) {
                 Ok(data) => ctrl_handle.publish(Channel::Consensus, data).await?,
-                Err(e) => error!("Failed to encode gossip message: {e:?}"),
+                Err(e) => error!("Failed to encode consensus message: {e:?}"),
             },
 
             Msg::PublishGossipMsg(msg) => match self.codec.encode(&msg) {
-                Ok(data) => ctrl_handle.publish(Channel::Consensus, data).await?,
-                Err(e) => error!("Failed to encode polka certificate: {e:?}"),
+                Ok(data) => ctrl_handle.publish(Channel::Gossip, data).await?,
+                Err(e) => error!("Failed to encode gossip message: {e:?}"),
             },
 
             Msg::PublishProposalPart(msg) => {
@@ -363,7 +363,7 @@ where
             }
 
             Msg::NewEvent(Event::GossipMessage(channel, from, data)) => {
-                if channel == Channel::Consensus {
+                if channel == Channel::Gossip {
                     let msg = match self.codec.decode(data) {
                         Ok(msg) => msg,
                         Err(e) => {
@@ -383,6 +383,11 @@ where
 
                     output_port.send(event);
                 }
+            }
+
+            Msg::NewEvent(Event::ConsensusMessage(Channel::Gossip, from, _)) => {
+                error!(%from, "Unexpected consensus message on gossip channel");
+                return Ok(());
             }
 
             Msg::NewEvent(Event::ConsensusMessage(Channel::ProposalParts, from, data)) => {

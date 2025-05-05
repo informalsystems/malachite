@@ -570,15 +570,26 @@ async fn handle_gossipsub_event(
                 message.data.len()
             );
 
-            let event = Event::ConsensusMessage(
-                channel,
-                PeerId::from_libp2p(&peer_id),
-                Bytes::from(message.data),
-            );
-
-            if let Err(e) = tx_event.send(event).await {
-                error!("Error sending message to handle: {e}");
-                return ControlFlow::Break(());
+            if channel == Channel::Gossip {
+                let event = Event::GossipMessage(
+                    channel,
+                    PeerId::from_libp2p(&peer_id),
+                    Bytes::from(message.data),
+                );
+                if let Err(e) = tx_event.send(event).await {
+                    error!("Error sending message to handle: {e}");
+                    return ControlFlow::Break(());
+                }
+            } else {
+                let event = Event::ConsensusMessage(
+                    channel,
+                    PeerId::from_libp2p(&peer_id),
+                    Bytes::from(message.data),
+                );
+                if let Err(e) = tx_event.send(event).await {
+                    error!("Error sending message to handle: {e}");
+                    return ControlFlow::Break(());
+                }
             }
         }
 

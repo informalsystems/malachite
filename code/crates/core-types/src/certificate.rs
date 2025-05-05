@@ -287,10 +287,10 @@ impl<Ctx: Context> RoundCertificate<Ctx> {
             .collect();
 
         // TODO - check if enough precommits
-        if precommits.len() > 0 {
+        if !precommits.is_empty() {
             return Some(Self {
                 height,
-                round,
+                round: prev_round,
                 round_signatures: precommits,
             });
         }
