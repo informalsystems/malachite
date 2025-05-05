@@ -7,13 +7,13 @@ use malachitebft_core_consensus::{GossipMsg, ProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{
     CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
     RoundCertificate, RoundSignature, SignedExtension, SignedProposal, SignedVote, Validity,
-    VoteSet, VoteType,
+    VoteSet,
 };
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_signing_ed25519::Signature;
 use malachitebft_sync::{self as sync, PeerId};
 
-use crate::proto;
+use crate::{decode_votetype, encode_votetype, proto};
 use crate::{Address, Height, Proposal, ProposalPart, TestContext, Value, ValueId, Vote};
 
 #[derive(Copy, Clone, Debug)]
@@ -129,10 +129,7 @@ pub fn encode_round_certificate(
                     NilOrVal::Val(value_id) => Some(value_id.to_proto()?),
                 };
                 Ok(proto::RoundSignature {
-                    vote_type: match sig.vote_type {
-                        VoteType::Prevote => 0,
-                        VoteType::Precommit => 1,
-                    },
+                    vote_type: encode_votetype(sig.vote_type).into(),
                     validator_address: Some(sig.address.to_proto()?),
                     signature: Some(encode_signature(&sig.signature)),
                     value_id,
@@ -152,12 +149,7 @@ pub fn decode_round_certificate(
             .signatures
             .into_iter()
             .map(|sig| -> Result<RoundSignature<TestContext>, ProtoError> {
-                let vote_type = match sig.vote_type {
-                    0 => VoteType::Prevote,
-                    1 => VoteType::Precommit,
-                    _ => return Err(ProtoError::Other("Invalid vote type".to_string())),
-                };
-
+                let vote_type = decode_votetype(sig.vote_type());
                 let address = sig.validator_address.ok_or_else(|| {
                     ProtoError::missing_field::<proto::RoundCertificate>("validator_address")
                 })?;
