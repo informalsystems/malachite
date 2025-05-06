@@ -126,18 +126,27 @@ where
     ///
     /// # Precondition
     /// - The given proposal must have been proposed by the expected proposer at the proposal's height and round.
-    pub fn store_proposal(&mut self, proposal: SignedProposal<Ctx>, validity: Validity) {
+    pub fn store_proposal(
+        &mut self,
+        proposal: SignedProposal<Ctx>,
+        validity: Validity,
+    ) -> Result<(), RecordProposalError<Ctx>> {
         let per_round = self.per_round.entry(proposal.round()).or_default();
 
         match per_round.add(proposal, validity) {
-            Ok(()) => (),
+            Ok(()) => Ok(()),
 
             Err(RecordProposalError::ConflictingProposal {
                 existing,
                 conflicting,
             }) => {
                 // This is an equivocating proposal
-                self.evidence.add(existing, conflicting);
+                self.evidence.add(existing.clone(), conflicting.clone());
+
+                Err(RecordProposalError::ConflictingProposal {
+                    existing,
+                    conflicting,
+                })
             }
 
             Err(RecordProposalError::InvalidConflictingProposal {

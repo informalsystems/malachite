@@ -102,7 +102,13 @@ where
 
     perform!(
         co,
-        Effect::Decide(certificate, extensions, Default::default())
+        Effect::Decide(
+            certificate,
+            extensions,
+            state.driver.evidence().clone(),
+            state.driver.votes().evidence().clone(),
+            Default::default()
+        )
     );
 
     Ok(())
