@@ -1,11 +1,9 @@
-use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 use derive_where::derive_where;
 use thiserror::Error;
 
 use crate::{
-    Context, NilOrVal, Round, Signature, SignedVote, ThresholdParams, Validator, ValidatorSet,
-    ValueId, Vote, VoteType, VotingPower,
+    Context, NilOrVal, Round, Signature, SignedVote, ValueId, Vote, VoteType, VotingPower,
 };
 
 /// Represents a signature for a commit certificate, with the address of the validator that produced it.
@@ -212,89 +210,22 @@ pub struct RoundCertificate<Ctx: Context> {
 }
 
 impl<Ctx: Context> RoundCertificate<Ctx> {
-    /// Creates a new `RoundCertificate` from f+1 votes of any type at `round` or 2f+1 precommits at `round - 1`
-    pub fn new_from_votes(
-        height: Ctx::Height,
-        round: Round,
-        votes: Vec<SignedVote<Ctx>>,
-        threshold: ThresholdParams,
-        validator_set: Ctx::ValidatorSet,
-    ) -> Option<Self> {
-        if round == Round::ZERO {
-            return None;
+    /// Creates a new `RoundCertificate` from a vector of signed votes.
+    pub fn new_from_votes(height: Ctx::Height, round: Round, votes: Vec<SignedVote<Ctx>>) -> Self {
+        RoundCertificate {
+            height,
+            round,
+            round_signatures: votes
+                .into_iter()
+                .map(|v| {
+                    RoundSignature::new(
+                        v.vote_type(),
+                        v.value().clone(),
+                        v.validator_address().clone(),
+                        v.signature,
+                    )
+                })
+                .collect(),
         }
-
-        // f+1:
-        //  Collect all round signatures from signed votes for `round` with distinct addresses
-        let mut seen_addresses = BTreeSet::new();
-        let skip_signatures: Vec<RoundSignature<Ctx>> = votes
-            .clone()
-            .into_iter()
-            .filter(|vote| vote.round() == round && vote.height() == height)
-            .filter(|vote| seen_addresses.insert(vote.validator_address().clone()))
-            .map(|signed_vote| {
-                RoundSignature::new(
-                    signed_vote.vote_type(),
-                    signed_vote.value().clone(),
-                    signed_vote.validator_address().clone(),
-                    signed_vote.signature,
-                )
-            })
-            .collect();
-
-        let round_voting_power: u64 = skip_signatures
-            .iter()
-            .filter_map(|s| validator_set.get_by_address(&s.address))
-            .map(|v| v.voting_power())
-            .sum();
-
-        if round_voting_power
-            >= threshold
-                .quorum
-                .min_expected(validator_set.total_voting_power())
-        {
-            return Some(Self {
-                height,
-                round,
-                round_signatures: skip_signatures,
-            });
-        };
-
-        // 2f+1:
-        //  Collect all round signatures from precommits at `round - 1`
-        let prev_round = match round.as_u32() {
-            Some(r) => Round::new(r - 1),
-            None => {
-                return None;
-            }
-        };
-
-        let precommits: Vec<RoundSignature<Ctx>> = votes
-            .into_iter()
-            .filter(|vote| {
-                vote.vote_type() == VoteType::Precommit
-                    && vote.round() == prev_round
-                    && vote.height() == height
-            })
-            .map(|signed_vote| {
-                RoundSignature::new(
-                    signed_vote.vote_type(),
-                    signed_vote.value().clone(),
-                    signed_vote.validator_address().clone(),
-                    signed_vote.signature,
-                )
-            })
-            .collect();
-
-        // TODO - check if enough precommits
-        if !precommits.is_empty() {
-            return Some(Self {
-                height,
-                round: prev_round,
-                round_signatures: precommits,
-            });
-        }
-
-        None
     }
 }

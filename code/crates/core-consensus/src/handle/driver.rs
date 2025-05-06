@@ -32,23 +32,15 @@ where
             metrics.round.set(round.as_i64());
 
             if round > &Round::new(0) {
-                if let Some((votes, _)) = state.restore_votes(*height, Round::new(0)) {
-                    if let Some(round_certificate) = RoundCertificate::new_from_votes(
-                        *height,
-                        *round,
-                        votes,
-                        state.params.threshold_params,
-                        state.validator_set().clone(),
-                    ) {
-                        info!(?round_certificate, "Sending round certificate");
-                        perform!(
-                            co,
-                            Effect::PublishGossipMessage(
-                                GossipMsg::SkipRoundCertificate(round_certificate),
-                                Default::default()
-                            )
-                        );
-                    }
+                if let Some(certificate) = state.driver.round_certificate() {
+                    info!(?certificate, "Sending round certificate");
+                    perform!(
+                        co,
+                        Effect::PublishGossipMessage(
+                            GossipMsg::SkipRoundCertificate(certificate.clone()),
+                            Default::default()
+                        )
+                    );
                 }
             }
 
