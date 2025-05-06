@@ -302,16 +302,30 @@ where
                 && vote.value().is_val()
                 && state.driver.round() > HIDDEN_LOCK_ROUND
             {
-                // TODO: signal the app to restream the proposal
-                let polka_certificate = state.polka_certificate_at_round(vote.round());
-                if let Some(polka_certificate) = polka_certificate {
+                if let Some((signed_proposal, Validity::Valid)) =
+                    state.driver.proposal_and_validity_for_round(vote.round())
+                {
                     perform!(
                         co,
-                        Effect::PublishGossipMessage(
-                            GossipMsg::PolkaCertificate(polka_certificate),
+                        Effect::RestreamProposal(
+                            signed_proposal.height(),
+                            signed_proposal.round(),
+                            signed_proposal.pol_round(),
+                            signed_proposal.validator_address().clone(),
+                            signed_proposal.value().id(),
                             Default::default()
                         )
                     );
+                    if let Some(polka_certificate) = state.polka_certificate_at_round(vote.round())
+                    {
+                        perform!(
+                            co,
+                            Effect::PublishGossipMessage(
+                                GossipMsg::PolkaCertificate(polka_certificate),
+                                Default::default()
+                            )
+                        );
+                    }
                 }
             }
 
