@@ -1,8 +1,8 @@
-use crate::handle::driver::apply_driver_input;
 use crate::handle::validator_set::get_validator_set;
+use crate::handle::{driver::apply_driver_input, vote::verify_signed_vote};
 use crate::prelude::*;
 
-use super::signature::{verify_polka_certificate, verify_round_certificate};
+use super::signature::verify_polka_certificate;
 
 pub async fn on_polka_certificate<Ctx>(
     co: &Co<Ctx>,
@@ -72,23 +72,6 @@ where
         return Ok(());
     }
 
-    let validator_set = get_validator_set(co, state, certificate.height)
-        .await?
-        .ok_or_else(|| Error::ValidatorSetNotFound(certificate.height))?;
-
-    let validity = verify_round_certificate(
-        co,
-        certificate.clone(),
-        validator_set.into_owned(),
-        state.params.threshold_params,
-    )
-    .await?;
-
-    if let Err(e) = validity {
-        warn!(?certificate, "Invalid round certificate: {e}");
-        return Ok(());
-    }
-
     for signature in certificate.round_signatures {
         let vote_type = signature.vote_type;
         let vote: SignedVote<Ctx> = match vote_type {
@@ -112,6 +95,10 @@ where
             ),
         };
 
+        if !verify_signed_vote(co, state, &vote).await? {
+            warn!(?vote, "Invalid vote");
+            continue;
+        }
         apply_driver_input(co, state, metrics, DriverInput::Vote(vote)).await?;
     }
     Ok(())
