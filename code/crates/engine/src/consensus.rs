@@ -525,6 +525,18 @@ where
                         {
                             error!(%from, "Error when processing vote: {e}");
                         }
+
+                        if let Some((vote_height, validator_address, evidence)) =
+                            state.consensus.driver.vote_equivocation_evidence()
+                        {
+                            self.tx_event.send(|| Event::VoteEquivocationEvidence {
+                                vote_height,
+                                address: validator_address,
+                                evidence,
+                            });
+
+                            state.consensus.driver.clear_vote_equivocation_evidence();
+                        }
                     }
 
                     NetworkEvent::Proposal(from, proposal) => {
@@ -538,6 +550,21 @@ where
                             .await
                         {
                             error!(%from, "Error when processing proposal: {e}");
+                        }
+
+                        if let Some((proposal_height, validator_address, evidence)) =
+                            state.consensus.driver.proposal_equivocation_evidence()
+                        {
+                            self.tx_event.send(|| Event::ProposalEquivocationEvidence {
+                                proposal_height,
+                                address: validator_address,
+                                evidence,
+                            });
+
+                            state
+                                .consensus
+                                .driver
+                                .clear_proposal_equivocation_evidence();
                         }
                     }
 

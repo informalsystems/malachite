@@ -8,7 +8,9 @@ use tokio::sync::broadcast;
 use malachitebft_core_consensus::{
     LocallyProposedValue, ProposedValue, SignedConsensusMsg, WalEntry,
 };
-use malachitebft_core_types::{CommitCertificate, Context, Round, SignedVote, ValueOrigin};
+use malachitebft_core_types::{
+    CommitCertificate, Context, Round, SignedMessage, SignedVote, ValueOrigin,
+};
 
 pub type RxEvent<Ctx> = broadcast::Receiver<Event<Ctx>>;
 
@@ -59,6 +61,22 @@ pub enum Event<Ctx: Context> {
     WalReplayEntry(WalEntry<Ctx>),
     WalReplayDone(Ctx::Height),
     WalReplayError(Arc<ActorProcessingErr>),
+    ProposalEquivocationEvidence {
+        proposal_height: Ctx::Height,
+        address: Ctx::Address,
+        evidence: (
+            SignedMessage<Ctx, <Ctx as Context>::Proposal>,
+            SignedMessage<Ctx, <Ctx as Context>::Proposal>,
+        ),
+    },
+    VoteEquivocationEvidence {
+        vote_height: Ctx::Height,
+        address: Ctx::Address,
+        evidence: (
+            SignedMessage<Ctx, <Ctx as Context>::Vote>,
+            SignedMessage<Ctx, <Ctx as Context>::Vote>,
+        ),
+    },
 }
 
 impl<Ctx: Context> fmt::Display for Event<Ctx> {
@@ -99,6 +117,20 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
             Event::WalReplayEntry(entry) => write!(f, "WalReplayEntry(entry: {entry:?})"),
             Event::WalReplayDone(height) => write!(f, "WalReplayDone(height: {height})"),
             Event::WalReplayError(error) => write!(f, "WalReplayError({error})"),
+            Event::ProposalEquivocationEvidence {
+                proposal_height,
+                address,
+                evidence,
+            } => {
+                write!(f, "ProposalEquivocationEvidence(height: {proposal_height}, address: {address}, evidence: {evidence:?})")
+            }
+            Event::VoteEquivocationEvidence {
+                vote_height,
+                address,
+                evidence,
+            } => {
+                write!(f, "VoteEquivocationEvidence(height: {vote_height}, address: {address}, evidence: {evidence:?})")
+            }
         }
     }
 }
