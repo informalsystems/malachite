@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use derive_where::derive_where;
 use thiserror::Error;
 
@@ -136,6 +136,10 @@ impl<Ctx: Context> PolkaCertificate<Ctx> {
 #[derive(Error)]
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum CertificateError<Ctx: Context> {
+    /// The validator set was not found at the given height.
+    #[error("Validator set not found at height {0}")]
+    ValidatorSetNotFound(Ctx::Height),
+
     /// One of the commit signature is invalid.
     #[error("Invalid commit signature: {0:?}")]
     InvalidCommitSignature(CommitSignature<Ctx>),
@@ -161,6 +165,10 @@ pub enum CertificateError<Ctx: Context> {
         /// Expected voting power
         expected: VotingPower,
     },
+
+    /// The driver failed to process an input.
+    #[error("Driver failed to process input, reason: {0}")]
+    ProcessingError(String),
 
     /// Multiple votes from the same validator.
     #[error("Multiple votes from the same validator: {0}")]

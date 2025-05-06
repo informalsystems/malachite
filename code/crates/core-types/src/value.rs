@@ -109,11 +109,6 @@ impl ValuePayload {
         matches!(self, Self::ProposalOnly | Self::ProposalAndParts)
     }
 
-    /// Whether the proposer must publish the proposed value as parts.
-    pub fn include_parts(self) -> bool {
-        matches!(self, Self::PartsOnly | Self::ProposalAndParts)
-    }
-
     /// Whether the proposal must only publish proposal parts, no `Proposal` message.
     pub fn parts_only(self) -> bool {
         matches!(self, Self::PartsOnly)

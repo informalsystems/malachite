@@ -1,8 +1,6 @@
 use tracing::error;
 
 use crate::handle::driver::apply_driver_input;
-use crate::handle::signature::verify_polka_certificate;
-use crate::handle::validator_set::get_validator_set;
 use crate::handle::vote::on_vote;
 use crate::input::RequestId;
 use crate::prelude::*;
@@ -97,23 +95,6 @@ where
             "Polka certificate height mismatch"
         );
 
-        return Ok(());
-    }
-
-    let validator_set = get_validator_set(co, state, certificate.height)
-        .await?
-        .ok_or_else(|| Error::ValidatorSetNotFound(certificate.height))?;
-
-    let validity = verify_polka_certificate(
-        co,
-        certificate.clone(),
-        validator_set.into_owned(),
-        state.params.threshold_params,
-    )
-    .await?;
-
-    if let Err(e) = validity {
-        warn!(?certificate, "Invalid polka certificate: {e}");
         return Ok(());
     }
 

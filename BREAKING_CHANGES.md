@@ -4,6 +4,17 @@
 
 ### `malachitebft-engine`
 - Changed the reply channel of `GetValidatorSet` message to take an `Option<Ctx::ValidatorSet>` instead of `Ctx::ValidatorSet`.
+- All signature verification logic has been moved from the consensus core to the engine, including:
+  - Proposal signatures
+  - Vote signatures
+  - Certificate signatures
+  - Extension signatures
+- Removed `Effect::Verify*` and `Resume::*Validity` variants as verification is now handled by the engine
+- Removed `Effect::GetValidatorSet` as it's no longer needed for pre-buffer verification
+- Moved consensus mode (`value_payload`) handling from consensus core to engine
+
+### `malachitebft-core-consensus`
+- Removed `value_payload` from `ConsensusParams`
 
 ## 0.2.0
 
