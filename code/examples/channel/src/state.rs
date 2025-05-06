@@ -252,7 +252,7 @@ impl State {
             .unwrap_or(Ok(None))
     }
 
-    /// Creates a new proposal value for the given height and round
+    /// Create a new proposal value for the given height and round
     async fn create_proposal(
         &mut self,
         height: Height,
