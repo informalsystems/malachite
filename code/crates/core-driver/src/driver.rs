@@ -461,7 +461,6 @@ where
             return Ok(None);
         };
 
-        let output_clone = output.clone();
         match &output {
             VKOutput::PolkaValue(val) => self.store_polka_certificate(vote_round, val),
             VKOutput::PrecommitAny => self.store_precommit_any_round_certificate(vote_round),
@@ -469,7 +468,7 @@ where
             _ => (),
         }
 
-        let (input_round, round_input) = self.multiplex_vote_threshold(output_clone, vote_round);
+        let (input_round, round_input) = self.multiplex_vote_threshold(output, vote_round);
 
         if round_input == RoundInput::NoInput {
             return Ok(None);
@@ -506,9 +505,9 @@ where
 
         let precommits: Vec<SignedVote<Ctx>> = per_round
             .received_votes()
-            .clone()
-            .into_iter()
+            .iter()
             .filter(|v| v.vote_type() == VoteType::Precommit)
+            .cloned()
             .collect();
 
         self.round_certificate = Some(RoundCertificate::new_from_votes(
