@@ -1,7 +1,7 @@
+use alloc::collections::BTreeSet;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
-use std::collections::BTreeSet;
 
 use malachitebft_core_state_machine::input::Input as RoundInput;
 use malachitebft_core_state_machine::output::Output as RoundOutput;
@@ -524,11 +524,11 @@ where
         };
 
         let mut seen_addresses = BTreeSet::new();
-        let skip_votes: Vec<SignedVote<Ctx>> = per_round
+        let skip_votes: Vec<_> = per_round
             .received_votes()
-            .clone()
-            .into_iter()
-            .filter(|vote| seen_addresses.insert(vote.validator_address().clone()))
+            .iter()
+            .filter(|vote| seen_addresses.insert(vote.validator_address()))
+            .cloned()
             .collect();
 
         self.round_certificate = Some(RoundCertificate::new_from_votes(
