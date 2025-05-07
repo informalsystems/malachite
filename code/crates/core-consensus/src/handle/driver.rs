@@ -291,13 +291,6 @@ where
         }
 
         DriverOutput::Vote(vote) => {
-            info!(
-                vote_type = ?vote.vote_type(),
-                value = %PrettyVal(vote.value().as_ref()),
-                round = %vote.round(),
-                "Voting",
-            );
-
             if vote.vote_type() == VoteType::Precommit
                 && vote.value().is_val()
                 && state.driver.round() > HIDDEN_LOCK_ROUND
@@ -330,6 +323,13 @@ where
             }
 
             if state.is_validator() {
+                info!(
+                    vote_type = ?vote.vote_type(),
+                    value = %PrettyVal(vote.value().as_ref()),
+                    round = %vote.round(),
+                    "Voting",
+                );
+
                 let vote_type = vote.vote_type();
 
                 let extended_vote = extend_vote(co, vote).await?;
