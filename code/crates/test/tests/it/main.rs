@@ -1,4 +1,5 @@
 mod full_nodes;
+mod middlewares;
 mod n3f0;
 mod n3f0_consensus_mode;
 mod n3f0_pubsub_protocol;
