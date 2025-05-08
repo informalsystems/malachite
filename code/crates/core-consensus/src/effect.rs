@@ -92,7 +92,12 @@ where
     /// Rebroadcast a vote to peers
     ///
     /// Resume with: [`resume::Continue`]
-    Rebroadcast(SignedVote<Ctx>, resume::Continue),
+    RebroadcastVote(SignedVote<Ctx>, resume::Continue),
+
+    /// Rebroadcast a round certificate to peers
+    ///
+    /// Resume with: [`resume::Continue`]
+    RebroadcastRoundCertificate(RoundCertificate<Ctx>, resume::Continue),
 
     /// Requests the application to build a value for consensus to run on.
     ///

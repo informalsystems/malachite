@@ -22,12 +22,23 @@ where
     );
 
     if let Some(vote) = state.last_signed_prevote.as_ref() {
-        perform!(co, Effect::Rebroadcast(vote.clone(), Default::default()));
+        perform!(
+            co,
+            Effect::RebroadcastVote(vote.clone(), Default::default())
+        );
     };
     if let Some(vote) = state.last_signed_precommit.as_ref() {
-        perform!(co, Effect::Rebroadcast(vote.clone(), Default::default()));
+        perform!(
+            co,
+            Effect::RebroadcastVote(vote.clone(), Default::default())
+        );
     };
-    // TODO: rebroadcast the round certificate
+    if let Some(certificate) = state.round_certificate() {
+        perform!(
+            co,
+            Effect::RebroadcastRoundCertificate(certificate.clone(), Default::default())
+        );
+    };
 
     #[cfg(feature = "metrics")]
     metrics.rebroadcast_timeouts.inc();

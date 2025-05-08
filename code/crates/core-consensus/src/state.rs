@@ -269,6 +269,10 @@ where
             .get_by_address(self.address())
             .is_some()
     }
+
+    pub fn round_certificate(&self) -> Option<&RoundCertificate<Ctx>> {
+        self.driver.round_certificate.as_ref()
+    }
 }
 
 fn round_range_inclusive(from: Round, to: Round) -> Box<dyn Iterator<Item = Round>> {

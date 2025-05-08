@@ -64,7 +64,9 @@ where
 
     last_prevote: Option<Ctx::Vote>,
     last_precommit: Option<Ctx::Vote>,
-    round_certificate: Option<RoundCertificate<Ctx>>,
+
+    /// The certificate that justifies the current round.
+    pub round_certificate: Option<RoundCertificate<Ctx>>,
 }
 
 impl<Ctx> Driver<Ctx>

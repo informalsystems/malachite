@@ -1103,14 +1103,17 @@ where
             }
 
             Effect::PublishGossipMessage(msg, r) => {
-                self.network
-                    .cast(NetworkMsg::PublishGossipMsg(msg))
-                    .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                // Publish gossip message only if vote sync mode is set to "rebroadcast".
+                if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    self.network
+                        .cast(NetworkMsg::PublishGossipMsg(msg))
+                        .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                }
 
                 Ok(r.resume_with(()))
             }
 
-            Effect::Rebroadcast(msg, r) => {
+            Effect::RebroadcastVote(msg, r) => {
                 // Rebroadcast last vote only if vote sync mode is set to "rebroadcast",
                 // otherwise vote set requests are issued automatically by the sync protocol.
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
@@ -1120,6 +1123,21 @@ where
                     self.network
                         .cast(NetworkMsg::Publish(SignedConsensusMsg::Vote(msg)))
                         .map_err(|e| eyre!("Error when rebroadcasting vote message: {e:?}"))?;
+                }
+
+                Ok(r.resume_with(()))
+            }
+
+            Effect::RebroadcastRoundCertificate(certificate, r) => {
+                // Rebroadcast last round certificate only if vote sync mode is set to "rebroadcast".
+                if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    self.network
+                        .cast(NetworkMsg::PublishGossipMsg(
+                            GossipMsg::SkipRoundCertificate(certificate),
+                        ))
+                        .map_err(|e| {
+                            eyre!("Error when rebroadcasting round certificate message: {e:?}")
+                        })?;
                 }
 
                 Ok(r.resume_with(()))
