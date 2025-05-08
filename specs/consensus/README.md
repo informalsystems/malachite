@@ -17,7 +17,9 @@ The specification of the consensus algorithm covers several concerns and is orga
   misbehavior by Byzantine processes that over time can harm the system (lead to
   disagreement), and how each misbehavior is defined and can be detected;
 - [**design.md**](./design.md): overviews the design of Malachite's
-  implementation of the Tendermint consensus algorithm.
+  implementation of the Tendermint consensus algorithm;
+- [**recovery.md**](./recovery.md): requirements for the consensus implementation
+  to adhere to the crash-recovery model;
 
 ## References
 
