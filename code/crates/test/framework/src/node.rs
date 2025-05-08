@@ -282,4 +282,9 @@ where
     pub fn is_full_node(&self) -> bool {
         self.voting_power == 0
     }
+
+    pub fn with(&mut self, f: impl FnOnce(&mut Self)) -> &mut Self {
+        f(self);
+        self
+    }
 }
