@@ -178,7 +178,7 @@ where
 
     pub fn expect_vote_rebroadcast(&mut self, at_height: u64) -> &mut Self {
         self.on_event(move |event, _| {
-            let Event::Rebroadcast(msg) = event else {
+            let Event::RebroadcastVote(msg) = event else {
                 return Ok(HandlerResult::WaitForNextEvent);
             };
 
@@ -189,6 +189,24 @@ where
             }
 
             info!(%height, %round, "Rebroadcasted vote");
+
+            Ok(HandlerResult::ContinueTest)
+        })
+    }
+
+    pub fn expect_round_certificate(&mut self, at_height: u64) -> &mut Self {
+        self.on_event(move |event, _| {
+            let Event::RebroadcastRoundCertificate(msg) = event else {
+                return Ok(HandlerResult::WaitForNextEvent);
+            };
+
+            let (height, round) = (msg.height, msg.round);
+
+            if height.as_u64() != at_height {
+                bail!("Unexpected round certificate rebroadcast for height {height}, expected {at_height}")
+            }
+
+            info!(%height, %round, "Rebroadcasted round certificate");
 
             Ok(HandlerResult::ContinueTest)
         })

@@ -1117,8 +1117,8 @@ where
                 // Rebroadcast last vote only if vote sync mode is set to "rebroadcast",
                 // otherwise vote set requests are issued automatically by the sync protocol.
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
-                    // Notify any subscribers that we are about to rebroadcast a message
-                    self.tx_event.send(|| Event::Rebroadcast(msg.clone()));
+                    // Notify any subscribers that we are about to rebroadcast a vote
+                    self.tx_event.send(|| Event::RebroadcastVote(msg.clone()));
 
                     self.network
                         .cast(NetworkMsg::Publish(SignedConsensusMsg::Vote(msg)))
@@ -1131,6 +1131,10 @@ where
             Effect::RebroadcastRoundCertificate(certificate, r) => {
                 // Rebroadcast last round certificate only if vote sync mode is set to "rebroadcast".
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    // Notify any subscribers that we are about to rebroadcast a round certificate
+                    self.tx_event
+                        .send(|| Event::RebroadcastRoundCertificate(certificate.clone()));
+
                     self.network
                         .cast(NetworkMsg::PublishGossipMsg(
                             GossipMsg::SkipRoundCertificate(certificate),
