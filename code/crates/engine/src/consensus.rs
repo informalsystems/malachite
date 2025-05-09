@@ -1096,18 +1096,18 @@ where
                 self.tx_event.send(|| Event::Published(msg.clone()));
 
                 self.network
-                    .cast(NetworkMsg::Publish(msg))
+                    .cast(NetworkMsg::PublishConsensusMsg(msg))
                     .map_err(|e| eyre!("Error when broadcasting consensus message: {e:?}"))?;
 
                 Ok(r.resume_with(()))
             }
 
             Effect::PublishLivenessMsg(msg, r) => {
-                // Publish gossip message only if vote sync mode is set to "rebroadcast".
+                // Publish liveness message only if vote sync mode is set to "rebroadcast".
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
                     self.network
-                        .cast(NetworkMsg::PublishGossipMsg(msg))
-                        .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                        .cast(NetworkMsg::PublishLivenessMsg(msg))
+                        .map_err(|e| eyre!("Error when broadcasting liveness message: {e:?}"))?;
                 }
 
                 Ok(r.resume_with(()))
@@ -1121,7 +1121,9 @@ where
                     self.tx_event.send(|| Event::RebroadcastVote(msg.clone()));
 
                     self.network
-                        .cast(NetworkMsg::Publish(SignedConsensusMsg::Vote(msg)))
+                        .cast(NetworkMsg::PublishConsensusMsg(SignedConsensusMsg::Vote(
+                            msg,
+                        )))
                         .map_err(|e| eyre!("Error when rebroadcasting vote message: {e:?}"))?;
                 }
 
@@ -1136,7 +1138,7 @@ where
                         .send(|| Event::RebroadcastRoundCertificate(certificate.clone()));
 
                     self.network
-                        .cast(NetworkMsg::PublishGossipMsg(
+                        .cast(NetworkMsg::PublishLivenessMsg(
                             LivenessMsg::SkipRoundCertificate(certificate),
                         ))
                         .map_err(|e| {
