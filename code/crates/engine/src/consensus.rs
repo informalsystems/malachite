@@ -14,7 +14,8 @@ use tracing::{debug, error, error_span, info, warn};
 use malachitebft_codec as codec;
 use malachitebft_config::TimeoutConfig;
 use malachitebft_core_consensus::{
-    Effect, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError, VoteSyncMode,
+    Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
+    VoteSyncMode,
 };
 use malachitebft_core_types::{
     Context, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
@@ -44,12 +45,14 @@ pub use malachitebft_core_consensus::State as ConsensusState;
 /// This trait is automatically implemented for any type that implements:
 /// - [`codec::Codec<Ctx::ProposalPart>`]
 /// - [`codec::Codec<SignedConsensusMsg<Ctx>>`]
+/// - [`codec::Codec<PolkaCertificate<Ctx>>`]
 /// - [`codec::Codec<StreamMessage<Ctx::ProposalPart>>`]
 pub trait ConsensusCodec<Ctx>
 where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
+    Self: codec::Codec<LivenessMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -59,6 +62,7 @@ where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
+    Self: codec::Codec<LivenessMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -580,6 +584,32 @@ where
                         }
                     }
 
+                    NetworkEvent::PolkaCertificate(from, certificate) => {
+                        if let Err(e) = self
+                            .process_input(
+                                &myself,
+                                state,
+                                ConsensusInput::PolkaCertificate(certificate),
+                            )
+                            .await
+                        {
+                            error!(%from, "Error when processing polka certificate: {e}");
+                        }
+                    }
+
+                    NetworkEvent::RoundCertificate(from, certificate) => {
+                        if let Err(e) = self
+                            .process_input(
+                                &myself,
+                                state,
+                                ConsensusInput::RoundCertificate(certificate),
+                            )
+                            .await
+                        {
+                            error!(%from, "Error when processing round certificate: {e}");
+                        }
+                    }
+
                     NetworkEvent::ProposalPart(from, part) => {
                         if state.consensus.params.value_payload.proposal_only() {
                             error!(%from, "Properly configured peer should never send proposal part messages in Proposal mode");
@@ -1057,7 +1087,7 @@ where
                 Ok(r.resume_with(result))
             }
 
-            Effect::Publish(msg, r) => {
+            Effect::PublishConsensusMsg(msg, r) => {
                 // Sync the WAL to disk before we broadcast the message
                 // NOTE: The message has already been append to the WAL by the `WalAppend` effect.
                 self.wal_flush(state.phase).await?;
@@ -1066,22 +1096,54 @@ where
                 self.tx_event.send(|| Event::Published(msg.clone()));
 
                 self.network
-                    .cast(NetworkMsg::Publish(msg))
-                    .map_err(|e| eyre!("Error when broadcasting gossip message: {e:?}"))?;
+                    .cast(NetworkMsg::PublishConsensusMsg(msg))
+                    .map_err(|e| eyre!("Error when broadcasting consensus message: {e:?}"))?;
 
                 Ok(r.resume_with(()))
             }
 
-            Effect::Rebroadcast(msg, r) => {
+            Effect::PublishLivenessMsg(msg, r) => {
+                // Publish liveness message only if vote sync mode is set to "rebroadcast".
+                if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    self.network
+                        .cast(NetworkMsg::PublishLivenessMsg(msg))
+                        .map_err(|e| eyre!("Error when broadcasting liveness message: {e:?}"))?;
+                }
+
+                Ok(r.resume_with(()))
+            }
+
+            Effect::RebroadcastVote(msg, r) => {
                 // Rebroadcast last vote only if vote sync mode is set to "rebroadcast",
                 // otherwise vote set requests are issued automatically by the sync protocol.
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
-                    // Notify any subscribers that we are about to rebroadcast a message
-                    self.tx_event.send(|| Event::Rebroadcast(msg.clone()));
+                    // Notify any subscribers that we are about to rebroadcast a vote
+                    self.tx_event.send(|| Event::RebroadcastVote(msg.clone()));
 
                     self.network
-                        .cast(NetworkMsg::Publish(SignedConsensusMsg::Vote(msg)))
+                        .cast(NetworkMsg::PublishConsensusMsg(SignedConsensusMsg::Vote(
+                            msg,
+                        )))
                         .map_err(|e| eyre!("Error when rebroadcasting vote message: {e:?}"))?;
+                }
+
+                Ok(r.resume_with(()))
+            }
+
+            Effect::RebroadcastRoundCertificate(certificate, r) => {
+                // Rebroadcast last round certificate only if vote sync mode is set to "rebroadcast".
+                if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
+                    // Notify any subscribers that we are about to rebroadcast a round certificate
+                    self.tx_event
+                        .send(|| Event::RebroadcastRoundCertificate(certificate.clone()));
+
+                    self.network
+                        .cast(NetworkMsg::PublishLivenessMsg(
+                            LivenessMsg::SkipRoundCertificate(certificate),
+                        ))
+                        .map_err(|e| {
+                            eyre!("Error when rebroadcasting round certificate message: {e:?}")
+                        })?;
                 }
 
                 Ok(r.resume_with(()))

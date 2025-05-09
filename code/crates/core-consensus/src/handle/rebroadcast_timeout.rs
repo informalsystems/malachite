@@ -15,32 +15,35 @@ where
     }
 
     let (height, round) = (state.driver.height(), state.driver.round());
+    warn!(
+        %height, %round,
+        "Rebroadcasting vote at {:?} step after {:?} timeout",
+        state.driver.step(), timeout.kind,
+    );
 
-    let (maybe_vote, timeout) = match timeout.kind {
-        TimeoutKind::PrevoteRebroadcast => (
-            state.last_signed_prevote.as_ref(),
-            Timeout::prevote_rebroadcast(round),
-        ),
-        TimeoutKind::PrecommitRebroadcast => (
-            state.last_signed_precommit.as_ref(),
-            Timeout::precommit_rebroadcast(round),
-        ),
-        _ => return Ok(()),
-    };
-
-    if let Some(vote) = maybe_vote.cloned() {
-        warn!(
-            %height, %round,
-            "Rebroadcasting vote at {:?} step after {:?} timeout",
-            state.driver.step(), timeout.kind,
+    if let Some(vote) = state.last_signed_prevote.as_ref() {
+        perform!(
+            co,
+            Effect::RebroadcastVote(vote.clone(), Default::default())
         );
-
-        perform!(co, Effect::Rebroadcast(vote, Default::default()));
-        perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
-    }
+    };
+    if let Some(vote) = state.last_signed_precommit.as_ref() {
+        perform!(
+            co,
+            Effect::RebroadcastVote(vote.clone(), Default::default())
+        );
+    };
+    if let Some(certificate) = state.round_certificate() {
+        perform!(
+            co,
+            Effect::RebroadcastRoundCertificate(certificate.clone(), Default::default())
+        );
+    };
 
     #[cfg(feature = "metrics")]
     metrics.rebroadcast_timeouts.inc();
+
+    perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
 
     Ok(())
 }

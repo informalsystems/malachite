@@ -1,3 +1,4 @@
+use alloc::collections::BTreeSet;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
@@ -8,8 +9,8 @@ use malachitebft_core_state_machine::state::{RoundValue, State as RoundState, St
 use malachitebft_core_state_machine::state_machine::Info;
 use malachitebft_core_types::{
     CommitCertificate, Context, NilOrVal, PolkaCertificate, PolkaSignature, Proposal, Round,
-    SignedProposal, SignedVote, Timeout, TimeoutKind, Validator, ValidatorSet, Validity, Value,
-    ValueId, Vote, VoteType,
+    RoundCertificate, SignedProposal, SignedVote, Timeout, TimeoutKind, Validator, ValidatorSet,
+    Validity, Value, ValueId, Vote, VoteType,
 };
 use malachitebft_core_votekeeper::keeper::Output as VKOutput;
 use malachitebft_core_votekeeper::keeper::VoteKeeper;
@@ -63,6 +64,9 @@ where
 
     last_prevote: Option<Ctx::Vote>,
     last_precommit: Option<Ctx::Vote>,
+
+    /// The certificate that justifies the current round.
+    pub round_certificate: Option<RoundCertificate<Ctx>>,
 }
 
 impl<Ctx> Driver<Ctx>
@@ -98,6 +102,7 @@ where
             polka_certificates: vec![],
             last_prevote: None,
             last_precommit: None,
+            round_certificate: None,
         }
     }
 
@@ -225,6 +230,11 @@ where
     /// Get all polka certificates
     pub fn polka_certificates(&self) -> &[PolkaCertificate<Ctx>] {
         &self.polka_certificates
+    }
+
+    /// Get the round certificate for the current round.
+    pub fn round_certificate(&self) -> Option<&RoundCertificate<Ctx>> {
+        self.round_certificate.as_ref()
     }
 
     /// Get the proposal for the given round.
@@ -453,8 +463,11 @@ where
             return Ok(None);
         };
 
-        if let VKOutput::PolkaValue(val) = &output {
-            self.store_polka_certificate(vote_round, val);
+        match &output {
+            VKOutput::PolkaValue(val) => self.store_polka_certificate(vote_round, val),
+            VKOutput::PrecommitAny => self.store_precommit_any_round_certificate(vote_round),
+            VKOutput::SkipRound(round) => self.store_skip_round_certificate(*round),
+            _ => (),
         }
 
         let (input_round, round_input) = self.multiplex_vote_threshold(output, vote_round);
@@ -485,6 +498,45 @@ where
                 .map(|v| PolkaSignature::new(v.validator_address().clone(), v.signature.clone()))
                 .collect(),
         })
+    }
+
+    fn store_precommit_any_round_certificate(&mut self, vote_round: Round) {
+        let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
+            return;
+        };
+
+        let precommits: Vec<SignedVote<Ctx>> = per_round
+            .received_votes()
+            .iter()
+            .filter(|v| v.vote_type() == VoteType::Precommit)
+            .cloned()
+            .collect();
+
+        self.round_certificate = Some(RoundCertificate::new_from_votes(
+            self.height(),
+            vote_round,
+            precommits,
+        ));
+    }
+
+    fn store_skip_round_certificate(&mut self, vote_round: Round) {
+        let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
+            return;
+        };
+
+        let mut seen_addresses = BTreeSet::new();
+        let skip_votes: Vec<_> = per_round
+            .received_votes()
+            .iter()
+            .filter(|vote| seen_addresses.insert(vote.validator_address()))
+            .cloned()
+            .collect();
+
+        self.round_certificate = Some(RoundCertificate::new_from_votes(
+            self.height(),
+            vote_round,
+            skip_votes,
+        ));
     }
 
     fn apply_timeout(&mut self, timeout: Timeout) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {

@@ -166,3 +166,65 @@ pub enum CertificateError<Ctx: Context> {
     #[error("Multiple votes from the same validator: {0}")]
     DuplicateVote(Ctx::Address),
 }
+
+/// Represents a signature for a round certificate, with the address of the validator that produced it.
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct RoundSignature<Ctx: Context> {
+    /// The vote type
+    pub vote_type: VoteType,
+    /// The value id
+    pub value_id: NilOrVal<ValueId<Ctx>>,
+    /// The address associated with the signature.
+    pub address: Ctx::Address,
+    /// The signature itself.
+    pub signature: Signature<Ctx>,
+}
+
+impl<Ctx: Context> RoundSignature<Ctx> {
+    /// Create a new `CommitSignature` from an address and a signature.
+    pub fn new(
+        vote_type: VoteType,
+        value_id: NilOrVal<ValueId<Ctx>>,
+        address: Ctx::Address,
+        signature: Signature<Ctx>,
+    ) -> Self {
+        Self {
+            vote_type,
+            value_id,
+            address,
+            signature,
+        }
+    }
+}
+
+/// Represents a certificate for entering a new round at a given height.
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct RoundCertificate<Ctx: Context> {
+    /// The height at which a Polka was witnessed
+    pub height: Ctx::Height,
+    /// The round at which a Polka that was witnessed
+    pub round: Round,
+    /// The signatures for the votes that make up the certificate
+    pub round_signatures: Vec<RoundSignature<Ctx>>,
+}
+
+impl<Ctx: Context> RoundCertificate<Ctx> {
+    /// Creates a new `RoundCertificate` from a vector of signed votes.
+    pub fn new_from_votes(height: Ctx::Height, round: Round, votes: Vec<SignedVote<Ctx>>) -> Self {
+        RoundCertificate {
+            height,
+            round,
+            round_signatures: votes
+                .into_iter()
+                .map(|v| {
+                    RoundSignature::new(
+                        v.vote_type(),
+                        v.value().clone(),
+                        v.validator_address().clone(),
+                        v.signature,
+                    )
+                })
+                .collect(),
+        }
+    }
+}
