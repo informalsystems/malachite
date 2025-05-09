@@ -293,7 +293,7 @@ where
         DriverOutput::Vote(vote) => {
             if vote.vote_type() == VoteType::Precommit
                 && vote.value().is_val()
-                && state.driver.round() > HIDDEN_LOCK_ROUND
+                && state.driver.round() >= HIDDEN_LOCK_ROUND
             {
                 if let Some((signed_proposal, Validity::Valid)) =
                     state.driver.proposal_and_validity_for_round(vote.round())
