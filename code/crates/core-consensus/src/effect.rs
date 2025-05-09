@@ -3,7 +3,7 @@ use derive_where::derive_where;
 use malachitebft_core_types::*;
 
 use crate::input::RequestId;
-use crate::types::{GossipMsg, SignedConsensusMsg};
+use crate::types::{LivenessMsg, SignedConsensusMsg};
 use crate::{ConsensusMsg, VoteExtensionError, WalEntry};
 
 /// Provides a way to construct the appropriate [`Resume`] value to
@@ -82,12 +82,12 @@ where
     /// Publish a message to peers
     ///
     /// Resume with: [`resume::Continue`]
-    Publish(SignedConsensusMsg<Ctx>, resume::Continue),
+    PublishConsensusMsg(SignedConsensusMsg<Ctx>, resume::Continue),
 
-    /// Publish a polka certificate to peers
+    /// Publish a liveness message to peers
     ///
     /// Resume with: [`resume::Continue`]
-    PublishGossipMessage(GossipMsg<Ctx>, resume::Continue),
+    PublishLivenessMsg(LivenessMsg<Ctx>, resume::Continue),
 
     /// Rebroadcast a vote to peers
     ///

@@ -4,7 +4,7 @@ package sync;
 
 import "p2p/proto/common.proto";
 import "p2p/proto/consensus/consensus.proto";
-import "p2p/proto/consensus/gossip.proto";
+import "p2p/proto/consensus/liveness.proto";
 
 message Status {
   PeerID peer_id = 1;

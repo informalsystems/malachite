@@ -117,7 +117,7 @@ pub enum VoteExtensionError {
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
-pub enum GossipMsg<Ctx: Context> {
+pub enum LivenessMsg<Ctx: Context> {
     PolkaCertificate(PolkaCertificate<Ctx>),
     SkipRoundCertificate(RoundCertificate<Ctx>),
 }

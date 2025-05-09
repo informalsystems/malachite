@@ -4,7 +4,7 @@ fn main() -> Result<()> {
     let protos = &[
         "proto/consensus.proto",
         "proto/sync.proto",
-        "proto/gossip.proto",
+        "proto/liveness.proto",
     ];
 
     for proto in protos {

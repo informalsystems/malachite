@@ -1,6 +1,6 @@
 mod decide;
 mod driver;
-mod gossip;
+mod liveness;
 mod proposal;
 mod propose;
 mod proposed_value;
@@ -14,7 +14,7 @@ mod validator_set;
 mod vote;
 mod vote_set;
 
-use gossip::{on_polka_certificate, on_round_certificate};
+use liveness::{on_polka_certificate, on_round_certificate};
 use proposal::on_proposal;
 use propose::on_propose;
 use proposed_value::on_proposed_value;

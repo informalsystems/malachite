@@ -14,7 +14,7 @@ use tracing::{debug, error, error_span, info, warn};
 use malachitebft_codec as codec;
 use malachitebft_config::TimeoutConfig;
 use malachitebft_core_consensus::{
-    Effect, GossipMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
+    Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
     VoteSyncMode,
 };
 use malachitebft_core_types::{
@@ -52,7 +52,7 @@ where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
-    Self: codec::Codec<GossipMsg<Ctx>>,
+    Self: codec::Codec<LivenessMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -62,7 +62,7 @@ where
     Ctx: Context,
     Self: codec::Codec<Ctx::ProposalPart>,
     Self: codec::Codec<SignedConsensusMsg<Ctx>>,
-    Self: codec::Codec<GossipMsg<Ctx>>,
+    Self: codec::Codec<LivenessMsg<Ctx>>,
     Self: codec::Codec<StreamMessage<Ctx::ProposalPart>>,
 {
 }
@@ -1087,7 +1087,7 @@ where
                 Ok(r.resume_with(result))
             }
 
-            Effect::Publish(msg, r) => {
+            Effect::PublishConsensusMsg(msg, r) => {
                 // Sync the WAL to disk before we broadcast the message
                 // NOTE: The message has already been append to the WAL by the `WalAppend` effect.
                 self.wal_flush(state.phase).await?;
@@ -1102,7 +1102,7 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::PublishGossipMessage(msg, r) => {
+            Effect::PublishLivenessMsg(msg, r) => {
                 // Publish gossip message only if vote sync mode is set to "rebroadcast".
                 if self.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
                     self.network
@@ -1137,7 +1137,7 @@ where
 
                     self.network
                         .cast(NetworkMsg::PublishGossipMsg(
-                            GossipMsg::SkipRoundCertificate(certificate),
+                            LivenessMsg::SkipRoundCertificate(certificate),
                         ))
                         .map_err(|e| {
                             eyre!("Error when rebroadcasting round certificate message: {e:?}")

@@ -7,7 +7,7 @@ use crate::handle::signature::sign_proposal;
 use crate::handle::signature::sign_vote;
 use crate::handle::vote::on_vote;
 use crate::prelude::*;
-use crate::types::{GossipMsg, SignedConsensusMsg};
+use crate::types::{LivenessMsg, SignedConsensusMsg};
 use crate::util::pretty::PrettyVal;
 use crate::LocallyProposedValue;
 use crate::VoteSyncMode;
@@ -36,8 +36,8 @@ where
                     info!(?certificate, "Sending round certificate");
                     perform!(
                         co,
-                        Effect::PublishGossipMessage(
-                            GossipMsg::SkipRoundCertificate(certificate.clone()),
+                        Effect::PublishLivenessMsg(
+                            LivenessMsg::SkipRoundCertificate(certificate.clone()),
                             Default::default()
                         )
                     );
@@ -265,7 +265,7 @@ where
                 if state.params.value_payload.include_proposal() {
                     perform!(
                         co,
-                        Effect::Publish(
+                        Effect::PublishConsensusMsg(
                             SignedConsensusMsg::Proposal(signed_proposal),
                             Default::default()
                         )
@@ -278,8 +278,8 @@ where
                     if let Some(polka_certificate) = polka_certificate {
                         perform!(
                             co,
-                            Effect::PublishGossipMessage(
-                                GossipMsg::PolkaCertificate(polka_certificate),
+                            Effect::PublishLivenessMsg(
+                                LivenessMsg::PolkaCertificate(polka_certificate),
                                 Default::default()
                             )
                         );
@@ -313,8 +313,8 @@ where
                     {
                         perform!(
                             co,
-                            Effect::PublishGossipMessage(
-                                GossipMsg::PolkaCertificate(polka_certificate),
+                            Effect::PublishLivenessMsg(
+                                LivenessMsg::PolkaCertificate(polka_certificate),
                                 Default::default()
                             )
                         );
@@ -339,7 +339,7 @@ where
 
                 perform!(
                     co,
-                    Effect::Publish(
+                    Effect::PublishConsensusMsg(
                         SignedConsensusMsg::Vote(signed_vote.clone()),
                         Default::default()
                     )

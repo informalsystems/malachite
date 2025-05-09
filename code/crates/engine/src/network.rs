@@ -15,7 +15,7 @@ use malachitebft_sync::{
 };
 
 use malachitebft_codec as codec;
-use malachitebft_core_consensus::{GossipMsg, SignedConsensusMsg};
+use malachitebft_core_consensus::{LivenessMsg, SignedConsensusMsg};
 use malachitebft_core_types::{
     Context, PolkaCertificate, RoundCertificate, SignedProposal, SignedVote,
 };
@@ -153,7 +153,7 @@ pub enum Msg<Ctx: Context> {
     Publish(SignedConsensusMsg<Ctx>),
 
     /// Publish a gossip message
-    PublishGossipMsg(GossipMsg<Ctx>),
+    PublishGossipMsg(LivenessMsg<Ctx>),
 
     /// Publish a proposal part
     PublishProposalPart(StreamMessage<Ctx::ProposalPart>),
@@ -186,7 +186,7 @@ where
     Codec: codec::Codec<sync::Status<Ctx>>,
     Codec: codec::Codec<sync::Request<Ctx>>,
     Codec: codec::Codec<sync::Response<Ctx>>,
-    Codec: codec::Codec<GossipMsg<Ctx>>,
+    Codec: codec::Codec<LivenessMsg<Ctx>>,
 {
     type Msg = Msg<Ctx>;
     type State = State<Ctx>;
@@ -373,10 +373,10 @@ where
                     };
 
                     let event = match msg {
-                        GossipMsg::PolkaCertificate(polka_cert) => {
+                        LivenessMsg::PolkaCertificate(polka_cert) => {
                             NetworkEvent::PolkaCertificate(from, polka_cert)
                         }
-                        GossipMsg::SkipRoundCertificate(round_cert) => {
+                        LivenessMsg::SkipRoundCertificate(round_cert) => {
                             NetworkEvent::RoundCertificate(from, round_cert)
                         }
                     };

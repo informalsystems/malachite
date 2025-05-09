@@ -3,7 +3,7 @@ use prost::Message;
 
 use malachitebft_app::engine::util::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_codec::Codec;
-use malachitebft_core_consensus::{GossipMsg, ProposedValue, SignedConsensusMsg};
+use malachitebft_core_consensus::{LivenessMsg, ProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{
     CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
     RoundCertificate, RoundSignature, SignedExtension, SignedProposal, SignedVote, Validity,
@@ -171,25 +171,25 @@ pub fn decode_round_certificate(
     })
 }
 
-impl Codec<GossipMsg<TestContext>> for ProtobufCodec {
+impl Codec<LivenessMsg<TestContext>> for ProtobufCodec {
     type Error = ProtoError;
 
-    fn decode(&self, bytes: Bytes) -> Result<GossipMsg<TestContext>, Self::Error> {
+    fn decode(&self, bytes: Bytes) -> Result<LivenessMsg<TestContext>, Self::Error> {
         let msg = proto::GossipMessage::decode(bytes.as_ref())?;
         match msg.message {
-            Some(proto::gossip_message::Message::PolkaCertificate(cert)) => {
-                Ok(GossipMsg::PolkaCertificate(decode_polka_certificate(cert)?))
-            }
+            Some(proto::gossip_message::Message::PolkaCertificate(cert)) => Ok(
+                LivenessMsg::PolkaCertificate(decode_polka_certificate(cert)?),
+            ),
             Some(proto::gossip_message::Message::RoundCertificate(cert)) => Ok(
-                GossipMsg::SkipRoundCertificate(decode_round_certificate(cert)?),
+                LivenessMsg::SkipRoundCertificate(decode_round_certificate(cert)?),
             ),
             None => Err(ProtoError::missing_field::<proto::GossipMessage>("message")),
         }
     }
 
-    fn encode(&self, msg: &GossipMsg<TestContext>) -> Result<Bytes, Self::Error> {
+    fn encode(&self, msg: &LivenessMsg<TestContext>) -> Result<Bytes, Self::Error> {
         match msg {
-            GossipMsg::PolkaCertificate(cert) => {
+            LivenessMsg::PolkaCertificate(cert) => {
                 let message = encode_polka_certificate(cert)?;
                 Ok(Bytes::from(
                     proto::GossipMessage {
@@ -198,7 +198,7 @@ impl Codec<GossipMsg<TestContext>> for ProtobufCodec {
                     .encode_to_vec(),
                 ))
             }
-            GossipMsg::SkipRoundCertificate(cert) => {
+            LivenessMsg::SkipRoundCertificate(cert) => {
                 let message = encode_round_certificate(cert)?;
                 Ok(Bytes::from(
                     proto::GossipMessage {
