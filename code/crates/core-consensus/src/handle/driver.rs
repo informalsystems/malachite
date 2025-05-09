@@ -309,6 +309,17 @@ where
                             Default::default()
                         )
                     );
+
+                    if state.params.value_payload.include_proposal() {
+                        perform!(
+                            co,
+                            Effect::PublishConsensusMsg(
+                                SignedConsensusMsg::Proposal(signed_proposal.clone()),
+                                Default::default()
+                            )
+                        );
+                    }
+
                     if let Some(polka_certificate) = state.polka_certificate_at_round(vote.round())
                     {
                         perform!(
