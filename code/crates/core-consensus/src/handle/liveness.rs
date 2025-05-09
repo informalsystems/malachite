@@ -66,7 +66,7 @@ where
         warn!(
             %certificate.height,
             consensus.height = %state.height(),
-            "Polka certificate height mismatch"
+            "Round certificate height mismatch"
         );
 
         return Ok(());

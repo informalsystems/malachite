@@ -232,7 +232,7 @@ where
         &self.polka_certificates
     }
 
-    /// Get the round certificate for the given round.
+    /// Get the round certificate for the current round.
     pub fn round_certificate(&self) -> Option<&RoundCertificate<Ctx>> {
         self.round_certificate.as_ref()
     }
