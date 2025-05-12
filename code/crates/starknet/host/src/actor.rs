@@ -14,7 +14,7 @@ use malachitebft_core_consensus::{PeerId, VoteExtensionError};
 use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueId, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
 use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
-use malachitebft_engine::network::{NetworkMsg, NetworkRef};
+use malachitebft_engine::network::{NetworkEvent, NetworkMsg, NetworkRef};
 use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::RawDecidedValue;
@@ -93,6 +93,8 @@ impl Actor for Host {
     ) -> Result<Self::State, ActorProcessingErr> {
         self.mempool.link(myself.get_cell());
         self.mempool_load.link(myself.get_cell());
+
+        self.network.cast(NetworkMsg::Subscribe(Box::new(myself)))?;
 
         Ok(initial_state)
     }
@@ -178,12 +180,6 @@ impl Host {
                 .await
             }
 
-            HostMsg::ReceivedProposalPart {
-                from,
-                part,
-                reply_to,
-            } => on_received_proposal_part(state, part, from, reply_to).await,
-
             HostMsg::GetValidatorSet { height, reply_to } => {
                 on_get_validator_set(state, height, reply_to).await
             }
@@ -205,6 +201,19 @@ impl Host {
                 value_bytes,
                 reply_to,
             } => on_process_synced_value(value_bytes, height, round, validator_address, reply_to),
+
+            HostMsg::NetworkEvent(NetworkEvent::ProposalPart(from, part)) => {
+                let Some(consensus) = state.consensus.clone() else {
+                    return Ok(());
+                };
+
+                on_received_proposal_part(state, part, from, &consensus).await
+            }
+
+            HostMsg::NetworkEvent(_) => {
+                // Ignore other network events
+                Ok(())
+            }
 
             HostMsg::PeerJoined { peer_id } => {
                 debug!(%peer_id, "Peer joined the network");
@@ -554,7 +563,7 @@ async fn on_received_proposal_part(
     state: &mut HostState,
     part: StreamMessage<ProposalPart>,
     from: PeerId,
-    reply_to: RpcReplyPort<ProposedValue<MockContext>>,
+    consensus: &ConsensusRef<MockContext>,
 ) -> Result<(), ActorProcessingErr> {
     // When inserting part in a map, stream tries to connect all received parts in the right order,
     // starting from beginning and emits parts sequence chunks  when it succeeds
@@ -618,7 +627,10 @@ async fn on_received_proposal_part(
                 );
             }
 
-            reply_to.send(value)?;
+            consensus.cast(ConsensusMsg::ReceivedProposedValue(
+                value,
+                ValueOrigin::Consensus,
+            ))?;
             break;
         }
 
