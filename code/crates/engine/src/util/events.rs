@@ -8,9 +8,7 @@ use tokio::sync::broadcast;
 use malachitebft_core_consensus::{
     LocallyProposedValue, ProposedValue, SignedConsensusMsg, WalEntry,
 };
-use malachitebft_core_types::{
-    CommitCertificate, Context, Round, SignedMessage, SignedVote, ValueOrigin,
-};
+use malachitebft_core_types::{CommitCertificate, Context, Round, SignedVote, ValueOrigin};
 
 pub type RxEvent<Ctx> = broadcast::Receiver<Event<Ctx>>;
 
@@ -49,11 +47,7 @@ pub enum Event<Ctx: Context> {
     Published(SignedConsensusMsg<Ctx>),
     ProposedValue(LocallyProposedValue<Ctx>),
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
-    Decided {
-        commit_certificate: CommitCertificate<Ctx>,
-        proposal_equivocation_evidence_map: malachitebft_core_driver::EvidenceMap<Ctx>,
-        vote_equivocation_evidence_map: malachitebft_core_votekeeper::EvidenceMap<Ctx>,
-    },
+    Decided(CommitCertificate<Ctx>),
     Rebroadcast(SignedVote<Ctx>),
     RequestedVoteSet(Ctx::Height, Round),
     SentVoteSetResponse(Ctx::Height, Round, usize, usize),
@@ -61,22 +55,6 @@ pub enum Event<Ctx: Context> {
     WalReplayEntry(WalEntry<Ctx>),
     WalReplayDone(Ctx::Height),
     WalReplayError(Arc<ActorProcessingErr>),
-    ProposalEquivocationEvidence {
-        proposal_height: Ctx::Height,
-        address: Ctx::Address,
-        evidence: (
-            SignedMessage<Ctx, <Ctx as Context>::Proposal>,
-            SignedMessage<Ctx, <Ctx as Context>::Proposal>,
-        ),
-    },
-    VoteEquivocationEvidence {
-        vote_height: Ctx::Height,
-        address: Ctx::Address,
-        evidence: (
-            SignedMessage<Ctx, <Ctx as Context>::Vote>,
-            SignedMessage<Ctx, <Ctx as Context>::Vote>,
-        ),
-    },
 }
 
 impl<Ctx: Context> fmt::Display for Event<Ctx> {
@@ -96,11 +74,9 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
                     "ReceivedProposedValue(value: {value:?}, origin: {origin:?})"
                 )
             }
-            Event::Decided {
-                commit_certificate,
-                proposal_equivocation_evidence_map: _,
-                vote_equivocation_evidence_map: _,
-            } => write!(f, "Decided(value: {})", commit_certificate.value_id),
+            Event::Decided(commit_certificate) => {
+                write!(f, "Decided(value: {})", commit_certificate.value_id,)
+            }
             Event::Rebroadcast(msg) => write!(f, "Rebroadcast(msg: {msg:?})"),
             Event::RequestedVoteSet(height, round) => {
                 write!(f, "RequestedVoteSet(height: {height}, round: {round})")
@@ -117,20 +93,6 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
             Event::WalReplayEntry(entry) => write!(f, "WalReplayEntry(entry: {entry:?})"),
             Event::WalReplayDone(height) => write!(f, "WalReplayDone(height: {height})"),
             Event::WalReplayError(error) => write!(f, "WalReplayError({error})"),
-            Event::ProposalEquivocationEvidence {
-                proposal_height,
-                address,
-                evidence,
-            } => {
-                write!(f, "ProposalEquivocationEvidence(height: {proposal_height}, address: {address}, evidence: {evidence:?})")
-            }
-            Event::VoteEquivocationEvidence {
-                vote_height,
-                address,
-                evidence,
-            } => {
-                write!(f, "VoteEquivocationEvidence(height: {vote_height}, address: {address}, evidence: {evidence:?})")
-            }
         }
     }
 }

@@ -133,8 +133,6 @@ where
     Decide(
         CommitCertificate<Ctx>,
         VoteExtensions<Ctx>,
-        malachitebft_core_driver::EvidenceMap<Ctx>,
-        malachitebft_core_votekeeper::EvidenceMap<Ctx>,
         resume::Continue,
     ),
 

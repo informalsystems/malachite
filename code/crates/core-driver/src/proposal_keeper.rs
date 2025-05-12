@@ -8,6 +8,7 @@ use derive_where::derive_where;
 use thiserror::Error;
 
 use malachitebft_core_types::{Context, Proposal, Round, SignedProposal, Validity};
+use tracing::warn;
 
 /// Errors can that be yielded when recording a proposal.
 #[derive_where(Debug)]
@@ -142,6 +143,11 @@ where
             }) => {
                 // This is an equivocating proposal
                 self.evidence.add(existing.clone(), conflicting.clone());
+
+                warn!(
+                    "Conflicting proposal: existing: {:?}, conflicting: {:?}",
+                    existing, conflicting
+                );
 
                 Err(RecordProposalError::ConflictingProposal {
                     existing,

@@ -564,18 +564,6 @@ where
                         {
                             error!(%from, "Error when processing vote: {e}");
                         }
-
-                        if let Some((vote_height, validator_address, evidence)) =
-                            state.consensus.driver.vote_equivocation_evidence()
-                        {
-                            self.tx_event.send(|| Event::VoteEquivocationEvidence {
-                                vote_height,
-                                address: validator_address,
-                                evidence,
-                            });
-
-                            state.consensus.driver.clear_vote_equivocation_evidence();
-                        }
                     }
 
                     NetworkEvent::Proposal(from, proposal) => {
@@ -589,21 +577,6 @@ where
                             .await
                         {
                             error!(%from, "Error when processing proposal: {e}");
-                        }
-
-                        if let Some((proposal_height, validator_address, evidence)) =
-                            state.consensus.driver.proposal_equivocation_evidence()
-                        {
-                            self.tx_event.send(|| Event::ProposalEquivocationEvidence {
-                                proposal_height,
-                                address: validator_address,
-                                evidence,
-                            });
-
-                            state
-                                .consensus
-                                .driver
-                                .clear_proposal_equivocation_evidence();
                         }
                     }
 
@@ -1151,22 +1124,12 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::Decide(
-                certificate,
-                extensions,
-                proposal_equivocation_evidence_map,
-                vote_equivocation_evidence_map,
-                r,
-            ) => {
+            Effect::Decide(certificate, extensions, r) => {
                 assert!(!certificate.commit_signatures.is_empty());
 
                 self.wal_flush(state.phase).await?;
 
-                self.tx_event.send(|| Event::Decided {
-                    commit_certificate: certificate.clone(),
-                    proposal_equivocation_evidence_map,
-                    vote_equivocation_evidence_map,
-                });
+                self.tx_event.send(|| Event::Decided(certificate.clone()));
 
                 let height = certificate.height;
 
