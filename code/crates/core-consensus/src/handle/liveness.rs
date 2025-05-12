@@ -79,7 +79,7 @@ where
 /// For round certificates, in contrast to polka certificates, the votes are applied
 /// individually to the driver and once the threshold is reached it is sent to the state machine.
 /// Presence of equivocating votes is not a problem, as the driver will ignore them while
-/// the vote keeper will still be able to generate the threshold output using the extisting
+/// the vote keeper will still be able to generate the threshold output using the existing
 /// stored and incoming votes from the certificate.
 ///
 /// (*) There is currently no validation of the correctness of the certificate in this function.
