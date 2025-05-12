@@ -283,16 +283,21 @@ where
                 // them to accept the re-proposed value.
                 if proposal.pol_round().is_defined() {
                     // Broadcast the polka certificate at pol_round
-                    let polka_certificate = state.polka_certificate_at_round(proposal.pol_round());
-                    if let Some(polka_certificate) = polka_certificate {
-                        perform!(
-                            co,
-                            Effect::PublishLivenessMsg(
-                                LivenessMsg::PolkaCertificate(polka_certificate),
-                                Default::default()
-                            )
+                    let Some(polka_certificate) =
+                        state.polka_certificate_at_round(proposal.pol_round())
+                    else {
+                        panic!(
+                            "Missing polka certificate for pol_round {}",
+                            proposal.pol_round()
                         );
-                    }
+                    };
+                    perform!(
+                        co,
+                        Effect::PublishLivenessMsg(
+                            LivenessMsg::PolkaCertificate(polka_certificate),
+                            Default::default()
+                        )
+                    );
                 }
             }
 
@@ -343,16 +348,21 @@ where
                         );
                     }
 
-                    if let Some(polka_certificate) = state.polka_certificate_at_round(vote.round())
-                    {
-                        perform!(
-                            co,
-                            Effect::PublishLivenessMsg(
-                                LivenessMsg::PolkaCertificate(polka_certificate),
-                                Default::default()
-                            )
+                    let Some(polka_certificate) = state.polka_certificate_at_round(vote.round())
+                    else {
+                        panic!(
+                            "Missing polka certificate for Precommit({:?}) at round {}",
+                            vote.value(),
+                            vote.round()
                         );
-                    }
+                    };
+                    perform!(
+                        co,
+                        Effect::PublishLivenessMsg(
+                            LivenessMsg::PolkaCertificate(polka_certificate),
+                            Default::default()
+                        )
+                    );
                 }
             }
 
