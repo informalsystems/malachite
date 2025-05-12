@@ -571,6 +571,8 @@ where
                             .vote_evidence()
                             .is_last_equivocation(&vote)
                         {
+                            self.metrics.equivocation_votes.inc();
+
                             self.tx_event.send(|| Event::VoteEquivocationEvidence {
                                 vote_height: vote.height(),
                                 address,
@@ -602,6 +604,8 @@ where
                             .proposal_evidence()
                             .is_last_equivocation(&proposal)
                         {
+                            self.metrics.equivocation_proposals.inc();
+
                             self.tx_event.send(|| Event::ProposalEquivocationEvidence {
                                 proposal_height: proposal.height(),
                                 address,

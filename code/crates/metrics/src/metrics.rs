@@ -99,6 +99,12 @@ pub struct Inner {
     /// Time taken to verify a signature
     pub signature_verification_time: Histogram,
 
+    /// Number of equivocation votes
+    pub equivocation_votes: Counter,
+
+    /// Number of equivocation proposals
+    pub equivocation_proposals: Counter,
+
     /// Internal state for measuring time taken for consensus
     instant_consensus_started: Arc<AtomicInstant>,
 
@@ -130,6 +136,8 @@ impl Metrics {
             round: Gauge::default(),
             signature_signing_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
             signature_verification_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
+            equivocation_votes: Counter::default(),
+            equivocation_proposals: Counter::default(),
             instant_consensus_started: Arc::new(AtomicInstant::empty()),
             instant_block_started: Arc::new(AtomicInstant::empty()),
             instant_step_started: Arc::new(Mutex::new((Step::Unstarted, Instant::now()))),
@@ -234,6 +242,18 @@ impl Metrics {
                 "signature_verification_time",
                 "Time taken to verify a signature, in seconds",
                 metrics.signature_verification_time.clone(),
+            );
+
+            registry.register(
+                "equivocation_votes",
+                "Number of equivocation votes",
+                metrics.equivocation_votes.clone(),
+            );
+
+            registry.register(
+                "equivocation_proposals",
+                "Number of equivocation proposals",
+                metrics.equivocation_proposals.clone(),
             );
         });
 
