@@ -178,6 +178,7 @@ where
 {
     #[allow(clippy::type_complexity)]
     map: BTreeMap<Ctx::Address, Vec<(SignedProposal<Ctx>, SignedProposal<Ctx>)>>,
+    last: Option<(Ctx::Address, (SignedProposal<Ctx>, SignedProposal<Ctx>))>,
 }
 
 impl<Ctx> EvidenceMap<Ctx>
@@ -202,6 +203,20 @@ where
         self.map.get(address)
     }
 
+    /// Check if the given proposal is the last equivocation recorded. If it is, return the
+    /// address of the validator and the evidence.
+    pub fn is_last_equivocation(
+        &self,
+        proposal: &SignedProposal<Ctx>,
+    ) -> Option<(Ctx::Address, (SignedProposal<Ctx>, SignedProposal<Ctx>))> {
+        self.last
+            .as_ref()
+            .filter(|(address, (_, conflicting))| {
+                address == proposal.validator_address() && conflicting == proposal
+            })
+            .cloned()
+    }
+
     /// Add evidence of equivocating proposals, ie. two proposals submitted by the same validator,
     /// but with different values but for the same height and round.
     ///
@@ -214,12 +229,20 @@ where
         );
 
         if let Some(evidence) = self.map.get_mut(conflicting.validator_address()) {
-            evidence.push((existing, conflicting));
+            evidence.push((existing.clone(), conflicting.clone()));
+            self.last = Some((
+                conflicting.validator_address().clone(),
+                (existing, conflicting),
+            ));
         } else {
             self.map.insert(
                 conflicting.validator_address().clone(),
-                vec![(existing, conflicting)],
+                vec![(existing.clone(), conflicting.clone())],
             );
+            self.last = Some((
+                conflicting.validator_address().clone(),
+                (existing, conflicting),
+            ));
         }
     }
 }
