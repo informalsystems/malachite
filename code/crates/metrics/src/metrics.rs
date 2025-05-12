@@ -246,13 +246,13 @@ impl Metrics {
 
             registry.register(
                 "equivocation_votes",
-                "Number of equivocation votes",
+                "Number of equivocating votes",
                 metrics.equivocation_votes.clone(),
             );
 
             registry.register(
                 "equivocation_proposals",
-                "Number of equivocation proposals",
+                "Number of equivocating proposals",
                 metrics.equivocation_proposals.clone(),
             );
         });
