@@ -1,73 +1,61 @@
-use informalsystems_malachitebft_test::{
-    middleware::Middleware, Address, Height, TestContext, Value, ValueId, Vote,
-};
+use std::time::Duration;
+
+use informalsystems_malachitebft_test::{Address, Height, Proposal, Value};
 use malachitebft_core_consensus::LocallyProposedValue;
-use malachitebft_core_types::{NilOrVal, Round};
-use rand::Rng;
+use malachitebft_core_types::{Round, SignedProposal};
+use malachitebft_engine::{consensus::Msg, network::NetworkEvent};
+use malachitebft_peer::PeerId;
+use malachitebft_signing_ed25519::Signature;
+use malachitebft_test_framework::TestParams;
 
-#[derive(Copy, Clone, Debug)]
-struct _EquivocationProposer;
+use crate::TestBuilder;
 
-impl Middleware for _EquivocationProposer {
-    fn on_propose_value(
-        &self,
-        _ctx: &TestContext,
-        proposal: &mut LocallyProposedValue<informalsystems_malachitebft_test::TestContext>,
-        reproposal: bool,
-    ) {
-        if !reproposal {
-            tracing::warn!(
-                "EquivocationProposer: First time proposing value {:}",
-                proposal.value.id()
-            );
+#[tokio::test]
+pub async fn equivocation_proposer() {
+    const HEIGHT: u64 = 3;
 
-            // Keep the proposal value as is
-            return;
-        }
+    let mut test = TestBuilder::<()>::new();
 
-        // Change the proposal value to a different one
-        let new_value = loop {
-            let new_value = Value::new(rand::thread_rng().gen_range(100..=100000));
-            if new_value != proposal.value {
-                break new_value;
-            }
-        };
+    test.add_node()
+        .start()
+        // TODO: We do not have access to the peer id or address, and we cannot
+        // sign the message
+        .inject(Msg::NetworkEvent(NetworkEvent::Proposal(
+            PeerId::random(),
+            SignedProposal::new(
+                Proposal::new(
+                    Height::new(1),
+                    Round::Some(0),
+                    Value::new(0),
+                    Round::Nil,
+                    Address::new([0; 20]),
+                ),
+                Signature::test(),
+            ),
+        )))
+        // .on_proposal_equivocation_evidence(|_height, _address, _evidence, _state| {
+        //     info!("Equivocation evidence detected");
+        //     Ok(HandlerResult::ContinueTest)
+        // })
+        .wait_until(HEIGHT)
+        .success();
 
-        tracing::warn!(
-            "EquivocationProposer: Reproposing value {:} instead of {:}",
-            new_value.id(),
-            proposal.value.id()
-        );
+    test.add_node()
+        .start()
+        // TODO: Does not work as engine/driver will not propose two values
+        .inject(Msg::ProposeValue(LocallyProposedValue {
+            height: Height::new(1),
+            round: Round::Some(0),
+            value: Value::new(0),
+        }))
+        // .on_proposal_equivocation_evidence(|_height, _address, _evidence, _state| {
+        //     info!("Equivocation evidence detected");
+        //     Ok(HandlerResult::ContinueTest)
+        // })
+        .wait_until(HEIGHT)
+        .success();
 
-        proposal.value = new_value;
-    }
-}
-
-#[derive(Clone, Debug)]
-struct _EquivocationVoter;
-
-impl Middleware for _EquivocationVoter {
-    fn new_prevote(
-        &self,
-        _ctx: &TestContext,
-        height: Height,
-        round: Round,
-        value_id: NilOrVal<ValueId>,
-        address: Address,
-    ) -> Vote {
-        if round.as_i64() % 2 == 0 {
-            // Vote for the given value
-            Vote::new_prevote(height, round, value_id, address)
-        } else {
-            // Vote for a different value
-            let new_value = loop {
-                let new_value = ValueId::new(rand::thread_rng().gen_range(100..=100000));
-                if NilOrVal::Val(new_value) != value_id {
-                    break new_value;
-                }
-            };
-
-            Vote::new_prevote(height, round, NilOrVal::Val(new_value), address)
-        }
-    }
+    test.build()
+        .run_with_params(Duration::from_secs(5), TestParams::default())
+        .await
 }
