@@ -6,6 +6,7 @@ use crate::handle::on_proposal;
 use crate::handle::signature::sign_proposal;
 use crate::handle::signature::sign_vote;
 use crate::handle::vote::on_vote;
+use crate::params::HIDDEN_LOCK_ROUND;
 use crate::prelude::*;
 use crate::types::{LivenessMsg, SignedConsensusMsg};
 use crate::util::pretty::PrettyVal;
@@ -13,8 +14,6 @@ use crate::LocallyProposedValue;
 use crate::VoteSyncMode;
 
 use super::propose::on_propose;
-
-const HIDDEN_LOCK_ROUND: Round = Round::new(10);
 
 #[async_recursion]
 pub async fn apply_driver_input<Ctx>(

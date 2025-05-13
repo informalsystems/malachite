@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use informalsystems_malachitebft_test::TestContext;
 use malachitebft_config::VoteSyncMode;
+use malachitebft_core_consensus::HIDDEN_LOCK_ROUND;
 use malachitebft_core_types::{Round, VoteType};
 use malachitebft_test_framework::TestNode;
 
@@ -89,21 +90,19 @@ async fn round_certificate_rebroadcast() {
         .await
 }
 
-fn expect_hidden_lock_messages(node: &mut TestNode<TestContext>, round: u32) {
-    node.expect_polka_certificate(1, round);
+fn expect_hidden_lock_messages(node: &mut TestNode<TestContext>, round: Round) {
+    node.expect_polka_certificate(1, round.as_u32().expect("non-nil round"));
 }
 
 #[tokio::test]
 async fn polka_certificate_for_hidden_lock() {
     const FINAL_HEIGHT: u64 = 3;
-    // TODO: Use the actual hidden lock round constant
-    const HIDDEN_LOCK_ROUND: u32 = 10;
 
     let mut test = TestBuilder::<()>::new();
 
     test.add_node()
         .with_middleware(PrevoteNil::when(|height, round, _| {
-            height.as_u64() == 1 && round < Round::from(HIDDEN_LOCK_ROUND)
+            height.as_u64() == 1 && round < HIDDEN_LOCK_ROUND
         }))
         .start()
         .wait_until(1)
