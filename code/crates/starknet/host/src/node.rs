@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use malachitebft_engine::consensus::Msg;
 use ractor::async_trait;
 use rand::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,12 @@ impl NodeHandle<MockContext> for Handle {
         self.actor.kill_and_wait(None).await?;
         self.handle.abort();
         Ok(())
+    }
+
+    fn inject(&self, _message: Msg<MockContext>) -> eyre::Result<()> {
+        Err(eyre::eyre!(
+            "Injecting messages into the node is not supported in this application"
+        ))
     }
 }
 

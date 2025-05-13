@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use malachitebft_engine::consensus::{ConsensusRef, Msg};
 use rand::{CryptoRng, RngCore};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -18,8 +19,9 @@ use malachitebft_engine::util::events::RxEvent;
 use crate::types::core::{Context, PrivateKey, PublicKey, VotingPower};
 use crate::types::Keypair;
 
-pub struct EngineHandle {
+pub struct EngineHandle<Ctx: Context> {
     pub actor: NodeRef,
+    pub consensus: ConsensusRef<Ctx>,
     pub handle: JoinHandle<()>,
 }
 
@@ -31,6 +33,7 @@ where
 {
     fn subscribe(&self) -> RxEvent<Ctx>;
     async fn kill(&self, reason: Option<String>) -> eyre::Result<()>;
+    fn inject(&self, message: Msg<Ctx>) -> eyre::Result<()>;
 }
 
 pub trait NodeConfig {

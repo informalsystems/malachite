@@ -99,10 +99,10 @@ pub struct Inner {
     /// Time taken to verify a signature
     pub signature_verification_time: Histogram,
 
-    /// Number of equivocation votes
+    /// Number of equivocating votes
     pub equivocation_votes: Counter,
 
-    /// Number of equivocation proposals
+    /// Number of equivocating proposals
     pub equivocation_proposals: Counter,
 
     /// Internal state for measuring time taken for consensus

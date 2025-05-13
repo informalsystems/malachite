@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use malachitebft_app_channel::app::engine::consensus::Msg;
 use malachitebft_test::middleware::{DefaultMiddleware, Middleware};
 use rand::{CryptoRng, RngCore};
 use tokio::task::JoinHandle;
@@ -32,7 +33,7 @@ use crate::store::Store;
 
 pub struct Handle {
     pub app: JoinHandle<()>,
-    pub engine: EngineHandle,
+    pub engine: EngineHandle<TestContext>,
     pub tx_event: TxEvent<TestContext>,
 }
 
@@ -47,6 +48,10 @@ impl NodeHandle<TestContext> for Handle {
         self.app.abort();
         self.engine.handle.abort();
         Ok(())
+    }
+
+    fn inject(&self, message: Msg<TestContext>) -> eyre::Result<()> {
+        Ok(self.engine.consensus.cast(message)?)
     }
 }
 

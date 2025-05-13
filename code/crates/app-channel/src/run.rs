@@ -22,7 +22,7 @@ pub async fn start_engine<Node, Ctx, Codec>(
     cfg: Node::Config,
     start_height: Option<Ctx::Height>,
     initial_validator_set: Ctx::ValidatorSet,
-) -> Result<(Channels<Ctx>, EngineHandle)>
+) -> Result<(Channels<Ctx>, EngineHandle<Ctx>)>
 where
     Ctx: Context,
     Node: node::Node<Context = Ctx>,
@@ -80,7 +80,8 @@ where
     )
     .await?;
 
-    let (node, handle) = spawn_node_actor(ctx, network, consensus, wal, sync, connector).await?;
+    let (node, handle) =
+        spawn_node_actor(ctx, network, consensus.clone(), wal, sync, connector).await?;
 
     let channels = Channels {
         consensus: rx_consensus,
@@ -90,6 +91,7 @@ where
 
     let handle = EngineHandle {
         actor: node,
+        consensus,
         handle,
     };
 

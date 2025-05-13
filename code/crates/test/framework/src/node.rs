@@ -5,8 +5,10 @@ use eyre::bail;
 use tracing::info;
 
 use malachitebft_core_consensus::{LocallyProposedValue, SignedConsensusMsg};
-use malachitebft_core_types::{CommitCertificate, Context, Height, SignedVote, Vote, VotingPower};
-use malachitebft_engine::util::events::Event;
+use malachitebft_core_types::{
+    CommitCertificate, Context, Height, SignedProposal, SignedVote, Vote, VotingPower,
+};
+use malachitebft_engine::{consensus::ConsensusMsg, util::events::Event};
 use malachitebft_test::middleware::{DefaultMiddleware, Middleware};
 
 use crate::Expected;
@@ -26,6 +28,7 @@ where
     Expect(Expected),
     Success,
     Fail(String),
+    Inject(ConsensusMsg<Ctx>),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -224,6 +227,63 @@ where
                 Ok(HandlerResult::WaitForNextEvent)
             }
         })
+    }
+
+    pub fn on_vote_equivocation_evidence<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(
+                Ctx::Height,
+                Ctx::Address,
+                (SignedVote<Ctx>, SignedVote<Ctx>),
+                &mut State,
+            ) -> Result<HandlerResult, eyre::Report>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_event(move |event, state| {
+            if let Event::VoteEquivocationEvidence {
+                vote_height,
+                address,
+                evidence,
+            } = event
+            {
+                f(vote_height, address, evidence, state)
+            } else {
+                Ok(HandlerResult::WaitForNextEvent)
+            }
+        })
+    }
+
+    pub fn on_proposal_equivocation_evidence<F>(&mut self, f: F) -> &mut Self
+    where
+        F: Fn(
+                Ctx::Height,
+                Ctx::Address,
+                (SignedProposal<Ctx>, SignedProposal<Ctx>),
+                &mut State,
+            ) -> Result<HandlerResult, eyre::Report>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.on_event(move |event, state| {
+            if let Event::ProposalEquivocationEvidence {
+                proposal_height,
+                address,
+                evidence,
+            } = event
+            {
+                f(proposal_height, address, evidence, state)
+            } else {
+                Ok(HandlerResult::WaitForNextEvent)
+            }
+        })
+    }
+
+    pub fn inject(&mut self, message: ConsensusMsg<Ctx>) -> &mut Self {
+        self.steps.push(Step::Inject(message));
+        self
     }
 
     pub fn on_decided<F>(&mut self, f: F) -> &mut Self
