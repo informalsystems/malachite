@@ -16,6 +16,7 @@
 - Added new public API `PartStore::all_parts_by_value_id` to be used instead of `PartStore::all_parts` when a decision is reached
 - Added `&StreamId` parameter to `part_store::PartStore::store`
 - Added `&StreamId` parameter to `part_store::PartStore::store_value_id`
+- Changed semantics of `RestreamProposal` variant of `HostMsg`: the value at `round` should be now be restreamed if `valid_round` is `Nil`
 
 ### `malachitebft-network`
 - Added new variant to `Channel` enum: `Liveness`
