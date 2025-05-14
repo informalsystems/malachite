@@ -598,6 +598,13 @@ where
                     }
 
                     NetworkEvent::RoundCertificate(from, certificate) => {
+                        info!(
+                            %from,
+                            %certificate.height,
+                            %certificate.round,
+                            number_of_votes = certificate.round_signatures.len(),
+                            "Received round certificate"
+                        );
                         if let Err(e) = self
                             .process_input(
                                 &myself,

@@ -38,7 +38,12 @@ where
             // the round certificate and enter the same round within bounded time.
             if round > &Round::new(0) {
                 if let Some(certificate) = state.driver.round_certificate() {
-                    info!(?certificate, "Sending round certificate");
+                    info!(
+                        %certificate.height,
+                        %certificate.round,
+                        number_of_votes = certificate.round_signatures.len(),
+                        "Sending round certificate"
+                    );
                     perform!(
                         co,
                         Effect::PublishLivenessMsg(

@@ -34,6 +34,12 @@ where
         );
     };
     if let Some(certificate) = state.round_certificate() {
+        warn!(
+            %certificate.height,
+            %certificate.round,
+            number_of_votes = certificate.round_signatures.len(),
+            "Rebroadcasting round certificate"
+        );
         perform!(
             co,
             Effect::RebroadcastRoundCertificate(certificate.clone(), Default::default())
