@@ -218,7 +218,6 @@ async fn restart_with_byzantine_proposer_1_request_response_proposal_and_parts()
 }
 
 #[tokio::test]
-#[ignore]
 async fn restart_with_byzantine_proposer_1_rebroadcast_parts_only() {
     byzantine_proposer_crashes_after_proposing_1(TestParams {
         vote_sync_mode: Some(VoteSyncMode::Rebroadcast),
@@ -229,7 +228,6 @@ async fn restart_with_byzantine_proposer_1_rebroadcast_parts_only() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn restart_with_byzantine_proposer_1_rebroadcast_proposal_and_parts() {
     byzantine_proposer_crashes_after_proposing_1(TestParams {
         vote_sync_mode: Some(VoteSyncMode::Rebroadcast),
@@ -342,7 +340,6 @@ async fn restart_with_byzantine_proposer_2_request_response_proposal_and_parts()
 }
 
 #[tokio::test]
-#[ignore]
 async fn restart_with_byzantine_proposer_2_rebroadcast_parts_only() {
     byzantine_proposer_crashes_after_proposing_2(TestParams {
         vote_sync_mode: Some(VoteSyncMode::Rebroadcast),
@@ -353,7 +350,6 @@ async fn restart_with_byzantine_proposer_2_rebroadcast_parts_only() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn restart_with_byzantine_proposer_2_rebroadcast_proposal_and_parts() {
     byzantine_proposer_crashes_after_proposing_2(TestParams {
         vote_sync_mode: Some(VoteSyncMode::Rebroadcast),
