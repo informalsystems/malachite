@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use malachitebft_app_channel::app::engine::consensus::Msg;
 use rand::{CryptoRng, RngCore};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
@@ -43,7 +44,7 @@ pub struct App {
 
 pub struct Handle {
     pub app: JoinHandle<()>,
-    pub engine: EngineHandle,
+    pub engine: EngineHandle<TestContext>,
     pub tx_event: TxEvent<TestContext>,
 }
 
@@ -58,6 +59,12 @@ impl NodeHandle<TestContext> for Handle {
         self.app.abort();
         self.engine.handle.abort();
         Ok(())
+    }
+
+    fn inject(&self, _message: Msg<TestContext>) -> eyre::Result<()> {
+        Err(eyre::eyre!(
+            "Injecting messages into the node is not supported in this example application"
+        ))
     }
 }
 

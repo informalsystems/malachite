@@ -1,3 +1,4 @@
+use crate::MisbehaviorEvidence;
 use crate::{handle::signature::verify_commit_certificate, prelude::*};
 
 #[cfg_attr(not(feature = "metrics"), allow(unused_variables))]
@@ -99,6 +100,11 @@ where
             debug!(%trace, "Consensus trace");
         }
     }
+
+    let _evidence = MisbehaviorEvidence {
+        proposals: state.driver.proposal_evidence().clone(),
+        votes: state.driver.vote_evidence().clone(),
+    };
 
     perform!(
         co,

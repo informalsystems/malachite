@@ -2177,6 +2177,7 @@ dependencies = [
  "genawaiter",
  "informalsystems-malachitebft-core-driver",
  "informalsystems-malachitebft-core-types",
+ "informalsystems-malachitebft-core-votekeeper",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-peer",
  "informalsystems-malachitebft-test",
@@ -2195,6 +2196,7 @@ dependencies = [
  "informalsystems-malachitebft-core-votekeeper",
  "informalsystems-malachitebft-test",
  "thiserror 2.0.12",
+ "tracing",
 ]
 
 [[package]]
@@ -2224,6 +2226,7 @@ dependencies = [
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-test",
  "thiserror 2.0.12",
+ "tracing",
 ]
 
 [[package]]
@@ -2269,7 +2272,9 @@ dependencies = [
  "informalsystems-malachitebft-codec",
  "informalsystems-malachitebft-config",
  "informalsystems-malachitebft-core-consensus",
+ "informalsystems-malachitebft-core-driver",
  "informalsystems-malachitebft-core-types",
+ "informalsystems-malachitebft-core-votekeeper",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-network",
  "informalsystems-malachitebft-sync",
@@ -2524,6 +2529,7 @@ dependencies = [
  "informalsystems-malachitebft-core-consensus",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-engine",
+ "informalsystems-malachitebft-peer",
  "informalsystems-malachitebft-proto",
  "informalsystems-malachitebft-signing-ed25519",
  "informalsystems-malachitebft-sync",
