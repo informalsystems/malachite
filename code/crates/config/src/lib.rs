@@ -549,8 +549,8 @@ impl TimeoutConfig {
             TimeoutKind::Precommit => self.timeout_precommit,
             TimeoutKind::PrevoteTimeLimit => self.timeout_step,
             TimeoutKind::PrecommitTimeLimit => self.timeout_step,
-            TimeoutKind::PrevoteRebroadcast => self.timeout_prevote,
-            TimeoutKind::PrecommitRebroadcast => self.timeout_precommit,
+            // TODO - clarify the rebroadcast timeout duration
+            TimeoutKind::Rebroadcast => self.timeout_prevote,
         }
     }
 
@@ -561,8 +561,7 @@ impl TimeoutConfig {
             TimeoutKind::Precommit => Some(self.timeout_precommit_delta),
             TimeoutKind::PrevoteTimeLimit => None,
             TimeoutKind::PrecommitTimeLimit => None,
-            TimeoutKind::PrevoteRebroadcast => None,
-            TimeoutKind::PrecommitRebroadcast => None,
+            TimeoutKind::Rebroadcast => None,
         }
     }
 }

@@ -55,6 +55,8 @@ where
             }
 
             info!(%height, %round, %proposer, "Starting new round");
+            state.last_signed_prevote = None;
+            state.last_signed_precommit = None;
 
             perform!(co, Effect::CancelAllTimeouts(Default::default()));
             perform!(
@@ -378,8 +380,6 @@ where
                     "Voting",
                 );
 
-                let vote_type = vote.vote_type();
-
                 let extended_vote = extend_vote(co, vote).await?;
                 let signed_vote = sign_vote(co, extended_vote).await?;
 
@@ -397,10 +397,7 @@ where
 
                 // Schedule rebroadcast timer if necessary
                 if state.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
-                    let timeout = match vote_type {
-                        VoteType::Prevote => Timeout::prevote_rebroadcast(state.driver.round()),
-                        VoteType::Precommit => Timeout::precommit_rebroadcast(state.driver.round()),
-                    };
+                    let timeout = Timeout::rebroadcast(state.driver.round());
 
                     perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
                 }

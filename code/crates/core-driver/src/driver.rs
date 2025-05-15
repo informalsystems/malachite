@@ -548,8 +548,7 @@ where
             // The driver never receives these events, so we can just ignore them.
             TimeoutKind::PrevoteTimeLimit => return Ok(None),
             TimeoutKind::PrecommitTimeLimit => return Ok(None),
-            TimeoutKind::PrevoteRebroadcast => return Ok(None),
-            TimeoutKind::PrecommitRebroadcast => return Ok(None),
+            TimeoutKind::Rebroadcast => return Ok(None),
         };
 
         self.apply_input(timeout.round, input)

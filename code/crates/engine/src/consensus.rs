@@ -190,8 +190,7 @@ impl Timeouts {
             TimeoutKind::Precommit => self.config.timeout_precommit,
             TimeoutKind::PrevoteTimeLimit => self.config.timeout_step,
             TimeoutKind::PrecommitTimeLimit => self.config.timeout_step,
-            TimeoutKind::PrevoteRebroadcast => self.config.timeout_prevote,
-            TimeoutKind::PrecommitRebroadcast => self.config.timeout_precommit,
+            TimeoutKind::Rebroadcast => self.config.timeout_prevote,
         }
     }
 
@@ -203,8 +202,7 @@ impl Timeouts {
             TimeoutKind::Precommit => c.timeout_precommit += c.timeout_precommit_delta,
             TimeoutKind::PrevoteTimeLimit => (),
             TimeoutKind::PrecommitTimeLimit => (),
-            TimeoutKind::PrevoteRebroadcast => (),
-            TimeoutKind::PrecommitRebroadcast => (),
+            TimeoutKind::Rebroadcast => (),
         };
     }
 }
