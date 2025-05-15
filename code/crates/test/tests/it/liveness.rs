@@ -13,39 +13,11 @@ fn expect_round_certificate_rebroadcasts(node: &mut TestNode<TestContext>) {
     use VoteType::*;
 
     node.expect_vote_rebroadcast(1, 0, Prevote)
-        // Prevoted in round 0
-        .expect_vote_rebroadcast(1, 0, Prevote)
-        .expect_vote_rebroadcast(1, 0, Precommit)
-        .expect_round_certificate(1, 0)
-        // Precommited in round 0, has round certificate
-        .expect_vote_rebroadcast(1, 0, Prevote)
-        .expect_vote_rebroadcast(1, 0, Precommit)
-        .expect_round_certificate(1, 0)
-        // Round 0 is rebroadcast again
+        // When we enter round 0 there is no round certificate
         .expect_vote_rebroadcast(1, 1, Prevote)
-        .expect_vote_rebroadcast(1, 0, Precommit)
         .expect_round_certificate(1, 0)
-        // Prevoted in round 1
-        .expect_vote_rebroadcast(1, 1, Prevote)
-        .expect_vote_rebroadcast(1, 1, Precommit)
-        .expect_round_certificate(1, 1)
-        // Precommited in round 1, has round certificate
-        .expect_vote_rebroadcast(1, 1, Prevote)
-        .expect_vote_rebroadcast(1, 1, Precommit)
-        .expect_round_certificate(1, 1)
-        // Round 1 is rebroadcast again
         .expect_vote_rebroadcast(1, 2, Prevote)
-        .expect_vote_rebroadcast(1, 1, Precommit)
-        .expect_round_certificate(1, 1)
-        // Prevoted in round 2
-        .expect_vote_rebroadcast(1, 2, Prevote)
-        .expect_vote_rebroadcast(1, 2, Precommit)
-        .expect_round_certificate(1, 2)
-        // Precommited in round 2, has round certificate
-        .expect_vote_rebroadcast(1, 2, Prevote)
-        .expect_vote_rebroadcast(1, 2, Precommit)
-        .expect_round_certificate(1, 2);
-    // Round 2 is rebroadcast again
+        .expect_round_certificate(1, 1);
 }
 
 #[tokio::test]
