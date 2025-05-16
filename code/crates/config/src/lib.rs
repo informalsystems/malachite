@@ -539,6 +539,14 @@ pub struct TimeoutConfig {
     /// the vote synchronization protocol.
     #[serde(with = "humantime_serde")]
     pub timeout_step: Duration,
+
+    /// How long we wait for a rebroadcast timeout in Prevote step
+    #[serde(with = "humantime_serde")]
+    pub timeout_prevote_rebroadcast: Duration,
+
+    /// How long we wait for a rebroadcast timeout in Precommit step
+    #[serde(with = "humantime_serde")]
+    pub timeout_precommit_rebroadcast: Duration,
 }
 
 impl TimeoutConfig {
@@ -569,14 +577,19 @@ impl TimeoutConfig {
 
 impl Default for TimeoutConfig {
     fn default() -> Self {
+        let timeout_prevote = Duration::from_secs(1);
+        let timeout_precommit = Duration::from_secs(1);
+
         Self {
             timeout_propose: Duration::from_secs(3),
             timeout_propose_delta: Duration::from_millis(500),
-            timeout_prevote: Duration::from_secs(1),
+            timeout_prevote,
             timeout_prevote_delta: Duration::from_millis(500),
-            timeout_precommit: Duration::from_secs(1),
+            timeout_precommit,
             timeout_precommit_delta: Duration::from_millis(500),
             timeout_step: Duration::from_secs(2),
+            timeout_prevote_rebroadcast: timeout_prevote,
+            timeout_precommit_rebroadcast: timeout_precommit,
         }
     }
 }
