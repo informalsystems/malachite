@@ -57,6 +57,7 @@ where
             }
 
             info!(%height, %round, %proposer, "Starting new round");
+
             state.last_signed_prevote = None;
             state.last_signed_precommit = None;
 
@@ -382,6 +383,8 @@ where
                     "Voting",
                 );
 
+                let vote_type = vote.vote_type();
+
                 let extended_vote = extend_vote(co, vote).await?;
                 let signed_vote = sign_vote(co, extended_vote).await?;
 
@@ -399,7 +402,19 @@ where
 
                 // Schedule rebroadcast timer if necessary
                 if state.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
-                    let timeout = Timeout::rebroadcast(state.driver.round());
+                    let timeout = match vote_type {
+                        VoteType::Prevote => Timeout::prevote_rebroadcast(state.driver.round()),
+                        VoteType::Precommit => {
+                            perform!(
+                                co,
+                                Effect::CancelTimeout(
+                                    Timeout::prevote_rebroadcast(state.driver.round()),
+                                    Default::default()
+                                )
+                            );
+                            Timeout::precommit_rebroadcast(state.driver.round())
+                        }
+                    };
 
                     perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
                 }
@@ -425,6 +440,27 @@ where
             info!(round = %timeout.round, step = ?timeout.kind, "Scheduling timeout");
 
             perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
+            match timeout.kind {
+                TimeoutKind::Prevote => {
+                    perform!(
+                        co,
+                        Effect::CancelTimeout(
+                            Timeout::prevote_rebroadcast(state.driver.round()),
+                            Default::default()
+                        )
+                    );
+                }
+                TimeoutKind::Precommit => {
+                    perform!(
+                        co,
+                        Effect::CancelTimeout(
+                            Timeout::precommit_rebroadcast(state.driver.round()),
+                            Default::default()
+                        )
+                    );
+                }
+                _ => (),
+            }
 
             Ok(())
         }

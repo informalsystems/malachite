@@ -139,5 +139,23 @@ where
         }
         apply_driver_input(co, state, metrics, DriverInput::Vote(vote)).await?;
     }
+
+    // Cancel rebroadcast timers
+    // TODO: Should do only if the round certificate is well formed, i.e. either PrecommitAny or SkipRound
+    perform!(
+        co,
+        Effect::CancelTimeout(
+            Timeout::prevote_rebroadcast(certificate.round),
+            Default::default()
+        )
+    );
+    perform!(
+        co,
+        Effect::CancelTimeout(
+            Timeout::precommit_rebroadcast(certificate.round),
+            Default::default()
+        )
+    );
+
     Ok(())
 }
