@@ -37,20 +37,22 @@ where
             // it guarantees that after GST, all correct replicas will receive
             // the round certificate and enter the same round within bounded time.
             if round > &Round::new(0) {
-                if let Some(certificate) = state.driver.round_certificate() {
-                    info!(
-                        %certificate.height,
-                        %certificate.round,
-                        number_of_votes = certificate.round_signatures.len(),
-                        "Sending round certificate"
-                    );
-                    perform!(
-                        co,
-                        Effect::PublishLivenessMsg(
-                            LivenessMsg::SkipRoundCertificate(certificate.clone()),
-                            Default::default()
-                        )
-                    );
+                if let Some(cert) = state.driver.round_certificate() {
+                    if cert.enter_round == *round {
+                        info!(
+                            %cert.certificate.height,
+                            %cert.enter_round,
+                            number_of_votes = cert.certificate.round_signatures.len(),
+                            "Sending round certificate"
+                        );
+                        perform!(
+                            co,
+                            Effect::PublishLivenessMsg(
+                                LivenessMsg::SkipRoundCertificate(cert.certificate.clone()),
+                                Default::default()
+                            )
+                        );
+                    }
                 }
             }
 
