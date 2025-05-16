@@ -125,7 +125,8 @@ fn encode_timeout(tag: u8, timeout: &Timeout, mut buf: impl Write) -> io::Result
         // but we still need to handle them here.
         TimeoutKind::PrevoteTimeLimit => 5,
         TimeoutKind::PrecommitTimeLimit => 6,
-        TimeoutKind::Rebroadcast => 7,
+        TimeoutKind::PrevoteRebroadcast => 7,
+        TimeoutKind::PrecommitRebroadcast => 8,
     };
 
     buf.write_u8(tag)?;
@@ -156,7 +157,8 @@ fn decode_timeout(mut buf: impl Read) -> io::Result<Timeout> {
         // but we still need to handle them here.
         5 => TimeoutKind::PrevoteTimeLimit,
         6 => TimeoutKind::PrecommitTimeLimit,
-        7 => TimeoutKind::Rebroadcast,
+        7 => TimeoutKind::PrevoteRebroadcast,
+        8 => TimeoutKind::PrecommitRebroadcast,
 
         _ => {
             return Err(io::Error::new(
