@@ -20,10 +20,10 @@ pub enum TimeoutKind {
     /// Timeout for detecting consensus being in the precommit step for too long.
     PrecommitTimeLimit,
 
-    /// Timeout to rebroadcast the last prevote
+    /// Timeout to trigger rebroadcast in Prevote step to handle message loss
     PrevoteRebroadcast,
 
-    /// Timeout to rebroadcast the last precommit
+    /// Timeout to trigger rebroadcast in Precommit step to handle message loss
     PrecommitRebroadcast,
 }
 
