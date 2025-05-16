@@ -440,6 +440,27 @@ where
             info!(round = %timeout.round, step = ?timeout.kind, "Scheduling timeout");
 
             perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));
+            match timeout.kind {
+                TimeoutKind::Prevote => {
+                    perform!(
+                        co,
+                        Effect::CancelTimeout(
+                            Timeout::prevote_rebroadcast(state.driver.round()),
+                            Default::default()
+                        )
+                    );
+                }
+                TimeoutKind::Precommit => {
+                    perform!(
+                        co,
+                        Effect::CancelTimeout(
+                            Timeout::precommit_rebroadcast(state.driver.round()),
+                            Default::default()
+                        )
+                    );
+                }
+                _ => (),
+            }
 
             Ok(())
         }
