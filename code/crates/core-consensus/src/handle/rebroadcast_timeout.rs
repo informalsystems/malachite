@@ -15,13 +15,13 @@ where
     }
 
     let (height, round) = (state.driver.height(), state.driver.round());
-    warn!(
-        %height, %round,
-        "Rebroadcasting vote at {:?} step after {:?} timeout",
-        state.driver.step(), timeout.kind,
-    );
 
     if let Some(vote) = state.last_signed_prevote.as_ref() {
+        warn!(
+            %height, %round, vote_height = %vote.height(), vote_round = %vote.round(),
+            "Rebroadcasting prevote at {:?} step after {:?} timeout",
+            state.driver.step(), timeout.kind,
+        );
         perform!(
             co,
             Effect::RebroadcastVote(vote.clone(), Default::default())
@@ -29,6 +29,11 @@ where
     };
 
     if let Some(vote) = state.last_signed_precommit.as_ref() {
+        warn!(
+            %height, %round, vote_height = %vote.height(), vote_round = %vote.round(),
+            "Rebroadcasting precommit at {:?} step after {:?} timeout",
+            state.driver.step(), timeout.kind,
+        );
         perform!(
             co,
             Effect::RebroadcastVote(vote.clone(), Default::default())
