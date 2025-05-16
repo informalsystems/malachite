@@ -56,6 +56,9 @@ where
 
             info!(%height, %round, %proposer, "Starting new round");
 
+            state.last_signed_prevote = None;
+            state.last_signed_precommit = None;
+
             perform!(co, Effect::CancelAllTimeouts(Default::default()));
             perform!(
                 co,
@@ -399,7 +402,16 @@ where
                 if state.params.vote_sync_mode == VoteSyncMode::Rebroadcast {
                     let timeout = match vote_type {
                         VoteType::Prevote => Timeout::prevote_rebroadcast(state.driver.round()),
-                        VoteType::Precommit => Timeout::precommit_rebroadcast(state.driver.round()),
+                        VoteType::Precommit => {
+                            perform!(
+                                co,
+                                Effect::CancelTimeout(
+                                    Timeout::prevote_rebroadcast(state.driver.round()),
+                                    Default::default()
+                                )
+                            );
+                            Timeout::precommit_rebroadcast(state.driver.round())
+                        }
                     };
 
                     perform!(co, Effect::ScheduleTimeout(timeout, Default::default()));

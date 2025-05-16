@@ -27,13 +27,17 @@ where
             Effect::RebroadcastVote(vote.clone(), Default::default())
         );
     };
+
     if let Some(vote) = state.last_signed_precommit.as_ref() {
         perform!(
             co,
             Effect::RebroadcastVote(vote.clone(), Default::default())
         );
     };
+
     if let Some(certificate) = state.round_certificate() {
+        // TODO: Should not send a certificate before we enter the round that's triggered by it.
+        // For example, check that the certificate's `enter_round` (to be recorded with the certificate) is the same as the current round
         warn!(
             %certificate.height,
             %certificate.round,
