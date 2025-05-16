@@ -41,17 +41,20 @@ where
         );
     };
 
-    if let Some(certificate) = state.round_certificate() {
-        warn!(
-            %certificate.height,
-            %certificate.round,
-            number_of_votes = certificate.round_signatures.len(),
-            "Rebroadcasting round certificate"
-        );
-        perform!(
-            co,
-            Effect::RebroadcastRoundCertificate(certificate.clone(), Default::default())
-        );
+    if let Some(cert) = state.round_certificate() {
+        if cert.enter_round == round {
+            warn!(
+                %cert.certificate.height,
+                %round,
+                %cert.certificate.round,
+                number_of_votes = cert.certificate.round_signatures.len(),
+                "Rebroadcasting round certificate"
+            );
+            perform!(
+                co,
+                Effect::RebroadcastRoundCertificate(cert.certificate.clone(), Default::default())
+            );
+        }
     };
 
     #[cfg(feature = "metrics")]
