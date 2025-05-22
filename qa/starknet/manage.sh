@@ -9,7 +9,7 @@ print_help() {
   echo
   echo "Arguments:"
   echo "  network_name   Name of the network (e.g., m2-s3)"
-  echo "  action         up | down | build | start | reset"
+  echo "  action         up | down | build | start | stop | reset"
   echo "  duration       Number of seconds (required only if action=start)"
   exit 1
 }
@@ -39,7 +39,7 @@ case "$action" in
     ;;
   build)
     containers=( $(docker compose -f "$compose_file" ps --format '{{.Name}}' \
-      | grep -E '^(malachite-node-1|sequencer-node-1)$') )
+      | grep -E '(malachite-node-1|sequencer-node-1)') )
     for container in "${containers[@]}"; do
       docker exec -it "$container" /bin/bash -lic "build"
     done
@@ -54,17 +54,20 @@ case "$action" in
     containers=( $(docker compose -f "$compose_file" ps --format '{{.Name}}' ) )
     for container in "${containers[@]}"; do
       if [[ "$container" =~ ^malachite-node- ]]; then
-        docker exec -it "$container" /bin/bash -lic "sleep 5 && start > /shared/networks/${network_name}/logs/${container}.log 2>&1 &"
+        docker exec -it "$container" /bin/bash -lic "sleep 10 && start > /shared/networks/${network_name}/logs/${container}.log 2>&1 &"
       else
         docker exec -it "$container" /bin/bash -lic "start > /shared/networks/${network_name}/logs/${container}.log 2>&1 &"
       fi
     done
-    sleep 5 # The sequencer takes about 5 seconds to start
+    sleep 10 # The sequencer takes about 5 seconds to start
     echo "Running for $duration seconds..."
     sleep "$duration"
     for container in "${containers[@]}"; do
       docker exec -it "$container" /bin/bash -lic "pkill -f shared"
     done
+    ;;
+  stop)
+    docker compose -f "$compose_file" stop
     ;;
   reset)
     containers=( $(docker compose -f "$compose_file" ps --format '{{.Name}}' ) )
