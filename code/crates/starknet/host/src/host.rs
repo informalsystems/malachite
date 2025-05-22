@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -83,7 +81,7 @@ pub trait Host {
     /// - address      - tells the networking layer where to send messages.
     /// - public_key   - used for signature verification and identification.
     /// - voting_power - used for quorum calculations.
-    async fn validators(&self, height: Self::Height) -> Option<BTreeSet<Self::Validator>>;
+    async fn validators(&self, height: Self::Height) -> Option<Vec<Self::Validator>>;
 
     /// Sign the given message hash
     async fn sign(&self, message: Self::MessageHash) -> Self::Signature;

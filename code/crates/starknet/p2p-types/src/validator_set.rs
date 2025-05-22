@@ -13,8 +13,7 @@ pub struct ValidatorSet {
 
 impl ValidatorSet {
     pub fn new(validators: impl IntoIterator<Item = Validator>) -> Self {
-        let mut validators: Vec<_> = validators.into_iter().collect();
-        ValidatorSet::sort_validators(&mut validators);
+        let validators: Vec<_> = validators.into_iter().collect();
 
         assert!(!validators.is_empty());
 
@@ -37,20 +36,20 @@ impl ValidatorSet {
         self.validators.iter().find(|v| &v.public_key == public_key)
     }
 
-    /// In place sort and deduplication of a list of validators
-    fn sort_validators(vals: &mut Vec<Validator>) {
-        // Sort the validators according to the current Tendermint requirements
-        use core::cmp::Reverse;
-
-        // first by validator power descending, then by address ascending
-        vals.sort_unstable_by(|v1, v2| {
-            let a = (Reverse(v1.voting_power), &v1.address);
-            let b = (Reverse(v2.voting_power), &v2.address);
-            a.cmp(&b)
-        });
-
-        vals.dedup();
-    }
+    // /// In place sort and deduplication of a list of validators
+    // fn sort_validators(vals: &mut Vec<Validator>) {
+    //     // Sort the validators according to the current Tendermint requirements
+    //     use core::cmp::Reverse;
+    //
+    //     // first by validator power descending, then by address ascending
+    //     vals.sort_unstable_by(|v1, v2| {
+    //         let a = (Reverse(v1.voting_power), &v1.address);
+    //         let b = (Reverse(v2.voting_power), &v2.address);
+    //         a.cmp(&b)
+    //     });
+    //
+    //     vals.dedup();
+    // }
 
     pub fn get_keys(&self) -> Vec<PublicKey> {
         self.validators.iter().map(|v| v.public_key).collect()

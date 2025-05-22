@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -145,7 +144,7 @@ impl Host for StarknetHost {
     /// - address      - tells the networking layer where to send messages.
     /// - public_key   - used for signature verification and identification.
     /// - voting_power - used for quorum calculations.
-    async fn validators(&self, _height: Self::Height) -> Option<BTreeSet<Self::Validator>> {
+    async fn validators(&self, _height: Self::Height) -> Option<Vec<Self::Validator>> {
         Some(self.validator_set.validators.iter().cloned().collect())
     }
 
