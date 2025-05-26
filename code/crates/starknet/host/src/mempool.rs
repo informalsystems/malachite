@@ -7,7 +7,6 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use rand::RngCore;
 use tracing::{debug, info, trace};
 
-use malachitebft_starknet_p2p_proto as p2p_proto;
 use malachitebft_test_mempool::types::MempoolTransactionBatch;
 use malachitebft_test_mempool::{Event as NetworkEvent, NetworkMsg, PeerId};
 
