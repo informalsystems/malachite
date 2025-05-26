@@ -7,6 +7,7 @@ use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use rand::RngCore;
 use tracing::{debug, info, trace};
 
+use malachitebft_starknet_p2p_proto as p2p_proto;
 use malachitebft_test_mempool::types::MempoolTransactionBatch;
 use malachitebft_test_mempool::{Event as NetworkEvent, NetworkMsg, PeerId};
 
@@ -268,7 +269,7 @@ fn generate_and_broadcast_txes(
         // Generate transaction
         let mut tx_bytes = vec![0; size];
         rng.fill_bytes(&mut tx_bytes);
-        let tx = Transaction::new(tx_bytes);
+        let tx = Transaction::dummy(tx_bytes);
 
         if gossip_enabled {
             tx_batch.push(tx.clone());

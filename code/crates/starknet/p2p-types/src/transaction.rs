@@ -1,5 +1,3 @@
-use core::fmt;
-
 use bytes::Bytes;
 use malachitebft_proto::{self as proto};
 use malachitebft_starknet_p2p_proto as p2p_proto;
@@ -7,38 +5,31 @@ use malachitebft_starknet_p2p_proto as p2p_proto;
 use crate::Hash;
 
 /// Transaction
-#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Transaction {
-    data: Bytes,
-    hash: Hash,
-}
+#[derive(Clone, Debug, PartialEq)]
+pub struct Transaction(Box<p2p_proto::ConsensusTransaction>);
 
 impl Transaction {
-    /// Create a new transaction from bytes
-    pub fn new(data: impl Into<Bytes>) -> Self {
-        let data = data.into();
-        let hash = Self::compute_hash(&data);
-        Self { data, hash }
+    /// Create a new transaction from a protobuf message
+    pub fn new(tx: p2p_proto::ConsensusTransaction) -> Self {
+        Self(Box::new(tx))
     }
 
-    /// Get bytes from a transaction
-    pub fn to_bytes(&self) -> Bytes {
-        self.data.clone()
+    /// Crate a new transaction from a bytes
+    pub fn dummy(bytes: impl Into<Bytes>) -> Self {
+        Self::new(p2p_proto::ConsensusTransaction {
+            txn: Some(p2p_proto::consensus_transaction::Txn::Dummy(bytes.into())),
+            transaction_hash: None,
+        })
     }
 
-    /// Get bytes from a transaction
-    pub fn as_bytes(&self) -> &[u8] {
-        self.data.as_ref()
-    }
-
-    /// Size of this transaction in bytes
+    /// Compute the size of this transaction in bytes
     pub fn size_bytes(&self) -> usize {
-        self.data.len()
+        prost::Message::encoded_len(&self.0)
     }
 
-    /// Hash of this transaction
+    /// Compute the hash of this transaction
     pub fn hash(&self) -> Hash {
-        self.hash
+        Self::compute_hash(&prost::Message::encode_to_vec(&self.0))
     }
 
     /// Compute the hash of a transaction
@@ -52,38 +43,19 @@ impl Transaction {
     }
 }
 
-impl fmt::Debug for Transaction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Transaction({}, {} bytes)", self.hash, self.size_bytes())
-    }
-}
-
 impl proto::Protobuf for Transaction {
     type Proto = p2p_proto::ConsensusTransaction;
 
     fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
-        let txn = proto
-            .txn
-            .ok_or_else(|| proto::Error::missing_field::<Self::Proto>("txn"))?;
-
-        let mut txn_bytes = Vec::with_capacity(txn.encoded_len());
-        txn.encode(&mut txn_bytes);
-
-        Ok(Self {
-            data: Bytes::from(txn_bytes),
-            hash: Hash::new([0; 32]),
-        })
+        Ok(Self(Box::new(proto)))
     }
 
     fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
-        use malachitebft_starknet_p2p_proto::consensus_transaction::Txn;
-
-        Ok(Self::Proto {
-            transaction_hash: Some(self.hash.to_proto()?),
-            txn: Some(Txn::Dummy(self.to_bytes())),
-        })
+        Ok(*self.0.clone())
     }
 }
+
+impl Eq for Transaction {}
 
 /// Transaction batch (used by mempool and proposal part)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

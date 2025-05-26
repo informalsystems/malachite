@@ -92,9 +92,9 @@ pub fn generate_dummy_proposal_init() -> ProposalInit {
 }
 
 pub fn generate_dummy_transactions() -> TransactionBatch {
-    let tx1 = Transaction::new(vec![0x01, 0x02, 0x03]);
-    let tx2 = Transaction::new(vec![0x04, 0x05, 0x06]);
-    let tx3 = Transaction::new(vec![0x07, 0x08, 0x09]);
+    let tx1 = Transaction::dummy(vec![0x01, 0x02, 0x03]);
+    let tx2 = Transaction::dummy(vec![0x04, 0x05, 0x06]);
+    let tx3 = Transaction::dummy(vec![0x07, 0x08, 0x09]);
 
     TransactionBatch::new(vec![tx1, tx2, tx3])
 }

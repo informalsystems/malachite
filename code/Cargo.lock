@@ -2440,6 +2440,7 @@ dependencies = [
  "informalsystems-malachitebft-proto",
  "informalsystems-malachitebft-signing-ed25519",
  "informalsystems-malachitebft-starknet-p2p-proto",
+ "prost",
  "rand 0.8.5",
  "serde",
  "sha3",
