@@ -62,25 +62,17 @@ impl proto::Protobuf for Transaction {
     type Proto = p2p_proto::ConsensusTransaction;
 
     fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
-        use malachitebft_starknet_p2p_proto::consensus_transaction::Txn;
-
         let txn = proto
             .txn
             .ok_or_else(|| proto::Error::missing_field::<Self::Proto>("txn"))?;
 
-        let hash = proto
-            .transaction_hash
-            .ok_or_else(|| proto::Error::missing_field::<Self::Proto>("transaction_hash"))?;
+        let mut txn_bytes = Vec::with_capacity(txn.encoded_len());
+        txn.encode(&mut txn_bytes);
 
-        match txn {
-            Txn::Dummy(bytes) => Ok(Self {
-                data: bytes,
-                hash: Hash::from_proto(hash)?,
-            }),
-            _ => Err(proto::Error::invalid_data::<Self::Proto>(
-                "unknown transaction type",
-            )),
-        }
+        Ok(Self {
+            data: Bytes::from(txn_bytes),
+            hash: Hash::new([0; 32]),
+        })
     }
 
     fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
