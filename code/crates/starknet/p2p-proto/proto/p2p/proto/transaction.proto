@@ -5,7 +5,8 @@ import "p2p/proto/class.proto";
 option go_package = "github.com/starknet-io/starknet-p2pspecs/p2p/proto/transaction";
 
 message ResourceLimits {
-    Felt252 max_amount = 1;
+    // TODO(shahak, alonl): figure out if max_amount should be uint64 or Felt252
+    uint64 max_amount = 1;
     Felt252 max_price_per_unit = 2;
 }
 
