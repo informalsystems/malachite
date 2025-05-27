@@ -627,7 +627,6 @@ async fn on_received_proposal_part(
     Ok(())
 }
 
-//TODO
 async fn on_decided(
     state: &mut HostState,
     consensus: &ConsensusRef<MockContext>,

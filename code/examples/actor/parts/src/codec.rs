@@ -405,19 +405,25 @@ pub fn decode_sync_response(
         .value_response
         .ok_or_else(|| ProtoError::missing_field::<proto::SyncResponse>("value_response"))?;
 
-    let certificate = response.certificate.clone().unwrap();
+    let certificate = response
+        .certificate
+        .ok_or_else(|| ProtoError::missing_field::<proto::ValueResponse>("certificate"))?;
+
     Ok(sync::Response::ValueResponse(sync::ValueResponse::new(
         Height::new(certificate.height),
         response
             .value
             .map(|b| {
-                let block = Block {
-                    height: Height::new(response.height),
-                    transactions: TransactionBatch::from_proto(b.transactions.unwrap())?,
-                    block_hash: BlockHash::new(
-                        <[u8; 32]>::try_from(b.block_hash.unwrap().elements.as_ref()).unwrap(),
-                    ),
-                };
+                let block =
+                    Block {
+                        height: Height::new(response.height),
+                        transactions: TransactionBatch::from_proto(b.transactions.ok_or_else(
+                            || ProtoError::missing_field::<proto::Block>("transactions"),
+                        )?)?,
+                        block_hash: BlockHash::from_proto(b.block_hash.ok_or_else(|| {
+                            ProtoError::missing_field::<proto::Block>("block_hash")
+                        })?)?,
+                    };
                 Ok::<sync::RawDecidedValue<TestContext>, ProtoError>(sync::RawDecidedValue {
                     value_bytes: block.to_bytes()?,
                     certificate: decode_commit_certificate(certificate.clone())?,
@@ -453,33 +459,6 @@ pub fn encode_sync_response(
 
 // NOTE: Will be used again in #997
 #[allow(dead_code)]
-pub(crate) fn encode_polka_certificate(
-    polka_certificate: &PolkaCertificate<TestContext>,
-) -> Result<proto::PolkaCertificate, ProtoError> {
-    Ok(proto::PolkaCertificate {
-        height: polka_certificate.height.as_u64(),
-        round: polka_certificate
-            .round
-            .as_u32()
-            .expect("round should not be nil"),
-        value_id: Some(polka_certificate.value_id.to_proto()?),
-        signatures: polka_certificate
-            .polka_signatures
-            .iter()
-            .map(|sig| -> Result<proto::PolkaSignature, ProtoError> {
-                let address = sig.address.to_proto()?;
-                let signature = encode_signature(&sig.signature);
-                Ok(proto::PolkaSignature {
-                    validator_address: Some(address),
-                    signature: Some(signature),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-    })
-}
-
-// NOTE: Will be used again in #997
-#[allow(dead_code)]
 pub(crate) fn decode_polka_certificate(
     certificate: proto::PolkaCertificate,
 ) -> Result<PolkaCertificate<TestContext>, ProtoError> {
@@ -505,6 +484,32 @@ pub(crate) fn decode_polka_certificate(
                 let signature = decode_signature(signature)?;
                 let address = Address::from_proto(address)?;
                 Ok(PolkaSignature::new(address, signature))
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+#[allow(dead_code)]
+pub(crate) fn encode_polka_certificate(
+    polka_certificate: &PolkaCertificate<TestContext>,
+) -> Result<proto::PolkaCertificate, ProtoError> {
+    Ok(proto::PolkaCertificate {
+        height: polka_certificate.height.as_u64(),
+        round: polka_certificate
+            .round
+            .as_u32()
+            .expect("round should not be nil"),
+        value_id: Some(polka_certificate.value_id.to_proto()?),
+        signatures: polka_certificate
+            .polka_signatures
+            .iter()
+            .map(|sig| -> Result<proto::PolkaSignature, ProtoError> {
+                let address = sig.address.to_proto()?;
+                let signature = encode_signature(&sig.signature);
+                Ok(proto::PolkaSignature {
+                    validator_address: Some(address),
+                    signature: Some(signature),
+                })
             })
             .collect::<Result<Vec<_>, _>>()?,
     })
@@ -566,15 +571,6 @@ pub fn encode_commit_certificate(
     })
 }
 
-pub fn encode_vote(vote: &SignedVote<TestContext>) -> Result<proto::SignedMessage, ProtoError> {
-    Ok(proto::SignedMessage {
-        message: Some(proto::signed_message::Message::Vote(
-            vote.message.to_proto()?,
-        )),
-        signature: Some(encode_signature(&vote.signature)),
-    })
-}
-
 pub fn decode_vote(msg: proto::SignedMessage) -> Result<SignedVote<TestContext>, ProtoError> {
     let signature = msg
         .signature
@@ -592,14 +588,23 @@ pub fn decode_vote(msg: proto::SignedMessage) -> Result<SignedVote<TestContext>,
     Ok(SignedVote::new(vote, signature))
 }
 
-pub fn encode_signature(signature: &Signature) -> proto::Signature {
-    proto::Signature {
-        bytes: Bytes::copy_from_slice(signature.to_bytes().as_ref()),
-    }
+pub fn encode_vote(vote: &SignedVote<TestContext>) -> Result<proto::SignedMessage, ProtoError> {
+    Ok(proto::SignedMessage {
+        message: Some(proto::signed_message::Message::Vote(
+            vote.message.to_proto()?,
+        )),
+        signature: Some(encode_signature(&vote.signature)),
+    })
 }
 
 pub fn decode_signature(signature: proto::Signature) -> Result<Signature, ProtoError> {
     let bytes = <[u8; 64]>::try_from(signature.bytes.as_ref())
         .map_err(|_| ProtoError::Other("Invalid signature length".to_string()))?;
     Ok(Signature::from_bytes(bytes))
+}
+
+pub fn encode_signature(signature: &Signature) -> proto::Signature {
+    proto::Signature {
+        bytes: Bytes::copy_from_slice(signature.to_bytes().as_ref()),
+    }
 }
