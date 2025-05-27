@@ -1,7 +1,4 @@
-use crate::types::{
-    hash::BlockHash,
-    height::Height,
-};
+use crate::types::{hash::BlockHash, height::Height};
 use core::mem::size_of;
 use malachitebft_core_types::Round;
 

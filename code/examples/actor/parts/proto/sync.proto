@@ -1,7 +1,9 @@
 syntax = "proto3";
 
+import "common.proto";
 import "consensus.proto";
 import "liveness.proto";
+import "block.proto";
 
 package p2p;
 
@@ -17,12 +19,6 @@ message Status {
 
 message ValueRequest {
     uint64 height = 1;
-}
-
-message Block {
-  uint64 height = 1;
-  TransactionBatch transactions = 2;
-  Hash block_hash = 3;
 }
 
 message ValueResponse {

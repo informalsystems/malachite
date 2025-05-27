@@ -4,18 +4,18 @@ use tokio::time::Instant;
 
 use bytesize::ByteSize;
 use malachitebft_app::part_store::PartStore;
-use malachitebft_core_types::{Round, CommitCertificate};
+use malachitebft_core_types::{CommitCertificate, Round};
 use malachitebft_signing_ed25519::PrivateKey;
 
 use crate::mempool::MempoolRef;
+use crate::proposal::{build_proposal_task, repropose_task};
 use crate::types::address::Address;
 use crate::types::context::MockContext;
-use crate::types::validator_set::ValidatorSet;
+use crate::types::hash::Hash;
 use crate::types::height::Height;
 use crate::types::proposal_part::ProposalPart;
+use crate::types::validator_set::ValidatorSet;
 use crate::types::value::ValueId;
-use crate::types::hash::Hash;
-use crate::proposal::{build_proposal_task, repropose_task};
 
 #[derive(Copy, Clone, Debug)]
 pub struct MockHostParams {
@@ -59,26 +59,21 @@ impl MockHost {
         height: Height,
         round: Round,
         deadline: Instant,
-    ) -> (
-        mpsc::Receiver<ProposalPart>,
-        oneshot::Receiver<Hash>,
-    ) {
+    ) -> (mpsc::Receiver<ProposalPart>, oneshot::Receiver<Hash>) {
         let (tx_part, rx_content) = mpsc::channel(self.params.txs_per_part);
         let (tx_block_hash, rx_block_hash) = oneshot::channel();
 
-        tokio::spawn(
-            build_proposal_task(
-                height,
-                round,
-                self.address,
-                self.private_key.clone(),
-                self.params,
-                deadline,
-                self.mempool.clone(),
-                tx_part,
-                tx_block_hash,
-            )
-        );
+        tokio::spawn(build_proposal_task(
+            height,
+            round,
+            self.address,
+            self.private_key.clone(),
+            self.params,
+            deadline,
+            self.mempool.clone(),
+            tx_part,
+            tx_block_hash,
+        ));
 
         (rx_content, rx_block_hash)
     }
@@ -91,16 +86,11 @@ impl MockHost {
     /// Returns:
     /// - content - A channel for sending the content of the proposal.
     #[tracing::instrument(skip_all, fields(%block_hash))]
-    pub async fn send_known_proposal(
-        &self,
-        block_hash: ValueId,
-    ) -> mpsc::Receiver<ProposalPart> {
+    pub async fn send_known_proposal(&self, block_hash: ValueId) -> mpsc::Receiver<ProposalPart> {
         let parts = self.part_store.all_parts_by_value_id(&block_hash);
         let (tx_part, rx_content) = mpsc::channel(self.params.txs_per_part);
 
-        tokio::spawn(
-            repropose_task(block_hash.as_hash().clone(), tx_part, parts),
-        );
+        tokio::spawn(repropose_task(block_hash.as_hash().clone(), tx_part, parts));
 
         rx_content
     }

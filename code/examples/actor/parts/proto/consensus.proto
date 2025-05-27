@@ -2,13 +2,7 @@ syntax = "proto3";
 
 package p2p;
 
-message Hash {
-    bytes elements = 1;
-}
-
-message Address {
-    bytes value = 1;
-}
+import "common.proto";
 
 message Value {
     optional Hash value = 1;
@@ -16,6 +10,10 @@ message Value {
 
 message ValueId {
     optional Hash value = 1;
+}
+
+message Signature {
+    bytes bytes = 1;
 }
 
 enum VoteType {
@@ -47,10 +45,6 @@ message Proposal {
     Address validator_address = 5;
 }
 
-message Signature {
-    bytes bytes = 1;
-}
-
 message ProposalPart {
     oneof part {
         ProposalInit init = 1;
@@ -64,15 +58,6 @@ message ProposalInit {
     uint32 round = 2;
     Address proposer = 4;
     optional uint32 pol_round = 5;
-}
-
-message ConsensusTransaction {
-    bytes tx = 1;
-    bytes hash = 2;
-}
-
-message TransactionBatch {
-    repeated ConsensusTransaction transactions = 1;
 }
 
 message ProposalData {

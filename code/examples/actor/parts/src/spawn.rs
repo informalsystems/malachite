@@ -17,21 +17,20 @@ use malachitebft_network::Keypair;
 use malachitebft_sync as sync;
 use malachitebft_test_mempool::Config as MempoolNetworkConfig;
 
-
 use crate::actor::Host;
 use crate::codec::ProtobufCodec;
 
-use crate::mock_host::{MockHost, MockHostParams};
-use crate::mempool::{Mempool, MempoolRef};
 use crate::mempool::network::{MempoolNetwork, MempoolNetworkRef};
+use crate::mempool::{Mempool, MempoolRef};
 use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
+use crate::mock_host::{MockHost, MockHostParams};
 
 use crate::config::Config;
 use crate::types::{
     address::Address,
     context::MockContext,
     height::Height,
-    signing::{PrivateKey, Ed25519Provider},
+    signing::{Ed25519Provider, PrivateKey},
     validator_set::ValidatorSet,
 };
 
@@ -179,7 +178,9 @@ async fn spawn_consensus_actor(
         value_payload: match cfg.consensus.value_payload {
             config::ValuePayload::PartsOnly => ValuePayload::PartsOnly,
             config::ValuePayload::ProposalAndParts => ValuePayload::ProposalAndParts,
-            config::ValuePayload::ProposalOnly => panic!("ProposalOnly is not supported for actor-app-with-parts"),
+            config::ValuePayload::ProposalOnly => {
+                panic!("ProposalOnly is not supported for actor-app-with-parts")
+            }
         },
     };
 
@@ -337,7 +338,6 @@ async fn spawn_host_actor(
     metrics: Metrics,
     span: &tracing::Span,
 ) -> HostRef<MockContext> {
-
     let mock_params = MockHostParams {
         max_block_size: cfg.test.max_block_size,
         txs_per_part: cfg.test.txs_per_part,

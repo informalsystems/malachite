@@ -1,11 +1,11 @@
 use color_eyre::eyre::Context;
 
+use actor_app_with_parts::codec::ProtobufCodec;
+use actor_app_with_parts::node::{ActorNode, ConfigSource};
 use malachitebft_app::node::Node;
 use malachitebft_config::{LogFormat, LogLevel};
 use malachitebft_test_cli::args::{Args, Commands};
 use malachitebft_test_cli::{logging, runtime};
-use actor_app_with_parts::codec::ProtobufCodec;
-use actor_app_with_parts::node::{ActorNode, ConfigSource};
 
 // Use jemalloc on Linux
 #[cfg(target_os = "linux")]

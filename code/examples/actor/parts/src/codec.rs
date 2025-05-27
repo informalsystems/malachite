@@ -5,7 +5,8 @@ use malachitebft_app::engine::util::streaming::{StreamContent, StreamId, StreamM
 use malachitebft_codec::Codec;
 use malachitebft_core_consensus::{LivenessMsg, ProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{
-    CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round, RoundCertificate, RoundCertificateType, RoundSignature, SignedProposal, SignedVote, Validity
+    CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
+    RoundCertificate, RoundCertificateType, RoundSignature, SignedProposal, SignedVote, Validity,
 };
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 

@@ -164,7 +164,7 @@ impl Node for ActorNode {
         let priv_key_file = self.load_private_key_file()?;
         let private_key = self.load_private_key(priv_key_file);
         let genesis = self.load_genesis()?;
-        
+
         let tx_event = TxEvent::new();
 
         let start_height = self.start_height.map(Height::new);
@@ -439,8 +439,8 @@ fn default_config() -> Config {
 #[test]
 fn test_proposal_only_node() {
     // Create temp folder for configuration files
-    let temp_dir = tempfile::TempDir::with_prefix("proposal-only-node-")
-        .expect("Failed to create temp dir");
+    let temp_dir =
+        tempfile::TempDir::with_prefix("proposal-only-node-").expect("Failed to create temp dir");
 
     let temp_path = temp_dir.path().to_owned();
 

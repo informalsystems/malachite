@@ -9,6 +9,8 @@ use rand::SeedableRng;
 use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::types::signing::Ed25519Provider;
+use crate::types::value::Value;
 use malachitebft_core_consensus::{PeerId, Role};
 use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
@@ -16,21 +18,19 @@ use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_engine::network::{NetworkMsg, NetworkRef};
 use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
 use malachitebft_metrics::Metrics;
-use malachitebft_sync::RawDecidedValue;
 use malachitebft_proto::Protobuf;
-use crate::types::signing::Ed25519Provider;
-use crate::types::value::Value;
+use malachitebft_sync::RawDecidedValue;
 
-use crate::mock_host::MockHost;
 use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::mempool_load::MempoolLoadRef;
+use crate::mock_host::MockHost;
+use crate::state::HostState;
 use crate::types::address::Address;
 use crate::types::block::Block;
 use crate::types::context::MockContext;
 use crate::types::height::Height;
 use crate::types::proposal_part::{PartType, ProposalFin, ProposalInit, ProposalPart};
 use crate::types::validator_set::ValidatorSet;
-use crate::state::HostState;
 use crate::types::value::ValueId;
 
 pub struct Host {
@@ -65,7 +65,14 @@ impl Host {
         let (actor_ref, _) = Actor::spawn(
             None,
             Self::new(mempool, mempool_load, network, metrics, span),
-            HostState::new(ctx, signing_provider, host, db_path, &mut StdRng::from_entropy()).await,
+            HostState::new(
+                ctx,
+                signing_provider,
+                host,
+                db_path,
+                &mut StdRng::from_entropy(),
+            )
+            .await,
         )
         .await?;
 
@@ -201,7 +208,7 @@ impl Host {
                 reply_to,
             } => on_process_synced_value(value_bytes, height, round, validator_address, reply_to),
 
-            HostMsg::ExtendVote { reply_to,.. } => {
+            HostMsg::ExtendVote { reply_to, .. } => {
                 reply_to.send(None)?;
                 Ok(())
             }
@@ -218,7 +225,11 @@ async fn on_consensus_ready(
     state: &mut HostState,
     consensus: ConsensusRef<MockContext>,
 ) -> Result<(), ActorProcessingErr> {
-    let latest_block_height = state.block_store.max_decided_value_height().await.unwrap_or_default();
+    let latest_block_height = state
+        .block_store
+        .max_decided_value_height()
+        .await
+        .unwrap_or_default();
     let start_height = latest_block_height.increment();
 
     state.consensus = Some(consensus.clone());
@@ -280,7 +291,11 @@ async fn on_get_history_min_height(
     state: &mut HostState,
     reply_to: RpcReplyPort<Height>,
 ) -> Result<(), ActorProcessingErr> {
-    let history_min_height = state.block_store.min_decided_value_height().await.unwrap_or_default();
+    let history_min_height = state
+        .block_store
+        .min_decided_value_height()
+        .await
+        .unwrap_or_default();
     reply_to.send(history_min_height)?;
 
     Ok(())
@@ -291,7 +306,6 @@ async fn on_get_validator_set(
     _height: Height,
     reply_to: RpcReplyPort<Option<ValidatorSet>>,
 ) -> Result<(), ActorProcessingErr> {
-
     reply_to.send(Some(state.host.validator_set.clone()))?;
     Ok(())
 }
@@ -350,10 +364,12 @@ async fn on_get_value(
     let block_hash = rx_hash.await?;
     debug!(%height, %round, block_hash = ?block_hash.clone(), "Storing proposed value from assembled block");
 
-    state
-        .host
-        .part_store
-        .store_value_id(&stream_id, height, round, ValueId::new(block_hash.clone()));
+    state.host.part_store.store_value_id(
+        &stream_id,
+        height,
+        round,
+        ValueId::new(block_hash.clone()),
+    );
 
     let parts = state
         .host
@@ -363,7 +379,11 @@ async fn on_get_value(
     let value = state.build_proposal_from_parts(height, round, &parts).await;
 
     debug!(%height, %round, block_hash = ?block_hash.clone(), "Storing proposed value from assembled block");
-    if let Err(e) = state.block_store.store_undecided_proposal(value.clone()).await {
+    if let Err(e) = state
+        .block_store
+        .store_undecided_proposal(value.clone())
+        .await
+    {
         error!(%e, %height, %round, "Failed to store the proposed value");
     }
 
@@ -406,10 +426,7 @@ async fn on_restream_proposal(
 ) -> Result<(), ActorProcessingErr> {
     debug!(%height, %round, "Restreaming existing proposal...");
 
-    let mut rx_part = state
-        .host
-        .send_known_proposal(value_id.clone())
-        .await;
+    let mut rx_part = state.host.send_known_proposal(value_id.clone()).await;
 
     let stream_id = state.stream_id();
 
@@ -489,8 +506,16 @@ async fn on_get_decided_block(
 
     match state.block_store.get_decided_value(height).await {
         Ok(None) => {
-            let min = state.block_store.min_decided_value_height().await.unwrap_or_default();
-            let max = state.block_store.max_decided_value_height().await.unwrap_or_default();
+            let min = state
+                .block_store
+                .min_decided_value_height()
+                .await
+                .unwrap_or_default();
+            let max = state
+                .block_store
+                .max_decided_value_height()
+                .await
+                .unwrap_or_default();
 
             warn!(%height, "No block for this height, available blocks: {min}..={max}");
 
@@ -581,7 +606,11 @@ async fn on_received_proposal_part(
                 "Storing proposed value assembled from proposal parts"
             );
 
-            if let Err(e) = state.block_store.store_undecided_proposal(value.clone()).await {
+            if let Err(e) = state
+                .block_store
+                .store_undecided_proposal(value.clone())
+                .await
+            {
                 error!(
                     %e, height = %value.height, round = %value.round, block_hash = ?value.value,
                     "Failed to store the proposed value"
@@ -643,7 +672,12 @@ async fn on_decided(
     let mut tx_hashes = vec![];
     for part in all_parts {
         if let ProposalPart::Data(data) = part.as_ref().clone() {
-            let hashes: Vec<_> = data.transactions.clone().into_iter().map(|tx| tx.hash().clone()).collect();
+            let hashes: Vec<_> = data
+                .transactions
+                .clone()
+                .into_iter()
+                .map(|tx| tx.hash().clone())
+                .collect();
             tx_hashes.extend(hashes);
         }
     }
@@ -670,7 +704,11 @@ async fn on_decided(
 }
 
 async fn prune_block_store(state: &mut HostState) {
-    let max_height = state.block_store.max_decided_value_height().await.unwrap_or_default();
+    let max_height = state
+        .block_store
+        .max_decided_value_height()
+        .await
+        .unwrap_or_default();
     let max_retain_blocks = state.host.params.max_retain_blocks as u64;
 
     // Compute the height to retain blocks higher than

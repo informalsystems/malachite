@@ -12,13 +12,13 @@ use tracing::{debug, error, trace};
 use malachitebft_core_types::Round;
 use malachitebft_signing_ed25519::PrivateKey;
 
-use crate::mock_host::MockHostParams;
 use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::mock_host::MockHostParams;
 use crate::types::{
     address::Address,
-    height::Height,
     hash::Hash,
-    proposal_part::{ProposalPart, ProposalInit, ProposalFin, ProposalData},
+    height::Height,
+    proposal_part::{ProposalData, ProposalFin, ProposalInit, ProposalPart},
 };
 
 pub async fn build_proposal_task(
@@ -60,12 +60,11 @@ async fn run_build_proposal_task(
     tx_part: mpsc::Sender<ProposalPart>,
     tx_value_id: oneshot::Sender<Hash>,
 ) -> Result<(), Box<dyn core::error::Error>> {
-      
     // TODO - if needed, use this deadline to stop the build_new_proposal
     let start = Instant::now();
     let build_duration = (deadline - start).mul_f32(params.time_allowance_factor);
-  
-    let _build_deadline = start + build_duration; 
+
+    let _build_deadline = start + build_duration;
     let _now = SystemTime::UNIX_EPOCH.elapsed().unwrap().as_secs();
 
     let mut sequence = 0;
@@ -86,8 +85,6 @@ async fn run_build_proposal_task(
         tx_part.send(part).await?;
         sequence += 1;
     }
-
-
 
     let max_block_size = params.max_block_size.as_u64() as usize;
     let mut hasher = sha3::Keccak256::new();
@@ -141,9 +138,7 @@ async fn run_build_proposal_task(
 
         // Transactions
         {
-            let part = ProposalPart::Data(ProposalData {
-                transactions: txes,
-            });
+            let part = ProposalPart::Data(ProposalData { transactions: txes });
             tx_part.send(part).await?;
             sequence += 1;
         }

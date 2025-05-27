@@ -14,9 +14,12 @@ use malachitebft_core_types::{CommitCertificate, Round};
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 
 use crate::codec::{self, ProtobufCodec};
-use crate::types::proto;
 use crate::types::context::MockContext;
-use crate::types::{block::Block, hash::BlockHash, height::Height, transaction::Transaction, transaction::TransactionBatch};
+use crate::types::proto;
+use crate::types::{
+    block::Block, hash::BlockHash, height::Height, transaction::Transaction,
+    transaction::TransactionBatch,
+};
 
 mod keys;
 use keys::{HeightKey, UndecidedValueKey};
@@ -154,7 +157,11 @@ impl Db {
     }
 
     fn insert_undecided_value(&self, value: ProposedValue<MockContext>) -> Result<(), StoreError> {
-        let key = (value.height, value.round, value.value.id().as_hash().clone());
+        let key = (
+            value.height,
+            value.round,
+            value.value.id().as_hash().clone(),
+        );
         let value = ProtobufCodec.encode(&value)?;
         let tx = self.db.begin_write()?;
         {
@@ -280,7 +287,10 @@ impl BlockStore {
             .flatten()
     }
 
-    pub async fn get_decided_value(&self, height: Height) -> Result<Option<DecidedBlock>, StoreError> {
+    pub async fn get_decided_value(
+        &self,
+        height: Height,
+    ) -> Result<Option<DecidedBlock>, StoreError> {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || db.get_decided_block(height)).await?
     }

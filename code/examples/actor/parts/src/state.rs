@@ -1,27 +1,27 @@
 use malachitebft_core_consensus::Role;
 use sha3::Digest;
+use std::mem::size_of;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use std::mem::size_of;
 
+use crate::types::signing::Ed25519Provider;
 use rand::RngCore;
 use tracing::{debug, trace};
-use crate::types::signing::Ed25519Provider;
 
+use crate::streaming::PartStreamsMap;
 use malachitebft_core_types::{Round, Validity};
 use malachitebft_engine::consensus::ConsensusRef;
 use malachitebft_engine::host::ProposedValue;
 use malachitebft_engine::util::streaming::StreamId;
-use crate::streaming::PartStreamsMap;
 
 use crate::mock_host::MockHost;
+use crate::store::BlockStore;
 use crate::types::address::Address;
 use crate::types::context::MockContext;
 use crate::types::height::Height;
-use crate::types::proposal_part::{ProposalPart, ProposalFin};
+use crate::types::proposal_part::{ProposalFin, ProposalPart};
 use crate::types::transaction::Transaction;
-use crate::store::BlockStore;
 use crate::types::value::Value;
 
 pub struct HostState {
@@ -91,7 +91,7 @@ impl HostState {
             .iter()
             .find_map(|part| part.as_fin())
             .expect("Fin part not found");
-        
+
         // Collect all transactions from the transaction parts
         // We expect that the transaction parts are ordered by sequence number but we don't have a way to check
         // this here, so we just collect them in the order.
@@ -102,9 +102,7 @@ impl HostState {
             .collect();
 
         // Determine the validity of the proposal
-        let validity = self
-            .verify_proposal_validity(fin, transactions)
-            .await;
+        let validity = self.verify_proposal_validity(fin, transactions).await;
 
         let pol_round = init.valid_round;
         if pol_round.is_defined() {
@@ -208,6 +206,8 @@ impl HostState {
             "Building proposal content from parts"
         );
 
-        self.build_proposal_from_parts(height, round, &parts).await.into()
+        self.build_proposal_from_parts(height, round, &parts)
+            .await
+            .into()
     }
 }
