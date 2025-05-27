@@ -8,6 +8,7 @@ use rand::RngCore;
 use sha3::Digest;
 use tracing::{debug, error, trace};
 
+use malachitebft_core_consensus::Role;
 use malachitebft_core_types::{Round, Validity};
 use malachitebft_engine::consensus::ConsensusRef;
 use malachitebft_engine::host::ProposedValue;
@@ -58,6 +59,7 @@ pub struct HostState {
     pub height: Height,
     pub round: Round,
     pub proposer: Option<Address>,
+    pub role: Role,
     pub host: StarknetHost,
     pub consensus: Option<ConsensusRef<MockContext>>,
     pub block_store: BlockStore,
@@ -83,6 +85,7 @@ impl HostState {
             height: Height::new(0, 0),
             round: Round::Nil,
             proposer: None,
+            role: Role::None,
             host,
             consensus: None,
             block_store: BlockStore::new(db_path).await.unwrap(),

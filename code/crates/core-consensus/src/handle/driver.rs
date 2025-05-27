@@ -10,6 +10,7 @@ use crate::prelude::*;
 use crate::types::SignedConsensusMsg;
 use crate::util::pretty::PrettyVal;
 use crate::LocallyProposedValue;
+use crate::Role;
 use crate::VoteSyncMode;
 
 use super::propose::on_propose;
@@ -29,12 +30,23 @@ where
             #[cfg(feature = "metrics")]
             metrics.round.set(round.as_i64());
 
-            info!(%height, %round, %proposer, "Starting new round");
+            let role = if state.address() == proposer {
+                Role::Proposer
+            } else if state.is_validator() {
+                Role::Validator
+            } else {
+                Role::None
+            };
+
+            info!(%height, %round, %proposer, ?role, "Starting new round");
+
+            state.last_signed_prevote = None;
+            state.last_signed_precommit = None;
 
             perform!(co, Effect::CancelAllTimeouts(Default::default()));
             perform!(
                 co,
-                Effect::StartRound(*height, *round, proposer.clone(), Default::default())
+                Effect::StartRound(*height, *round, proposer.clone(), role, Default::default())
             );
         }
 
