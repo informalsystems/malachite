@@ -13,7 +13,7 @@ use tracing::{debug, error, info, warn, Instrument};
 
 use malachitebft_codec as codec;
 use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Height, Round};
+use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Round};
 use malachitebft_sync::{self as sync, InboundRequestId, OutboundRequestId, Response};
 use malachitebft_sync::{RawDecidedValue, Request};
 
@@ -82,8 +82,9 @@ pub enum Msg<Ctx: Context> {
     /// Consensus has decided on a value at the given height
     Decided(Ctx::Height),
 
-    /// Consensus has started a new height
-    StartedHeight(Ctx::Height),
+    /// Consensus has (re)started a new height.
+    /// The boolean indicates whether this is a restart or not.
+    StartedHeight(Ctx::Height, bool),
 
     /// Host has a response for the blocks request
     GotDecidedBlock(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
@@ -92,7 +93,7 @@ pub enum Msg<Ctx: Context> {
     TimeoutElapsed(TimeoutElapsed<Timeout>),
 
     /// We received an invalid [`CommitCertificate`] from a peer
-    InvalidCertificate(PeerId, CommitCertificate<Ctx>, CertificateError<Ctx>),
+    InvalidCommitCertificate(PeerId, CommitCertificate<Ctx>, CertificateError<Ctx>),
 
     /// Consensus needs vote set from peers
     RequestVoteSet(Ctx::Height, Round),
@@ -351,7 +352,7 @@ where
             Msg::NetworkEvent(NetworkEvent::Status(peer_id, status)) => {
                 let status = sync::Status {
                     peer_id,
-                    height: status.height,
+                    tip_height: status.tip_height,
                     history_min_height: status.history_min_height,
                 };
 
@@ -408,18 +409,15 @@ where
                 // Ignore other gossip events
             }
 
-            Msg::Decided(height) => {
-                self.process_input(&myself, state, sync::Input::UpdateHeight(height))
-                    .await?;
+            // (Re)Started a new height
+            Msg::StartedHeight(height, restart) => {
+                self.process_input(&myself, state, sync::Input::StartedHeight(height, restart))
+                    .await?
             }
 
-            Msg::StartedHeight(height) => {
-                if let Some(height) = height.decrement() {
-                    self.process_input(&myself, state, sync::Input::UpdateHeight(height))
-                        .await?;
-                }
-
-                self.process_input(&myself, state, sync::Input::StartHeight(height))
+            // Decided on a value
+            Msg::Decided(height) => {
+                self.process_input(&myself, state, sync::Input::Decided(height))
                     .await?;
             }
 
@@ -432,7 +430,7 @@ where
                 .await?;
             }
 
-            Msg::InvalidCertificate(peer, certificate, error) => {
+            Msg::InvalidCommitCertificate(peer, certificate, error) => {
                 self.process_input(
                     &myself,
                     state,

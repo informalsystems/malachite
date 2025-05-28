@@ -1,3 +1,4 @@
+use core::slice;
 use std::sync::Arc;
 
 use malachitebft_core_types::VotingPower;
@@ -69,9 +70,29 @@ impl ValidatorSet {
         }
     }
 
+    /// Get the number of validators in the set
+    pub fn len(&self) -> usize {
+        self.validators.len()
+    }
+
+    /// Check if the set is empty
+    pub fn is_empty(&self) -> bool {
+        self.validators.is_empty()
+    }
+
+    /// Iterate over the validators in the set
+    pub fn iter(&self) -> slice::Iter<Validator> {
+        self.validators.iter()
+    }
+
     /// The total voting power of the validator set
     pub fn total_voting_power(&self) -> VotingPower {
         self.validators.iter().map(|v| v.voting_power).sum()
+    }
+
+    /// Get a validator by its index
+    pub fn get_by_index(&self, index: usize) -> Option<&Validator> {
+        self.validators.get(index)
     }
 
     /// Get a validator by its address

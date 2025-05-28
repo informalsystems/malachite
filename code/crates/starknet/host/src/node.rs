@@ -13,6 +13,7 @@ use malachitebft_app::node::{
     CanMakePrivateKeyFile, MakeConfigSettings, Node, NodeHandle,
 };
 use malachitebft_app::types::Keypair;
+use malachitebft_config::mempool_load::UniformLoadConfig;
 use malachitebft_core_types::VotingPower;
 use malachitebft_engine::node::NodeRef;
 use malachitebft_starknet_p2p_types::Ed25519Provider;
@@ -291,7 +292,6 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
                         .collect()
                 },
                 discovery: settings.discovery,
-                transport: settings.transport,
                 ..Default::default()
             },
         },
@@ -311,11 +311,13 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
                     enabled: false,
                     ..settings.discovery
                 },
-                transport: settings.transport,
                 ..Default::default()
             },
             max_tx_count: 10000,
             gossip_batch_size: 0,
+            load: MempoolLoadConfig {
+                load_type: MempoolLoadType::UniformLoad(UniformLoadConfig::default()),
+            },
         },
         metrics: MetricsConfig {
             enabled: true,
@@ -349,11 +351,11 @@ fn make_distributed_config(
     let metrics_port = METRICS_BASE_PORT + (index / machines.len());
 
     Config {
-        moniker: format!("test-{}", index),
+        moniker: format!("starknet-{}", index),
         consensus: ConsensusConfig {
             value_payload: ValuePayload::PartsOnly,
             vote_sync: VoteSyncConfig {
-                mode: VoteSyncMode::RequestResponse,
+                mode: VoteSyncMode::Rebroadcast,
             },
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
@@ -387,7 +389,6 @@ fn make_distributed_config(
                         .collect()
                 },
                 discovery: settings.discovery,
-                transport: settings.transport,
                 ..Default::default()
             },
         },
@@ -400,11 +401,13 @@ fn make_distributed_config(
                     enabled: false,
                     ..DiscoveryConfig::default()
                 },
-                transport: settings.transport,
                 ..Default::default()
             },
             max_tx_count: 10000,
             gossip_batch_size: 0,
+            load: MempoolLoadConfig {
+                load_type: MempoolLoadType::UniformLoad(UniformLoadConfig::default()),
+            },
         },
         value_sync: ValueSyncConfig {
             enabled: false,

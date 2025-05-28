@@ -5,7 +5,7 @@ use tokio::task::JoinHandle;
 use tracing::warn;
 
 use malachitebft_config::{
-    self as config, MempoolConfig, TestConfig, TransportProtocol, ValueSyncConfig, VoteSyncConfig,
+    self as config, MempoolConfig, MempoolLoadConfig, ValueSyncConfig, VoteSyncConfig,
 };
 use malachitebft_core_consensus::VoteSyncMode;
 use malachitebft_core_types::ValuePayload;
@@ -28,6 +28,7 @@ use crate::config::Config;
 use crate::host::{StarknetHost, StarknetParams};
 use crate::mempool::network::{MempoolNetwork, MempoolNetworkRef};
 use crate::mempool::{Mempool, MempoolRef};
+use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
 use crate::types::MockContext;
 use crate::types::{Address, Height, PrivateKey, ValidatorSet};
 
@@ -52,8 +53,8 @@ pub async fn spawn_node_actor(
 
     // Spawn mempool and its gossip layer
     let mempool_network = spawn_mempool_network_actor(&cfg, &private_key, &registry, &span).await;
-    let mempool =
-        spawn_mempool_actor(mempool_network.clone(), &cfg.mempool, &cfg.test, &span).await;
+    let mempool = spawn_mempool_actor(mempool_network, &cfg.mempool, &span).await;
+    let mempool_load = spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
 
     // Spawn consensus gossip
     let network = spawn_network_actor(&cfg, &private_key, &registry, &span).await;
@@ -65,7 +66,8 @@ pub async fn spawn_node_actor(
         &address,
         &private_key,
         &initial_validator_set,
-        mempool.clone(),
+        mempool,
+        mempool_load,
         network.clone(),
         metrics.clone(),
         &span,
@@ -229,10 +231,13 @@ async fn spawn_network_actor(
             ..Default::default()
         },
         idle_connection_timeout: Duration::from_secs(15 * 60),
-        transport: match cfg.consensus.p2p.transport {
-            TransportProtocol::Tcp => gossip::TransportProtocol::Tcp,
-            TransportProtocol::Quic => gossip::TransportProtocol::Quic,
-        },
+        transport: gossip::TransportProtocol::from_multiaddr(&cfg.consensus.p2p.listen_addr)
+            .unwrap_or_else(|| {
+                panic!(
+                    "No valid transport protocol found in listen address: {}",
+                    cfg.consensus.p2p.listen_addr
+                )
+            }),
         pubsub_protocol: match cfg.consensus.p2p.protocol {
             config::PubSubProtocol::GossipSub(_) => gossip::PubSubProtocol::GossipSub,
             config::PubSubProtocol::Broadcast => gossip::PubSubProtocol::Broadcast,
@@ -273,14 +278,28 @@ fn make_keypair(pk: &PrivateKey) -> Keypair {
 async fn spawn_mempool_actor(
     mempool_network: MempoolNetworkRef,
     mempool_config: &MempoolConfig,
-    test_config: &TestConfig,
     span: &tracing::Span,
 ) -> MempoolRef {
     Mempool::spawn(
         mempool_network,
         mempool_config.gossip_batch_size,
         mempool_config.max_tx_count,
-        test_config.tx_size,
+        span.clone(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn spawn_mempool_load_actor(
+    mempool_load_config: &MempoolLoadConfig,
+    mempool: MempoolRef,
+    span: &tracing::Span,
+) -> MempoolLoadRef {
+    MempoolLoad::spawn(
+        Params {
+            load_type: mempool_load_config.load_type.clone(),
+        },
+        mempool,
         span.clone(),
     )
     .await
@@ -299,10 +318,6 @@ async fn spawn_mempool_network_actor(
         listen_addr: cfg.mempool.p2p.listen_addr.clone(),
         persistent_peers: cfg.mempool.p2p.persistent_peers.clone(),
         idle_connection_timeout: Duration::from_secs(15 * 60),
-        transport: match cfg.mempool.p2p.transport {
-            TransportProtocol::Tcp => malachitebft_test_mempool::TransportProtocol::Tcp,
-            TransportProtocol::Quic => malachitebft_test_mempool::TransportProtocol::Quic,
-        },
     };
 
     MempoolNetwork::spawn(keypair, config, registry.clone(), span.clone())
@@ -318,6 +333,7 @@ async fn spawn_host_actor(
     private_key: &PrivateKey,
     initial_validator_set: &ValidatorSet,
     mempool: MempoolRef,
+    mempool_load: MempoolLoadRef,
     network: NetworkRef<MockContext>,
     metrics: Metrics,
     span: &tracing::Span,
@@ -331,16 +347,17 @@ async fn spawn_host_actor(
 
     let mock_params = StarknetParams {
         max_block_size: cfg.test.max_block_size,
-        tx_size: cfg.test.tx_size,
         txs_per_part: cfg.test.txs_per_part,
         time_allowance_factor: cfg.test.time_allowance_factor,
         exec_time_per_tx: cfg.test.exec_time_per_tx,
         max_retain_blocks: cfg.test.max_retain_blocks,
+        stable_block_times: cfg.test.stable_block_times,
     };
 
     let mock_host = StarknetHost::new(
         mock_params,
         mempool.clone(),
+        mempool_load.clone(),
         *address,
         private_key.clone(),
         initial_validator_set.clone(),
@@ -350,6 +367,7 @@ async fn spawn_host_actor(
         home_dir.to_owned(),
         mock_host,
         mempool,
+        mempool_load,
         network,
         metrics,
         span.clone(),

@@ -21,9 +21,6 @@ pub struct P2pConfig {
     #[serde(default)]
     pub discovery: DiscoveryConfig,
 
-    /// Transport protocol to use
-    pub transport: TransportProtocol,
-
     /// The type of pub-sub protocol to use for consensus
     pub protocol: PubSubProtocol,
 
@@ -40,13 +37,13 @@ impl Default for P2pConfig {
             listen_addr: Multiaddr::empty(),
             persistent_peers: vec![],
             discovery: Default::default(),
-            transport: Default::default(),
             protocol: Default::default(),
             rpc_max_size: ByteSize::mib(10),
             pubsub_max_size: ByteSize::mib(4),
         }
     }
 }
+
 /// Peer Discovery configuration options
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DiscoveryConfig {
@@ -151,8 +148,7 @@ impl FromStr for Selector {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum TransportProtocol {
     #[default]
     Tcp,
@@ -309,6 +305,95 @@ mod gossipsub {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "load_type", rename_all = "snake_case")]
+pub enum MempoolLoadType {
+    NoLoad,
+    UniformLoad(mempool_load::UniformLoadConfig),
+    NonUniformLoad(mempool_load::NonUniformLoadConfig),
+}
+
+impl Default for MempoolLoadType {
+    fn default() -> Self {
+        Self::NoLoad
+    }
+}
+
+pub mod mempool_load {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    pub struct NonUniformLoadConfig {
+        /// Base transaction count
+        pub base_count: i32,
+
+        /// Base transaction size
+        pub base_size: i32,
+
+        /// How much the transaction count can vary
+        pub count_variation: std::ops::Range<i32>,
+
+        /// How much the transaction size can vary
+        pub size_variation: std::ops::Range<i32>,
+
+        /// Chance of generating a spike.
+        /// e.g. 0.1 = 10% chance of spike
+        pub spike_probability: f64,
+
+        /// Multiplier for spike transactions
+        /// e.g. 10 = 10x more transactions during spike
+        pub spike_multiplier: usize,
+
+        /// Range of intervals between generating load, in milliseconds
+        pub sleep_interval: std::ops::Range<u64>,
+    }
+
+    impl Default for NonUniformLoadConfig {
+        fn default() -> Self {
+            Self {
+                base_count: 100,
+                base_size: 256,
+                count_variation: -100..200,
+                size_variation: -64..128,
+                spike_probability: 0.10,
+                spike_multiplier: 2,
+                sleep_interval: 1000..5000,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    pub struct UniformLoadConfig {
+        /// Interval at which to generate load
+        #[serde(with = "humantime_serde")]
+        pub interval: Duration,
+
+        /// Number of transactions to generate
+        pub count: usize,
+
+        /// Size of each generated transaction
+        pub size: ByteSize,
+    }
+
+    impl Default for UniformLoadConfig {
+        fn default() -> Self {
+            Self {
+                interval: Duration::from_secs(1),
+                count: 1000,
+                size: ByteSize::b(256),
+            }
+        }
+    }
+}
+
+/// Mempool configuration options
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MempoolLoadConfig {
+    /// Mempool loading type
+    #[serde(flatten)]
+    pub load_type: MempoolLoadType,
+}
+
 /// Mempool configuration options
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MempoolConfig {
@@ -320,6 +405,9 @@ pub struct MempoolConfig {
 
     /// Maximum number of transactions to gossip at once in a batch
     pub gossip_batch_size: usize,
+
+    /// Mempool load configuration options
+    pub load: MempoolLoadConfig,
 }
 
 /// ValueSync configuration options
@@ -447,12 +535,6 @@ pub struct TimeoutConfig {
     #[serde(with = "humantime_serde")]
     pub timeout_precommit_delta: Duration,
 
-    /// How long we wait after committing a block, before starting on the new
-    /// height (this gives us a chance to receive some more precommits, even
-    /// though we already have +2/3).
-    #[serde(with = "humantime_serde")]
-    pub timeout_commit: Duration,
-
     /// How long we stay in preovte or precommit steps before starting
     /// the vote synchronization protocol.
     #[serde(with = "humantime_serde")]
@@ -465,7 +547,6 @@ impl TimeoutConfig {
             TimeoutKind::Propose => self.timeout_propose,
             TimeoutKind::Prevote => self.timeout_prevote,
             TimeoutKind::Precommit => self.timeout_precommit,
-            TimeoutKind::Commit => self.timeout_commit,
             TimeoutKind::PrevoteTimeLimit => self.timeout_step,
             TimeoutKind::PrecommitTimeLimit => self.timeout_step,
             TimeoutKind::PrevoteRebroadcast => self.timeout_prevote,
@@ -478,7 +559,6 @@ impl TimeoutConfig {
             TimeoutKind::Propose => Some(self.timeout_propose_delta),
             TimeoutKind::Prevote => Some(self.timeout_prevote_delta),
             TimeoutKind::Precommit => Some(self.timeout_precommit_delta),
-            TimeoutKind::Commit => None,
             TimeoutKind::PrevoteTimeLimit => None,
             TimeoutKind::PrecommitTimeLimit => None,
             TimeoutKind::PrevoteRebroadcast => None,
@@ -496,8 +576,7 @@ impl Default for TimeoutConfig {
             timeout_prevote_delta: Duration::from_millis(500),
             timeout_precommit: Duration::from_secs(1),
             timeout_precommit_delta: Duration::from_millis(500),
-            timeout_commit: Duration::from_secs(0),
-            timeout_step: Duration::from_secs(30),
+            timeout_step: Duration::from_secs(2),
         }
     }
 }
@@ -553,7 +632,6 @@ pub struct VoteExtensionsConfig {
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TestConfig {
     pub max_block_size: ByteSize,
-    pub tx_size: ByteSize,
     pub txs_per_part: usize,
     pub time_allowance_factor: f32,
     #[serde(with = "humantime_serde")]
@@ -562,20 +640,19 @@ pub struct TestConfig {
     #[serde(default)]
     pub vote_extensions: VoteExtensionsConfig,
     #[serde(default)]
-    pub is_byzantine_proposer: bool,
+    pub stable_block_times: bool,
 }
 
 impl Default for TestConfig {
     fn default() -> Self {
         Self {
             max_block_size: ByteSize::mib(1),
-            tx_size: ByteSize::kib(1),
             txs_per_part: 256,
             time_allowance_factor: 0.5,
             exec_time_per_tx: Duration::from_millis(1),
             max_retain_blocks: 1000,
             vote_extensions: VoteExtensionsConfig::default(),
-            is_byzantine_proposer: false,
+            stable_block_times: false,
         }
     }
 }
@@ -674,7 +751,6 @@ mod tests {
             t.timeout_duration(TimeoutKind::Precommit),
             t.timeout_precommit
         );
-        assert_eq!(t.timeout_duration(TimeoutKind::Commit), t.timeout_commit);
     }
 
     #[test]

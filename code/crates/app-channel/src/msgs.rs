@@ -49,8 +49,8 @@ pub enum AppMsg<Ctx: Context> {
         round: Round,
         /// Proposer for that round
         proposer: Ctx::Address,
-        /// Channel for sending back a previously received undecided value to consensus
-        reply_value: Reply<Option<ProposedValue<Ctx>>>,
+        /// Channel for sending back previously received undecided values to consensus
+        reply_value: Reply<Vec<ProposedValue<Ctx>>>,
     },
 
     /// Requests the application to build a value for consensus to run on.
@@ -134,7 +134,7 @@ pub enum AppMsg<Ctx: Context> {
         /// Height of the validator set to retrieve
         height: Ctx::Height,
         /// Channel for sending back the validator set
-        reply: Reply<Ctx::ValidatorSet>,
+        reply: Reply<Option<Ctx::ValidatorSet>>,
     },
 
     /// Notifies the application that consensus has decided on a value.
@@ -184,25 +184,6 @@ pub enum AppMsg<Ctx: Context> {
         /// Channel for sending back the proposed value, if successfully decoded
         reply: Reply<ProposedValue<Ctx>>,
     },
-
-    /// Notifies the application that a peer has joined our local view of the network.
-    ///
-    /// In a gossip network, there is no guarantee that we will ever see all peers,
-    /// as we are typically only connected to a subset of the network (i.e. in our mesh).
-    PeerJoined {
-        /// The ID of the peer that joined
-        peer_id: PeerId,
-    },
-
-    /// Notifies the application that a peer has left our local view of the network.
-    ///
-    /// In a gossip network, there is no guarantee that this means that this peer
-    /// has left the whole network altogether, just that it is not part of the subset
-    /// of the network that we are connected to (i.e. our mesh).
-    PeerLeft {
-        /// The ID of the peer that left
-        peer_id: PeerId,
-    },
 }
 
 /// Messages sent from the application to consensus.
@@ -213,6 +194,9 @@ pub enum ConsensusMsg<Ctx: Context> {
 
     /// Previousuly received value proposed by a validator
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
+
+    /// Instructs consensus to restart at a given height with the given validator set.
+    RestartHeight(Ctx::Height, Ctx::ValidatorSet),
 }
 
 impl<Ctx: Context> From<ConsensusMsg<Ctx>> for ConsensusActorMsg<Ctx> {
@@ -223,6 +207,9 @@ impl<Ctx: Context> From<ConsensusMsg<Ctx>> for ConsensusActorMsg<Ctx> {
             }
             ConsensusMsg::ReceivedProposedValue(value, origin) => {
                 ConsensusActorMsg::ReceivedProposedValue(value, origin)
+            }
+            ConsensusMsg::RestartHeight(height, validator_set) => {
+                ConsensusActorMsg::RestartHeight(height, validator_set)
             }
         }
     }

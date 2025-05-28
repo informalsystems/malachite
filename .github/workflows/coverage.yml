@@ -53,12 +53,12 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: "18"
-      - name: Install Quint
-        run: npm install -g @informalsystems/quint
+      # - name: Setup Node
+      #   uses: actions/setup-node@v3
+      #   with:
+      #     node-version: "18"
+      # - name: Install Quint
+      #   run: npm install -g @informalsystems/quint
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -78,20 +78,24 @@ jobs:
             --all-features \
             --no-capture \
             --ignore-run-fail \
-            --lcov \
-            --output-path lcov-integration.info
+            --codecov \
+            --output-path coverage-integration.info
       - name: Generate text report
         run: cargo llvm-cov report
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload integration coverage to Codecov
+        uses: codecov/codecov-action@v5
+        if: ${{ !cancelled() }}
         with:
-          name: integration-coverage
-          path: code/lcov-integration.info
-      - name: Upload test results artifact
-        uses: actions/upload-artifact@v4
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: integration
+          fail_ci_if_error: false
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@v1
         with:
-          name: integration-test-results
-          path: code/target/nextest/default/junit.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: integration
+          fail_ci_if_error: false
 
   mbt:
     name: MBT
@@ -130,46 +134,14 @@ jobs:
           cargo llvm-cov nextest \
            -p informalsystems-malachitebft-test-mbt \
            -p informalsystems-malachitebft-starknet-test-mbt \
-           --all-features --lcov --output-path lcov-mbt.info
+           --all-features --codecov --output-path coverage-mbt.info
       - name: Generate text report
         run: cargo llvm-cov report
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mbt-coverage
-          path: code/lcov-mbt.info
-
-  upload-coverage:
-    name: Upload Coverage
-    needs: [integration, mbt]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download integration coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-coverage
-      - name: Download MBT coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: mbt-coverage
-      - name: Download integration test results
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-test-results
-      - name: Upload integration coverage to Codecov
-        uses: codecov/codecov-action@v4
-        if: ${{ !cancelled() }}
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov-integration.info
-          flags: integration
-          fail_ci_if_error: false
       - name: Upload MBT coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: ${{ !cancelled() }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov-mbt.info
           flags: mbt
           fail_ci_if_error: false
       - name: Upload test results to Codecov
@@ -177,6 +149,5 @@ jobs:
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: junit.xml
-          flags: integration
+          flags: mbt
           fail_ci_if_error: false

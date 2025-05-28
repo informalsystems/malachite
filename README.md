@@ -1,5 +1,5 @@
 <h1 align="center">
-<img src="./assets/banner.png" alt="Malachite" width="2400" align="center">
+<img src="https://raw.githubusercontent.com/informalsystems/malachite/refs/heads/main/assets/banner.png" alt="Malachite" width="2400" align="center">
 </h1>
 
 <h4 align="center">
@@ -30,6 +30,8 @@
 ## About
 
 Malachite is a Byzantine-fault tolerant (BFT) consensus engine implemented in Rust.
+
+Malachite `/ˈmæl.ə.kaɪt/` is pronounced as follows: __"Mala"__ (like in Malaysia) + __"kite"__ (like the flying toy).
 
 > [!IMPORTANT]
 > Malachite is pre-alpha software and still under heavy development.
@@ -123,7 +125,7 @@ We invite all contributors.
 
 - Rust v1.82+ ([rustup.rs](https://rustup.rs))
 - Quint v0.22+ ([github.com](https://github.com/informalsystems/quint))
-
+- Protobuf v29.0+ ([protobuf.dev](https://protobuf.dev/))
 
 ## Join Us
 

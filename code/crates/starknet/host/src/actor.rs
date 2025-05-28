@@ -22,11 +22,13 @@ use malachitebft_sync::RawDecidedValue;
 use crate::host::state::HostState;
 use crate::host::{Host as _, StarknetHost};
 use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::mempool_load::MempoolLoadRef;
 use crate::proto::Protobuf;
 use crate::types::*;
 
 pub struct Host {
     mempool: MempoolRef,
+    mempool_load: MempoolLoadRef,
     network: NetworkRef<MockContext>,
     metrics: Metrics,
     span: tracing::Span,
@@ -40,6 +42,7 @@ impl Host {
         home_dir: PathBuf,
         host: StarknetHost,
         mempool: MempoolRef,
+        mempool_load: MempoolLoadRef,
         network: NetworkRef<MockContext>,
         metrics: Metrics,
         span: tracing::Span,
@@ -52,8 +55,8 @@ impl Host {
 
         let (actor_ref, _) = Actor::spawn(
             None,
-            Self::new(mempool, network, metrics, span),
-            HostState::new(ctx, host, db_path, &mut StdRng::from_entropy()),
+            Self::new(mempool, mempool_load, network, metrics, span),
+            HostState::new(ctx, host, db_path, &mut StdRng::from_entropy()).await,
         )
         .await?;
 
@@ -62,12 +65,14 @@ impl Host {
 
     pub fn new(
         mempool: MempoolRef,
+        mempool_load: MempoolLoadRef,
         network: NetworkRef<MockContext>,
         metrics: Metrics,
         span: tracing::Span,
     ) -> Self {
         Self {
             mempool,
+            mempool_load,
             network,
             metrics,
             span,
@@ -87,6 +92,7 @@ impl Actor for Host {
         initial_state: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
         self.mempool.link(myself.get_cell());
+        self.mempool_load.link(myself.get_cell());
 
         Ok(initial_state)
     }
@@ -127,7 +133,9 @@ impl Host {
                 proposer,
             } => on_started_round(state, height, round, proposer).await,
 
-            HostMsg::GetHistoryMinHeight { reply_to } => on_get_history_min_height(state, reply_to),
+            HostMsg::GetHistoryMinHeight { reply_to } => {
+                on_get_history_min_height(state, reply_to).await
+            }
 
             HostMsg::GetValue {
                 height,
@@ -199,30 +207,6 @@ impl Host {
                 value_bytes,
                 reply_to,
             } => on_process_synced_value(value_bytes, height, round, validator_address, reply_to),
-
-            HostMsg::PeerJoined { peer_id } => {
-                debug!(%peer_id, "Peer joined the network");
-
-                state.peers.insert(peer_id);
-
-                if state.peers.len() == 1 && state.ready {
-                    let start_height = state.start_height;
-                    let consensus = state.consensus.as_ref().unwrap();
-
-                    consensus.cast(ConsensusMsg::StartHeight(
-                        start_height,
-                        state.host.validator_set.clone(),
-                    ))?;
-                }
-
-                Ok(())
-            }
-
-            HostMsg::PeerLeft { peer_id } => {
-                debug!(%peer_id, "Peer left the network");
-                state.peers.remove(&peer_id);
-                Ok(())
-            }
         }
     }
 }
@@ -237,8 +221,7 @@ async fn on_consensus_ready(
     }
 
     let mut start_height = malachitebft_core_types::Height::INITIAL;
-    if state.block_store.last_height().is_some() {
-        let latest_block_height = state.block_store.last_height().unwrap_or_default();
+    if let Some(latest_block_height) = state.block_store.last_height().await {
         start_height = latest_block_height.increment();
     }
 
@@ -297,11 +280,11 @@ async fn on_started_round(
     Ok(())
 }
 
-fn on_get_history_min_height(
+async fn on_get_history_min_height(
     state: &mut HostState,
     reply_to: RpcReplyPort<Height>,
 ) -> Result<(), ActorProcessingErr> {
-    let history_min_height = state.block_store.first_height().unwrap_or_default();
+    let history_min_height = state.block_store.first_height().await.unwrap_or_default();
     reply_to.send(history_min_height)?;
 
     Ok(())
@@ -310,13 +293,13 @@ fn on_get_history_min_height(
 async fn on_get_validator_set(
     state: &mut HostState,
     height: Height,
-    reply_to: RpcReplyPort<ValidatorSet>,
+    reply_to: RpcReplyPort<Option<ValidatorSet>>,
 ) -> Result<(), ActorProcessingErr> {
     let Some(validators) = state.host.validators(height).await else {
         return Err(eyre!("No validator set found for the given height {height}").into());
     };
 
-    reply_to.send(ValidatorSet::new(validators))?;
+    reply_to.send(Some(ValidatorSet::new(validators)))?;
     Ok(())
 }
 
@@ -351,7 +334,10 @@ async fn on_get_value(
     let mut sequence = 0;
 
     while let Some(part) = rx_part.recv().await {
-        state.host.part_store.store(height, round, part.clone());
+        state
+            .host
+            .part_store
+            .store(&stream_id, height, round, part.clone());
 
         debug!(%stream_id, %sequence, "Broadcasting proposal part");
 
@@ -365,7 +351,7 @@ async fn on_get_value(
         sequence += 1;
     }
 
-    let msg = StreamMessage::new(stream_id, sequence, StreamContent::Fin);
+    let msg = StreamMessage::new(stream_id.clone(), sequence, StreamContent::Fin);
     network.cast(NetworkMsg::PublishProposalPart(msg))?;
 
     let block_hash = rx_hash.await?;
@@ -374,14 +360,14 @@ async fn on_get_value(
     state
         .host
         .part_store
-        .store_value_id(height, round, block_hash);
+        .store_value_id(&stream_id, height, round, block_hash);
 
-    let parts = state.host.part_store.all_parts(height, round);
+    let parts = state
+        .host
+        .part_store
+        .all_parts_by_stream_id(stream_id, height, round);
 
-    let Some(value) = state.build_value_from_parts(&parts, height, round).await else {
-        error!(%height, %round, "Failed to build block from parts");
-        return Ok(());
-    };
+    let value = state.build_proposal_from_parts(height, round, &parts).await;
 
     debug!(%height, %round, %block_hash, "Storing proposed value from assembled block");
     if let Err(e) = state.block_store.store_undecided_value(value.clone()).await {
@@ -484,7 +470,10 @@ async fn on_restream_proposal(
             PartType::Fin => fin_part.clone(),
         };
 
-        state.host.part_store.store(height, round, new_part.clone());
+        state
+            .host
+            .part_store
+            .store(&stream_id, height, round, new_part.clone());
 
         debug!(%stream_id, %sequence, "Broadcasting proposal part");
 
@@ -531,8 +520,8 @@ async fn on_get_decided_block(
 
     match state.block_store.get(height).await {
         Ok(None) => {
-            let min = state.block_store.first_height().unwrap_or_default();
-            let max = state.block_store.last_height().unwrap_or_default();
+            let min = state.block_store.first_height().await.unwrap_or_default();
+            let max = state.block_store.last_height().await.unwrap_or_default();
 
             warn!(%height, "No block for this height, available blocks: {min}..={max}");
 
@@ -568,10 +557,6 @@ async fn on_received_proposal_part(
     from: PeerId,
     reply_to: RpcReplyPort<ProposedValue<MockContext>>,
 ) -> Result<(), ActorProcessingErr> {
-    // TODO: Use state.host.receive_proposal() and move some of the logic below there
-
-    let sequence = part.sequence;
-
     // When inserting part in a map, stream tries to connect all received parts in the right order,
     // starting from beginning and emits parts sequence chunks  when it succeeds
     // If it can't connect part, it buffers it
@@ -581,9 +566,15 @@ async fn on_received_proposal_part(
     // 2 arrives -> 2, 3 and 4 are emitted
 
     // `insert` returns connected sequence of parts if any is emitted
-    let Some(parts) = state.part_streams_map.insert(from, part) else {
+    // If all parts have been received the stream is removed from the map streams
+    let Some(parts) = state.part_streams_map.insert(from, part.clone()) else {
         return Ok(());
     };
+
+    // The `part` sequence number must be for the first `ProposalPart` in `parts`.
+    // So we start with this sequence and we increment for the debug log.
+    let mut sequence = part.sequence;
+    let stream_id = part.stream_id;
 
     if parts.height < state.height {
         trace!(
@@ -610,11 +601,14 @@ async fn on_received_proposal_part(
         );
 
         if let Some(value) = state
-            .build_value_from_part(parts.height, parts.round, part)
+            .build_value_from_part(&stream_id, parts.height, parts.round, part)
             .await
         {
             debug!(
-                height = %value.height, round = %value.round, block_hash = %value.value,
+                height = %value.height,
+                round = %value.round,
+                block_hash = %value.value,
+                validity = ?value.validity,
                 "Storing proposed value assembled from proposal parts"
             );
 
@@ -628,11 +622,14 @@ async fn on_received_proposal_part(
             reply_to.send(value)?;
             break;
         }
+
+        sequence += 1;
     }
 
     Ok(())
 }
 
+//TODO
 async fn on_decided(
     state: &mut HostState,
     consensus: &ConsensusRef<MockContext>,
@@ -642,7 +639,10 @@ async fn on_decided(
 ) -> Result<(), ActorProcessingErr> {
     let (height, round) = (certificate.height, certificate.round);
 
-    let mut all_parts = state.host.part_store.all_parts(height, round);
+    let mut all_parts = state
+        .host
+        .part_store
+        .all_parts_by_value_id(&certificate.value_id);
 
     let mut all_txes = vec![];
     for part in all_parts.iter_mut() {
@@ -681,7 +681,7 @@ async fn on_decided(
     // Prune the PartStore of all parts for heights lower than `state.height`
     state.host.part_store.prune(state.height);
 
-    // Store the block
+    // Prune the block store, keeping only the last `max_retain_blocks` blocks
     prune_block_store(state).await;
 
     // Notify the mempool to remove corresponding txs
@@ -700,7 +700,7 @@ async fn on_decided(
 }
 
 async fn prune_block_store(state: &mut HostState) {
-    let max_height = state.block_store.last_height().unwrap_or_default();
+    let max_height = state.block_store.last_height().await.unwrap_or_default();
     let max_retain_blocks = state.host.params.max_retain_blocks as u64;
 
     // Compute the height to retain blocks higher than

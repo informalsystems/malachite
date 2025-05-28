@@ -7,9 +7,9 @@ use malachitebft_core_state_machine::output::Output as RoundOutput;
 use malachitebft_core_state_machine::state::{RoundValue, State as RoundState, Step};
 use malachitebft_core_state_machine::state_machine::Info;
 use malachitebft_core_types::{
-    CommitCertificate, Context, NilOrVal, PolkaCertificate, Proposal, Round, SignedProposal,
-    SignedVote, Timeout, TimeoutKind, Validator, ValidatorSet, Validity, Value, ValueId, Vote,
-    VoteType,
+    CommitCertificate, Context, NilOrVal, PolkaCertificate, PolkaSignature, Proposal, Round,
+    SignedProposal, SignedVote, Timeout, TimeoutKind, Validator, ValidatorSet, Validity, Value,
+    ValueId, Vote, VoteType,
 };
 use malachitebft_core_votekeeper::keeper::Output as VKOutput;
 use malachitebft_core_votekeeper::keeper::VoteKeeper;
@@ -174,6 +174,14 @@ where
         &self.round_state
     }
 
+    /// Return the round and value of the decided proposal
+    pub fn decided_value(&self) -> Option<(Round, Ctx::Value)> {
+        self.round_state
+            .decision
+            .as_ref()
+            .map(|decision| (decision.round, decision.value.clone()))
+    }
+
     /// Return the address of the node.
     pub fn address(&self) -> &Ctx::Address {
         &self.address
@@ -217,6 +225,15 @@ where
     /// Get all polka certificates
     pub fn polka_certificates(&self) -> &[PolkaCertificate<Ctx>] {
         &self.polka_certificates
+    }
+
+    /// Get the proposal for the given round.
+    pub fn proposal_and_validity_for_round(
+        &self,
+        round: Round,
+    ) -> Option<&(SignedProposal<Ctx>, Validity)> {
+        self.proposal_keeper
+            .get_proposal_and_validity_for_round(round)
     }
 
     /// Store the last vote that we have cast
@@ -458,14 +475,14 @@ where
             height: self.height(),
             round: vote_round,
             value_id: value_id.clone(),
-            votes: per_round
+            polka_signatures: per_round
                 .received_votes()
                 .iter()
                 .filter(|v| {
                     v.vote_type() == VoteType::Prevote
                         && v.value().as_ref() == NilOrVal::Val(value_id)
                 })
-                .cloned()
+                .map(|v| PolkaSignature::new(v.validator_address().clone(), v.signature.clone()))
                 .collect(),
         })
     }
@@ -477,7 +494,6 @@ where
             TimeoutKind::Precommit => RoundInput::TimeoutPrecommit,
 
             // The driver never receives these events, so we can just ignore them.
-            TimeoutKind::Commit => return Ok(None),
             TimeoutKind::PrevoteTimeLimit => return Ok(None),
             TimeoutKind::PrecommitTimeLimit => return Ok(None),
             TimeoutKind::PrevoteRebroadcast => return Ok(None),
@@ -501,7 +517,7 @@ where
         let info = Info::new(input_round, &self.address, proposer.address());
 
         // Apply the input to the round state machine
-        let transition = round_state.apply(&info, input);
+        let transition = round_state.apply(&self.ctx, &info, input);
 
         // Update state
         self.round_state = transition.next_state;

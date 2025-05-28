@@ -104,7 +104,7 @@ impl discovery::DiscoveryClient for Behaviour {
     fn send_request(&mut self, peer_id: &PeerId, req: discovery::Request) -> OutboundRequestId {
         self.discovery
             .as_mut()
-            .unwrap()
+            .expect("Discovery behaviour should be available")
             .request_response
             .send_request(peer_id, req)
     }
@@ -116,7 +116,7 @@ impl discovery::DiscoveryClient for Behaviour {
     ) -> Result<(), discovery::Response> {
         self.discovery
             .as_mut()
-            .unwrap()
+            .expect("Discovery behaviour should be available")
             .request_response
             .send_response(ch, rs)
     }

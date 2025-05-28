@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eyre::eyre;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // use malachitebft_app_channel::app::config::ValuePayload;
 use malachitebft_app_channel::app::streaming::StreamContent;
@@ -38,11 +38,14 @@ pub async fn run(
                 sleep(Duration::from_millis(200)).await;
 
                 // We can simply respond by telling the engine to start consensus
-                // at the next height, and provide it with the genesis validator set
-                if reply
-                    .send((start_height, genesis.validator_set.clone()))
-                    .is_err()
-                {
+                // at the next height, and provide it with the appropriate validator set
+                let validator_set = state
+                    .ctx
+                    .middleware()
+                    .get_validator_set(&state.ctx, start_height, start_height, &genesis)
+                    .expect("Validator set should be available");
+
+                if reply.send((start_height, validator_set)).is_err() {
                     error!("Failed to send ConsensusReady reply");
                 }
             }
@@ -62,16 +65,11 @@ pub async fn run(
                 state.current_round = round;
                 state.current_proposer = Some(proposer);
 
-                // If we have already built or seen a value for this height and round,
-                // send it back to consensus. This may happen when we are restarting after a crash.
-                if let Some(proposal) = state.store.get_undecided_proposal(height, round).await? {
-                    info!(%height, %round, "Replaying already known proposed value: {}", proposal.value.id());
-
-                    if reply_value.send(Some(proposal)).is_err() {
-                        error!("Failed to send undecided proposal");
-                    }
-                } else {
-                    let _ = reply_value.send(None);
+                // If we have already built or seen values for this height and round,
+                // send them back to consensus. This may happen when we are restarting after a crash.
+                let proposals = state.store.get_undecided_proposals(height, round).await?;
+                if reply_value.send(proposals).is_err() {
+                    error!("Failed to send undecided proposals");
                 }
             }
 
@@ -88,33 +86,29 @@ pub async fn run(
                 // then we would need to respect the timeout and stop at a certain point.
 
                 info!(%height, %round, "Consensus is requesting a value to propose");
+                tracing::debug!(%height, %round, "Middleware: {:?}", state.ctx.middleware());
 
                 // Here it is important that, if we have previously built a value for this height and round,
                 // we send back the very same value.
-                // However, for testing purposes a node may be configured to be a byzantine proposer.
-                // In that case, we will not send back the previously built value but a new one.
                 let proposal = match state.get_previously_built_value(height, round).await? {
-                    Some(proposal) => {
-                        if state.config.test.is_byzantine_proposer {
-                            let new_proposal = state.propose_value(height, round).await?;
-                            error!(
-                                "XXX Not Re-using previously built value {:} but a new one {:}",
-                                proposal.value.id(),
-                                new_proposal.value.id()
-                            );
-                            new_proposal
-                        } else {
-                            proposal
-                        }
+                    Some(mut proposal) => {
+                        state
+                            .ctx
+                            .middleware()
+                            .on_propose_value(&state.ctx, &mut proposal, true);
+
+                        proposal
                     }
                     None => {
                         // If we have not previously built a value for that very same height and round,
                         // we need to create a new value to propose and send it back to consensus.
-                        let proposal = state.propose_value(height, round).await?;
-                        error!(
-                            "XXX Building a new value to propose {:}",
-                            proposal.value.id()
-                        );
+                        let mut proposal = state.propose_value(height, round).await?;
+
+                        state
+                            .ctx
+                            .middleware()
+                            .on_propose_value(&state.ctx, &mut proposal, false);
+
                         proposal
                     }
                 };
@@ -131,7 +125,8 @@ pub async fn run(
                 // Now what's left to do is to break down the value to propose into parts,
                 // and send those parts over the network to our peers, for them to re-assemble the full value.
                 for stream_message in state.stream_proposal(proposal, pol_round) {
-                    info!(%height, %round, "Streaming proposal part: {stream_message:?}");
+                    debug!(%height, %round, "Streaming proposal part: {stream_message:?}");
+
                     channels
                         .network
                         .send(NetworkMsg::PublishProposalPart(stream_message))
@@ -150,7 +145,7 @@ pub async fn run(
                     StreamContent::Fin => "end of stream",
                 };
 
-                info!(%from, %part.sequence, part.type = %part_type, "Received proposal part");
+                debug!(%from, %part.sequence, part.type = %part_type, "Received proposal part");
 
                 let proposed_value = state.received_proposal_part(from, part).await?;
 
@@ -163,10 +158,16 @@ pub async fn run(
             // than the one we are at (e.g. because we are lagging behind a little bit),
             // the engine may ask us for the validator set at that height.
             //
-            // In our case, our validator set stays constant between heights so we can
-            // send back the validator set found in our genesis state.
-            AppMsg::GetValidatorSet { height: _, reply } => {
-                if reply.send(genesis.validator_set.clone()).is_err() {
+            // We send back the appropriate validator set for that height.
+            AppMsg::GetValidatorSet { height, reply } => {
+                let validator_set = state.ctx.middleware().get_validator_set(
+                    &state.ctx,
+                    state.current_height,
+                    height,
+                    &genesis,
+                );
+
+                if reply.send(validator_set).is_err() {
                     error!("Failed to send GetValidatorSet reply");
                 }
             }
@@ -185,24 +186,63 @@ pub async fn run(
                     height = %certificate.height,
                     round = %certificate.round,
                     value = %certificate.value_id,
-                    "Consensus has decided on value"
+                    "Consensus has decided on value, committing..."
                 );
+                assert!(!certificate.commit_signatures.is_empty());
 
                 // When that happens, we store the decided value in our store
-                state.commit(certificate).await?;
+                match state.commit(certificate).await {
+                    Ok(_) => {
+                        // And then we instruct consensus to start the next height
+                        let validator_set = state
+                            .ctx
+                            .middleware()
+                            .get_validator_set(
+                                &state.ctx,
+                                state.current_height,
+                                state.current_height,
+                                &genesis,
+                            )
+                            .expect("Validator set should be available");
 
-                sleep(Duration::from_millis(500)).await;
+                        if reply
+                            .send(ConsensusMsg::StartHeight(
+                                state.current_height,
+                                validator_set,
+                            ))
+                            .is_err()
+                        {
+                            error!("Failed to send StartHeight reply");
+                        }
+                    }
+                    Err(e) => {
+                        // Commit failed, restart the height
+                        error!("Commit failed: {e}");
+                        error!("Restarting height {}", state.current_height);
 
-                // And then we instruct consensus to start the next height
-                if reply
-                    .send(ConsensusMsg::StartHeight(
-                        state.current_height,
-                        genesis.validator_set.clone(),
-                    ))
-                    .is_err()
-                {
-                    error!("Failed to send Decided reply");
+                        let validator_set = state
+                            .ctx
+                            .middleware()
+                            .get_validator_set(
+                                &state.ctx,
+                                state.current_height,
+                                state.current_height,
+                                &genesis,
+                            )
+                            .expect("Validator set should be available");
+
+                        if reply
+                            .send(ConsensusMsg::RestartHeight(
+                                state.current_height,
+                                validator_set,
+                            ))
+                            .is_err()
+                        {
+                            error!("Failed to send RestartHeight reply");
+                        }
+                    }
                 }
+                sleep(Duration::from_millis(500)).await;
             }
 
             // It may happen that our node is lagging behind its peers. In that case,
@@ -280,10 +320,10 @@ pub async fn run(
 
                 assert_ne!(valid_round, Round::Nil, "valid_round should not be nil");
 
-                //  Look for a proposal at valid_round (should be already stored)
+                //  Look for a proposal for the given value_id at valid_round (should be already stored)
                 let proposal = state
                     .store
-                    .get_undecided_proposal(height, valid_round)
+                    .get_undecided_proposal(height, valid_round, value_id)
                     .await?;
 
                 if let Some(proposal) = proposal {
@@ -297,7 +337,7 @@ pub async fn run(
 
                     for stream_message in state.stream_proposal(locally_proposed_value, valid_round)
                     {
-                        info!(%height, %valid_round, "Publishing proposal part: {stream_message:?}");
+                        debug!(%height, %valid_round, "Publishing proposal part: {stream_message:?}");
 
                         channels
                             .network
@@ -305,20 +345,6 @@ pub async fn run(
                             .await?;
                     }
                 }
-            }
-
-            AppMsg::PeerJoined { peer_id } => {
-                info!(%peer_id, "Peer joined our local view of network");
-
-                // You might want to track connected peers in your state
-                state.peers.insert(peer_id);
-            }
-
-            AppMsg::PeerLeft { peer_id } => {
-                info!(%peer_id, "Peer left our local view of network");
-
-                // Remove the peer from tracking
-                state.peers.remove(&peer_id);
             }
 
             AppMsg::ExtendVote { reply, .. } => {

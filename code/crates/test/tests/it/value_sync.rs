@@ -1,11 +1,13 @@
 use std::time::Duration;
 
+use informalsystems_malachitebft_test::middleware::RotateEpochValidators;
 use malachitebft_config::ValuePayload;
 
 use crate::{TestBuilder, TestParams};
 
 pub async fn crash_restart_from_start(params: TestParams) {
-    const HEIGHT: u64 = 10;
+    const HEIGHT: u64 = 6;
+    const CRASH_HEIGHT: u64 = 4;
 
     let mut test = TestBuilder::<()>::new();
 
@@ -30,7 +32,7 @@ pub async fn crash_restart_from_start(params: TestParams) {
         .with_voting_power(5)
         .start()
         // Wait until the node reaches height 2...
-        .wait_until(2)
+        .wait_until(CRASH_HEIGHT)
         // ...and then kills it
         .crash()
         // Reset the database so that the node has to do Sync from height 1
@@ -183,6 +185,73 @@ pub async fn start_late() {
     test.add_node()
         .with_voting_power(5)
         .start_after(1, Duration::from_secs(10))
+        .wait_until(HEIGHT)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn start_late_rotate_epoch_validator_set() {
+    const HEIGHT: u64 = 20;
+
+    let mut test = TestBuilder::<()>::new();
+
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(RotateEpochValidators {
+            selection_size: 2,
+            epochs_limit: 5,
+        })
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(RotateEpochValidators {
+            selection_size: 2,
+            epochs_limit: 5,
+        })
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(RotateEpochValidators {
+            selection_size: 2,
+            epochs_limit: 5,
+        })
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    // Add 2 full nodes with one starting late
+    test.add_node()
+        .full_node()
+        .with_middleware(RotateEpochValidators {
+            selection_size: 2,
+            epochs_limit: 5,
+        })
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+    test.add_node()
+        .full_node()
+        .with_middleware(RotateEpochValidators {
+            selection_size: 2,
+            epochs_limit: 5,
+        })
+        .start_after(1, Duration::from_secs(5))
         .wait_until(HEIGHT)
         .success();
 

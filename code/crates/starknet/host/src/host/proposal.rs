@@ -5,9 +5,10 @@ use std::time::SystemTime;
 
 use bytesize::ByteSize;
 use eyre::eyre;
+use sha3::Digest;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 use malachitebft_core_types::Round;
 
@@ -53,12 +54,13 @@ async fn run_build_proposal_task(
     _private_key: PrivateKey,
     params: StarknetParams,
     deadline: Instant,
-    _mempool: MempoolRef,
+    mempool: MempoolRef,
     tx_part: mpsc::Sender<ProposalPart>,
     tx_value_id: oneshot::Sender<Hash>,
 ) -> Result<(), Box<dyn core::error::Error>> {
     let start = Instant::now();
     let build_duration = (deadline - start).mul_f32(params.time_allowance_factor);
+    let build_deadline = start + build_duration;
 
     let mut sequence = 0;
     let mut block_tx_count = 0;
@@ -87,10 +89,10 @@ async fn run_build_proposal_task(
             height,
             builder: proposer,
             timestamp: now,
-            l1_gas_price_wei: 1,
-            l1_data_gas_price_wei: 1,
-            l2_gas_price_fri: 100000,
-            eth_to_strk_rate: 1,
+            l1_gas_price_wei: 0,
+            l1_data_gas_price_wei: 0,
+            l2_gas_price_fri: 0,
+            eth_to_strk_rate: 0,
             l1_da_mode: L1DataAvailabilityMode::Blob,
         });
 
@@ -98,8 +100,9 @@ async fn run_build_proposal_task(
         sequence += 1;
     }
 
-    // let max_block_size = params.max_block_size.as_u64() as usize;
-    //
+    let max_block_size = params.max_block_size.as_u64() as usize;
+    let mut hasher = sha3::Keccak256::new();
+
     // 'reap: loop {
     //     let reaped_txes = mempool
     //         .call(
@@ -113,34 +116,36 @@ async fn run_build_proposal_task(
     //         .await?
     //         .success_or(eyre!("Failed to reap transactions from the mempool"))?;
     //
-    //     trace!("Reaped {} transactions from the mempool", reaped_txes.len());
+    //     debug!("Reaped {} transactions from the mempool", reaped_txes.len());
     //
     //     if reaped_txes.is_empty() {
+    //         debug!("No more transactions to reap");
     //         break 'reap;
     //     }
     //
     //     let mut txes = Vec::new();
-    //     let mut tx_count = 0;
+    //     let mut full_block = false;
     //
     //     'txes: for tx in reaped_txes {
     //         if block_size + tx.size_bytes() > max_block_size {
-    //             continue 'txes;
+    //             full_block = true;
+    //             break 'txes;
     //         }
     //
     //         block_size += tx.size_bytes();
-    //         tx_count += 1;
+    //         block_tx_count += 1;
     //
-    //         txes.push(tx);
+    //         txes.push(tx.clone());
+    //         hasher.update(tx.clone().hash().as_bytes());
     //     }
     //
-    //     block_tx_count += tx_count;
-    //
-    //     let exec_time = params.exec_time_per_tx * tx_count as u32;
+    //     let exec_time = params.exec_time_per_tx * txes.len() as u32;
     //     tokio::time::sleep(exec_time).await;
     //
     //     trace!(
     //         %sequence,
-    //         "Created a tx batch with {tx_count} tx-es of size {} in {:?}",
+    //         "Created a tx batch with {} tx-es of size {} in {:?}",
+    //         txes.len(),
     //         ByteSize::b(block_size as u64),
     //         start.elapsed()
     //     );
@@ -152,14 +157,22 @@ async fn run_build_proposal_task(
     //         sequence += 1;
     //     }
     //
-    //     if block_size > max_block_size {
-    //         trace!("Max block size reached, stopping tx generation");
+    //     if full_block {
+    //         debug!("Max block size reached, stopping tx generation");
     //         break 'reap;
-    //     } else if start.elapsed() > build_duration {
-    //         trace!("Time allowance exceeded, stopping tx generation");
+    //     } else if start.elapsed() >= build_duration {
+    //         debug!("Time allowance exceeded, stopping tx generation");
     //         break 'reap;
     //     }
     // }
+
+    if params.stable_block_times {
+        // Sleep for the remaining time, in order to not break tests
+        // by producing blocks too quickly
+        tokio::time::sleep(build_deadline - Instant::now()).await;
+    }
+
+    let transaction_commitment = Hash::new(hasher.finalize().into());
 
     // // Proposal Commitment
     // {
@@ -171,7 +184,7 @@ async fn run_build_proposal_task(
     //         protocol_version: PROTOCOL_VERSION.to_string(),
     //         old_state_root: Hash::new([0; 32]),
     //         state_diff_commitment: Hash::new([0; 32]),
-    //         transaction_commitment: Hash::new([0; 32]),
+    //         transaction_commitment,
     //         event_commitment: Hash::new([0; 32]),
     //         receipt_commitment: Hash::new([0; 32]),
     //         concatenated_counts: Felt::ONE,
@@ -186,13 +199,12 @@ async fn run_build_proposal_task(
     //     sequence += 1;
     // }
 
-    // TODO: Compute the actual propoosal commitment hash
-    let proposal_commitment_hash = Hash::new([0; 32]);
-
     // Fin
     {
         let part = ProposalPart::Fin(ProposalFin {
-            proposal_commitment_hash,
+            // TODO: Compute the actual propoosal commitment hash, for now
+            // we use the transaction commitment
+            proposal_commitment_hash: transaction_commitment,
         });
         tx_part.send(part).await?;
         sequence += 1;
@@ -203,13 +215,13 @@ async fn run_build_proposal_task(
 
     let block_size = ByteSize::b(block_size as u64);
 
-    trace!(
-        tx_count = %block_tx_count, size = %block_size, %proposal_commitment_hash, parts = %sequence,
+    debug!(
+        tx_count = %block_tx_count, size = %block_size, %transaction_commitment, parts = %sequence,
         "Built block in {:?}", start.elapsed()
     );
 
     tx_value_id
-        .send(proposal_commitment_hash)
+        .send(transaction_commitment)
         .map_err(|_| "Failed to send proposal commitment hash")?;
 
     Ok(())
