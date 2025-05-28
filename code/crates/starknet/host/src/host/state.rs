@@ -172,6 +172,8 @@ impl HostState {
         }
     }
 
+    // XXX: Starknet interop
+    #[allow(dead_code)]
     async fn verify_proposal_validity(
         &self,
         fin: &ProposalFin,

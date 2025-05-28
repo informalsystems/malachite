@@ -201,10 +201,7 @@ impl Storage for FailingSync {
 
     fn sync_all(&mut self) -> io::Result<()> {
         if self.should_fail {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "Simulated power failure during fsync",
-            ));
+            return Err(io::Error::other("Simulated power failure during fsync"));
         }
 
         self.inner.sync_all()

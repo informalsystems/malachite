@@ -51,7 +51,7 @@ pub struct TestRunner {
 fn temp_dir(id: NodeId) -> PathBuf {
     TempDir::with_prefix(format!("malachitebft-test-app-{id}-"))
         .unwrap()
-        .into_path()
+        .keep()
 }
 
 #[async_trait]
@@ -217,7 +217,7 @@ fn make_validators<S>(
     let mut validators = Vec::new();
     let mut private_keys = HashMap::new();
 
-    for (_, node) in nodes.iter().enumerate() {
+    for node in nodes {
         let sk = PrivateKey::generate(&mut rng);
         let address = Address::from(sk.public_key());
         let val = Validator::new(address, sk.public_key(), node.voting_power);
