@@ -89,10 +89,10 @@ async fn run_build_proposal_task(
             height,
             builder: proposer,
             timestamp: now,
-            l1_gas_price_wei: 0,
-            l1_data_gas_price_wei: 0,
-            l2_gas_price_fri: 0,
-            eth_to_strk_rate: 0,
+            l1_gas_price_wei: 1,
+            l1_data_gas_price_wei: 1,
+            l2_gas_price_fri: 100000,
+            eth_to_strk_rate: 1,
             l1_da_mode: L1DataAvailabilityMode::Blob,
         });
 
