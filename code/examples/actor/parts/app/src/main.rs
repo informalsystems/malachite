@@ -1,7 +1,7 @@
 use color_eyre::eyre::Context;
 
-use actor_app_with_parts::codec::ProtobufCodec;
-use actor_app_with_parts::node::{ActorNode, ConfigSource};
+use informalsystems_malachitebft_actor_app_with_parts::codec::ProtobufCodec;
+use informalsystems_malachitebft_actor_app_with_parts::node::{ActorNode, ConfigSource};
 use malachitebft_app::node::Node;
 use malachitebft_config::{LogFormat, LogLevel};
 use malachitebft_test_cli::args::{Args, Commands};
@@ -101,7 +101,7 @@ mod tests {
     use malachitebft_test_cli::args::{Args, Commands};
     use malachitebft_test_cli::cmd::init::*;
 
-    use actor_app_with_parts::node::{ActorNode, ConfigSource};
+    use informalsystems_malachitebft_actor_app_with_parts::node::{ActorNode, ConfigSource};
 
     #[test]
     fn running_init_creates_config_files() -> eyre::Result<()> {

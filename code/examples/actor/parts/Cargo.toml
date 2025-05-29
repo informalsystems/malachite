@@ -1,5 +1,5 @@
 [package]
-name = "actor-app-with-parts"
+name = "informalsystems_malachitebft_actor_app_with_parts"
 version = "0.3.0-pre"
 edition = "2021"
 publish = false

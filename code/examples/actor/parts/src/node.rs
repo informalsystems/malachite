@@ -437,7 +437,7 @@ fn default_config() -> Config {
 }
 
 #[test]
-fn test_proposal_only_node() {
+fn test_actor_node() {
     // Create temp folder for configuration files
     let temp_dir =
         tempfile::TempDir::with_prefix("proposal-only-node-").expect("Failed to create temp dir");
