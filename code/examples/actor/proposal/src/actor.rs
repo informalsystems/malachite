@@ -163,6 +163,14 @@ impl Host {
                 panic!("ReceivedProposalPart is not supported for ProposalOnly mode")
             }
 
+            HostMsg::ReceivedProposal {
+                proposer,
+                height,
+                round,
+                value,
+                reply_to,
+            } => on_received_proposal(state, proposer, height, round, value, reply_to).await,
+
             HostMsg::GetValidatorSet { height, reply_to } => {
                 on_get_validator_set(state, height, reply_to).await
             }
@@ -184,8 +192,15 @@ impl Host {
                 value_bytes,
                 reply_to,
             } => {
-                on_process_synced_value(value_bytes, height, round, validator_address, reply_to)
-                    .await
+                on_process_synced_value(
+                    state,
+                    value_bytes,
+                    height,
+                    round,
+                    validator_address,
+                    reply_to,
+                )
+                .await
             }
 
             HostMsg::ExtendVote { reply_to, .. } => {
@@ -358,6 +373,7 @@ async fn find_previously_built_value(
 }
 
 async fn on_process_synced_value(
+    state: &mut HostState,
     value_bytes: Bytes,
     height: Height,
     round: Round,
@@ -366,7 +382,7 @@ async fn on_process_synced_value(
 ) -> Result<(), ActorProcessingErr> {
     let maybe_block = Block::from_bytes(value_bytes.as_ref());
     if let Ok(block) = maybe_block {
-        let validity = verify_proposal_validity(&block).await;
+        let validity = verify_proposal_validity(&block);
         let proposed_value = ProposedValue {
             height,
             round,
@@ -376,13 +392,46 @@ async fn on_process_synced_value(
             validity,
         };
 
+        state
+            .block_store
+            .store_undecided_proposal(proposed_value.clone())
+            .await?;
+
         reply_to.send(proposed_value)?;
     }
 
     Ok(())
 }
 
-async fn verify_proposal_validity(block: &Block) -> Validity {
+async fn on_received_proposal(
+    state: &mut HostState,
+    proposer: Address,
+    height: Height,
+    round: Round,
+    value: Value,
+    reply_to: RpcReplyPort<ProposedValue<MockContext>>,
+) -> Result<(), ActorProcessingErr> {
+    let validity = verify_proposal_validity(&value.value);
+    let proposed_value = ProposedValue {
+        height,
+        round,
+        valid_round: Round::Nil,
+        proposer,
+        value,
+        validity,
+    };
+
+    // TODO - should we store invalid values?
+    state
+        .block_store
+        .store_undecided_proposal(proposed_value.clone())
+        .await?;
+    reply_to.send(proposed_value)?;
+
+    Ok(())
+}
+
+fn verify_proposal_validity(block: &Block) -> Validity {
     let mut hasher = sha3::Keccak256::new();
 
     for tx in block.transactions.to_vec().iter() {
