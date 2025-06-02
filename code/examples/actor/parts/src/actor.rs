@@ -10,9 +10,10 @@ use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::types::signing::Ed25519Provider;
+use crate::types::transaction::Transaction;
 use crate::types::value::Value;
 use malachitebft_core_consensus::{PeerId, Role};
-use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
+use malachitebft_core_types::{CommitCertificate, Round, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
 use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_engine::network::{NetworkMsg, NetworkRef};
@@ -206,7 +207,17 @@ impl Host {
                 validator_address,
                 value_bytes,
                 reply_to,
-            } => on_process_synced_value(value_bytes, height, round, validator_address, reply_to),
+            } => {
+                on_process_synced_value(
+                    state,
+                    value_bytes,
+                    height,
+                    round,
+                    validator_address,
+                    reply_to,
+                )
+                .await
+            }
 
             HostMsg::ExtendVote { reply_to, .. } => {
                 reply_to.send(None)?;
@@ -473,7 +484,8 @@ async fn on_restream_proposal(
     Ok(())
 }
 
-fn on_process_synced_value(
+async fn on_process_synced_value(
+    state: &mut HostState,
     value_bytes: Bytes,
     height: Height,
     round: Round,
@@ -482,15 +494,22 @@ fn on_process_synced_value(
 ) -> Result<(), ActorProcessingErr> {
     let maybe_block = Block::from_bytes(value_bytes.as_ref());
     if let Ok(block) = maybe_block {
+        let validity =
+            state.verify_proposal_validity(&block.block_hash, block.transactions.to_vec());
+
         let proposed_value = ProposedValue {
             height,
             round,
             valid_round: Round::Nil,
             proposer,
             value: Value::new(block.block_hash),
-            validity: Validity::Valid,
+            validity,
         };
 
+        state
+            .block_store
+            .store_undecided_proposal(proposed_value.clone())
+            .await?;
         reply_to.send(proposed_value)?;
     }
 
@@ -595,7 +614,7 @@ async fn on_received_proposal_part(
         );
 
         if let Some(value) = state
-            .build_value_from_part(stream_id.clone(), parts.height, parts.round, part)
+            .build_value_from_part(&stream_id, parts.height, parts.round, part)
             .await
         {
             debug!(
@@ -636,18 +655,16 @@ async fn on_decided(
 ) -> Result<(), ActorProcessingErr> {
     let (height, round) = (certificate.height, certificate.round);
 
-    let mut all_parts = state
+    let all_parts = state
         .host
         .part_store
         .all_parts_by_value_id(&certificate.value_id);
 
-    let mut all_txes = vec![];
-    for part in all_parts.iter_mut() {
-        if let ProposalPart::Data(data) = part.as_ref() {
-            let mut txes = data.transactions.to_vec();
-            all_txes.append(&mut txes);
-        }
-    }
+    let all_txes: Vec<Transaction> = all_parts
+        .iter()
+        .filter_map(|part| part.as_data())
+        .flat_map(|data| data.transactions.as_slice().iter().cloned())
+        .collect();
 
     // Build the block from transaction parts and certificate, and store it
     if let Err(e) = state

@@ -33,8 +33,7 @@ impl Protobuf for Block {
         Ok(Self {
             height: Height::new(proto.height),
             transactions: TransactionBatch::from_proto(transactions)?,
-            block_hash: BlockHash::from_bytes(&block_hash.elements)
-                .map_err(ProtoError::invalid_data::<Self::Proto>)?,
+            block_hash: BlockHash::from_proto(block_hash)?,
         })
     }
 
@@ -42,9 +41,7 @@ impl Protobuf for Block {
         Ok(Self::Proto {
             height: self.height.to_proto()?,
             transactions: Some(self.transactions.to_proto()?),
-            block_hash: Some(proto::Hash {
-                elements: self.block_hash.to_vec().into(),
-            }),
+            block_hash: Some(BlockHash::to_proto(&self.block_hash)?),
         })
     }
 }

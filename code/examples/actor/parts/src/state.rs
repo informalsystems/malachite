@@ -5,9 +5,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::types::hash::Hash;
 use crate::types::signing::Ed25519Provider;
 use rand::RngCore;
-use tracing::{debug, trace};
+use tracing::{debug, error, trace};
 
 use crate::streaming::PartStreamsMap;
 use malachitebft_core_types::{Round, Validity};
@@ -20,7 +21,7 @@ use crate::store::BlockStore;
 use crate::types::address::Address;
 use crate::types::context::MockContext;
 use crate::types::height::Height;
-use crate::types::proposal_part::{ProposalFin, ProposalPart};
+use crate::types::proposal_part::ProposalPart;
 use crate::types::transaction::Transaction;
 use crate::types::value::Value;
 
@@ -102,7 +103,7 @@ impl HostState {
             .collect();
 
         // Determine the validity of the proposal
-        let validity = self.verify_proposal_validity(fin, transactions).await;
+        let validity = self.verify_proposal_validity(&fin.commitment, transactions.clone());
 
         let pol_round = init.valid_round;
         if pol_round.is_defined() {
@@ -121,9 +122,9 @@ impl HostState {
         }
     }
 
-    async fn verify_proposal_validity(
+    pub fn verify_proposal_validity(
         &self,
-        _fin: &ProposalFin,
+        hash: &Hash,
         transactions: Vec<Transaction>,
     ) -> Validity {
         let mut hasher = sha3::Keccak256::new();
@@ -132,18 +133,17 @@ impl HostState {
             hasher.update(tx.hash().as_bytes());
         }
 
-        //let transaction_commitment = Hash::new(hasher.finalize().into());
+        let transaction_commitment = Hash::new(hasher.finalize().into());
 
-        // TODO: Check validity of the proposal
-        let valid_proposal = true;
+        let valid_proposal = transaction_commitment == *hash;
 
         if valid_proposal {
             Validity::Valid
         } else {
-            // error!(
-            //     "ProposalCommitment hash mismatch: {} != {}",
-            //     transaction_commitment, fin.proposal_commitment_hash
-            // );
+            error!(
+                "ProposalCommitment hash mismatch: {:?} != {:?}",
+                transaction_commitment, hash
+            );
             Validity::Invalid
         }
     }
@@ -155,14 +155,14 @@ impl HostState {
     ))]
     pub async fn build_value_from_part(
         &mut self,
-        stream_id: StreamId,
+        stream_id: &StreamId,
         height: Height,
         round: Round,
         part: ProposalPart,
     ) -> Option<ProposedValue<MockContext>> {
         self.host
             .part_store
-            .store(&stream_id, height, round, part.clone());
+            .store(stream_id, height, round, part.clone());
 
         if let ProposalPart::Data(data) = &part {
             if self.host.params.exec_time_per_tx > Duration::from_secs(0) {
@@ -184,7 +184,7 @@ impl HostState {
         let parts = self
             .host
             .part_store
-            .all_parts_by_stream_id(stream_id, height, round);
+            .all_parts_by_stream_id(stream_id.clone(), height, round);
 
         trace!(
             count = self.host.part_store.blocks_count(),
@@ -206,8 +206,12 @@ impl HostState {
             "Building proposal content from parts"
         );
 
-        self.build_proposal_from_parts(height, round, &parts)
-            .await
-            .into()
+        let proposed_value = self.build_proposal_from_parts(height, round, &parts).await;
+
+        self.host
+            .part_store
+            .store_value_id(stream_id, height, round, proposed_value.value.id());
+
+        Some(proposed_value)
     }
 }
