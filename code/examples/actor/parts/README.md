@@ -39,10 +39,12 @@ tail -f nodes/0/logs/node.log
 
 Check the metrics
 
-For the block time:
+For the block time, block size, number of rounds:
 
 ```
 curl -s localhost:29000/metrics | grep 'time_per_block_[sum|count]'
+curl -s localhost:29000/metrics | grep 'block_size_bytes_[sum|count]'
+curl -s localhost:29000/metrics | grep consensus_round_bucket
 ```
 
 For the number of rounds per block:
