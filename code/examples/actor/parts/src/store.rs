@@ -16,10 +16,7 @@ use malachitebft_proto::{Error as ProtoError, Protobuf};
 use crate::codec::{self, ProtobufCodec};
 use crate::types::context::MockContext;
 use crate::types::proto;
-use crate::types::{
-    block::Block, hash::BlockHash, height::Height, transaction::Transaction,
-    transaction::TransactionBatch,
-};
+use crate::types::{block::Block, hash::BlockHash, height::Height};
 
 mod keys;
 use keys::{HeightKey, UndecidedValueKey};
@@ -77,6 +74,9 @@ const DECIDED_BLOCKS_TABLE: redb::TableDefinition<HeightKey, Vec<u8>> =
     redb::TableDefinition::new("decided_blocks");
 
 const UNDECIDED_VALUES_TABLE: redb::TableDefinition<UndecidedValueKey, Vec<u8>> =
+    redb::TableDefinition::new("undecided_values");
+
+const UNDECIDED_BLOCKS_TABLE: redb::TableDefinition<UndecidedValueKey, Vec<u8>> =
     redb::TableDefinition::new("undecided_blocks");
 
 struct Db {
@@ -205,21 +205,23 @@ impl Db {
     fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
         let tx = self.db.begin_write().unwrap();
         let pruned = {
-            let mut undecided = tx.open_table(UNDECIDED_VALUES_TABLE)?;
+            let mut undecided_proposals = tx.open_table(UNDECIDED_VALUES_TABLE)?;
+            let mut undecided_blocks = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
             let keys = self.undecided_values_range(
-                &undecided,
+                &undecided_proposals,
                 ..(retain_height, Round::Nil, BlockHash::new([0; 32])),
             )?;
             for key in keys {
-                undecided.remove(key)?;
+                undecided_proposals.remove(&key)?;
+                undecided_blocks.remove(&key)?;
             }
 
-            let mut decided = tx.open_table(DECIDED_BLOCKS_TABLE)?;
+            let mut decided_blocks = tx.open_table(DECIDED_BLOCKS_TABLE)?;
             let mut certificates = tx.open_table(CERTIFICATES_TABLE)?;
 
-            let keys = self.height_range(&decided, ..retain_height)?;
+            let keys = self.height_range(&decided_blocks, ..retain_height)?;
             for key in &keys {
-                decided.remove(key)?;
+                decided_blocks.remove(key)?;
                 certificates.remove(key)?;
             }
             keys
@@ -249,6 +251,53 @@ impl Db {
         let _ = tx.open_table(DECIDED_BLOCKS_TABLE)?;
         let _ = tx.open_table(CERTIFICATES_TABLE)?;
         let _ = tx.open_table(UNDECIDED_VALUES_TABLE)?;
+        let _ = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub fn get_undecided_blocks(
+        &self,
+        height: Height,
+        round: Round,
+    ) -> Result<Vec<Block>, StoreError> {
+        let tx = self.db.begin_read()?;
+        let mut blocks = Vec::new();
+
+        let from = (height, round, BlockHash::new([0; 32]));
+        let to = (height, round, BlockHash::new([255; 32]));
+
+        let table = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
+        let keys = self.undecided_values_range(&table, from..to)?;
+
+        for key in keys {
+            if let Ok(Some(block)) = table.get(&key) {
+                let Ok(block) = ProtobufCodec.decode(Bytes::from(block.value())) else {
+                    error!(hash = ?key.2, "Failed to decode Block");
+                    continue;
+                };
+
+                blocks.push(block);
+            }
+        }
+
+        Ok(blocks)
+    }
+
+    fn insert_undecided_block(
+        &self,
+        height: Height,
+        round: Round,
+        block: Block,
+    ) -> Result<(), StoreError> {
+        let key = (height, round, block.block_hash.clone());
+        let value = ProtobufCodec.encode(&block)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
+            table.insert(key, value.to_vec())?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -298,14 +347,10 @@ impl BlockStore {
     pub async fn store_decided_block(
         &self,
         certificate: &CommitCertificate<MockContext>,
-        txes: &[Transaction],
+        block: Block,
     ) -> Result<(), StoreError> {
         let decided_block = DecidedBlock {
-            block: Block {
-                height: certificate.height,
-                block_hash: certificate.value_id.as_hash().clone(),
-                transactions: TransactionBatch::new(txes.to_vec()),
-            },
+            block,
             certificate: certificate.clone(),
         };
 
@@ -333,5 +378,24 @@ impl BlockStore {
     pub async fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || db.prune(retain_height)).await?
+    }
+
+    pub async fn get_undecided_blocks(
+        &self,
+        height: Height,
+        round: Round,
+    ) -> Result<Vec<Block>, StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.get_undecided_blocks(height, round)).await?
+    }
+
+    pub async fn store_undecided_block(
+        &self,
+        height: Height,
+        round: Round,
+        block: Block,
+    ) -> Result<(), StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.insert_undecided_block(height, round, block)).await?
     }
 }

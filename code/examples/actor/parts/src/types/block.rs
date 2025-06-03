@@ -1,5 +1,4 @@
 use malachitebft_proto::{Error as ProtoError, Protobuf};
-use prost::Message;
 
 use super::proto;
 use crate::types::{hash::BlockHash, height::Height, transaction::TransactionBatch};
@@ -9,13 +8,6 @@ pub struct Block {
     pub height: Height,
     pub transactions: TransactionBatch,
     pub block_hash: BlockHash,
-}
-
-impl Block {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ProtoError> {
-        let proto = proto::Block::decode(bytes)?;
-        Self::from_proto(proto)
-    }
 }
 
 impl Protobuf for Block {

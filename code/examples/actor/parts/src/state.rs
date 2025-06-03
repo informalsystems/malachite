@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::types::block::Block;
 use crate::types::hash::Hash;
 use crate::types::signing::Ed25519Provider;
 use rand::RngCore;
@@ -17,12 +18,12 @@ use malachitebft_engine::host::ProposedValue;
 use malachitebft_engine::util::streaming::StreamId;
 
 use crate::mock_host::MockHost;
-use crate::store::BlockStore;
+use crate::store::{BlockStore, StoreError};
 use crate::types::address::Address;
 use crate::types::context::MockContext;
 use crate::types::height::Height;
 use crate::types::proposal_part::ProposalPart;
-use crate::types::transaction::Transaction;
+use crate::types::transaction::{Transaction, TransactionBatch};
 use crate::types::value::Value;
 
 pub struct HostState {
@@ -79,7 +80,7 @@ impl HostState {
         height: Height,
         round: Round,
         parts: &[Arc<ProposalPart>],
-    ) -> ProposedValue<MockContext> {
+    ) -> Result<ProposedValue<MockContext>, StoreError> {
         // We must be here with non-empty `parts`, must have init, fin, commitment and maybe transactions
         assert!(!parts.is_empty(), "Parts must not be empty");
 
@@ -105,6 +106,16 @@ impl HostState {
         // Determine the validity of the proposal
         let validity = self.verify_proposal_validity(&fin.commitment, transactions.clone());
 
+        let block = Block {
+            height: init.height,
+            block_hash: fin.commitment.clone(),
+            transactions: TransactionBatch::new(transactions.clone()),
+        };
+
+        self.block_store
+            .store_undecided_block(init.height, init.round, block)
+            .await?;
+
         let pol_round = init.valid_round;
         if pol_round.is_defined() {
             debug!("Reassembling a proposal we might have seen before: {init:?}");
@@ -112,14 +123,14 @@ impl HostState {
 
         trace!(parts.len = %parts.len(), "Building proposal content from parts");
 
-        ProposedValue {
+        Ok(ProposedValue {
             proposer: init.proposer,
             height,
             round,
             valid_round: pol_round,
             value: Value::new(fin.commitment.clone()),
             validity,
-        }
+        })
     }
 
     pub fn verify_proposal_validity(
@@ -206,12 +217,20 @@ impl HostState {
             "Building proposal content from parts"
         );
 
-        let proposed_value = self.build_proposal_from_parts(height, round, &parts).await;
-
-        self.host
-            .part_store
-            .store_value_id(stream_id, height, round, proposed_value.value.id());
-
-        Some(proposed_value)
+        match self.build_proposal_from_parts(height, round, &parts).await {
+            Ok(proposed_value) => {
+                self.host.part_store.store_value_id(
+                    stream_id,
+                    height,
+                    round,
+                    proposed_value.value.id(),
+                );
+                Some(proposed_value)
+            }
+            Err(e) => {
+                error!("Failed to build proposal from parts: {}", e);
+                None
+            }
+        }
     }
 }

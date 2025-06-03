@@ -10,7 +10,6 @@ use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
 use crate::types::signing::Ed25519Provider;
-use crate::types::transaction::Transaction;
 use crate::types::value::Value;
 use malachitebft_core_consensus::{PeerId, Role};
 use malachitebft_core_types::{CommitCertificate, Round, ValueOrigin};
@@ -387,7 +386,9 @@ async fn on_get_value(
         .part_store
         .all_parts_by_stream_id(stream_id, height, round);
 
-    let value = state.build_proposal_from_parts(height, round, &parts).await;
+    let value = state
+        .build_proposal_from_parts(height, round, &parts)
+        .await?;
 
     debug!(%height, %round, block_hash = ?block_hash.clone(), "Storing proposed value from assembled block");
     if let Err(e) = state
@@ -494,15 +495,21 @@ async fn on_process_synced_value(
 ) -> Result<(), ActorProcessingErr> {
     let maybe_block = Block::from_bytes(value_bytes.as_ref());
     if let Ok(block) = maybe_block {
-        let validity =
-            state.verify_proposal_validity(&block.block_hash, block.transactions.to_vec());
+        let block_hash = block.block_hash.clone();
+        let transactions = block.transactions.to_vec();
+        let validity = state.verify_proposal_validity(&block_hash, transactions);
+
+        state
+            .block_store
+            .store_undecided_block(height, round, block)
+            .await?;
 
         let proposed_value = ProposedValue {
             height,
             round,
             valid_round: Round::Nil,
             proposer,
-            value: Value::new(block.block_hash),
+            value: Value::new(block_hash),
             validity,
         };
 
@@ -655,29 +662,31 @@ async fn on_decided(
 ) -> Result<(), ActorProcessingErr> {
     let (height, round) = (certificate.height, certificate.round);
 
-    let all_parts = state
-        .host
-        .part_store
-        .all_parts_by_value_id(&certificate.value_id);
-
-    let all_txes: Vec<Transaction> = all_parts
+    let blocks = state
+        .block_store
+        .get_undecided_blocks(height, round)
+        .await?;
+    let Some(block) = blocks
         .iter()
-        .filter_map(|part| part.as_data())
-        .flat_map(|data| data.transactions.as_slice().iter().cloned())
-        .collect();
+        .find(|block| block.block_hash == *certificate.value_id.as_hash())
+    else {
+        error!(%height, %round, "Block not found");
+        return Ok(());
+    };
 
-    // Build the block from transaction parts and certificate, and store it
+    // Store the block in the decided blocks table
     if let Err(e) = state
         .block_store
-        .store_decided_block(&certificate, &all_txes)
+        .store_decided_block(&certificate, block.clone())
         .await
     {
         error!(%e, %height, %round, "Failed to store the block");
+        return Ok(());
     }
 
     // Update metrics
-    let tx_count: usize = all_parts.iter().map(|p| p.tx_count()).sum();
-    let block_size: usize = all_parts.iter().map(|p| p.size_bytes()).sum();
+    let tx_count: usize = block.transactions.to_vec().len();
+    let block_size: usize = block.to_bytes().unwrap().len();
 
     metrics.block_tx_count.observe(tx_count as f64);
     metrics.block_size_bytes.observe(block_size as f64);
@@ -685,23 +694,18 @@ async fn on_decided(
 
     // Gather hashes of all the tx-es included in the block,
     // so that we can notify the mempool to remove them.
-    let mut tx_hashes = vec![];
-    for part in all_parts {
-        if let ProposalPart::Data(data) = part.as_ref().clone() {
-            let hashes: Vec<_> = data
-                .transactions
-                .clone()
-                .into_iter()
-                .map(|tx| tx.hash().clone())
-                .collect();
-            tx_hashes.extend(hashes);
-        }
-    }
+    let tx_hashes: Vec<_> = block
+        .transactions
+        .to_vec()
+        .into_iter()
+        .map(|tx| tx.hash().clone())
+        .collect();
 
     // Prune the PartStore of all parts for heights lower than `state.height`
     state.host.part_store.prune(state.height);
 
-    // Prune the block store, keeping only the last `max_retain_blocks` blocks
+    // Prune the block store, keeping only the last `max_retain_blocks` blocks.
+    // Also prunes parts, the undecided blocks and proposals.
     prune_block_store(state).await;
 
     // Notify the mempool to remove corresponding txs

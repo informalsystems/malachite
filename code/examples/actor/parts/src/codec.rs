@@ -608,3 +608,15 @@ pub fn encode_signature(signature: &Signature) -> proto::Signature {
         bytes: Bytes::copy_from_slice(signature.to_bytes().as_ref()),
     }
 }
+
+impl Codec<Block> for ProtobufCodec {
+    type Error = ProtoError;
+
+    fn decode(&self, bytes: Bytes) -> Result<Block, Self::Error> {
+        Protobuf::from_bytes(&bytes)
+    }
+
+    fn encode(&self, msg: &Block) -> Result<Bytes, Self::Error> {
+        Protobuf::to_bytes(msg)
+    }
+}
