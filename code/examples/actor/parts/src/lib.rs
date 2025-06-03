@@ -1,6 +1,7 @@
 pub mod actor;
 pub mod codec;
 pub mod config;
+pub mod db_metrics;
 pub mod mempool;
 pub mod mempool_load;
 pub mod metrics;
