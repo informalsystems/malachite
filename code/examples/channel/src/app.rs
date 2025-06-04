@@ -240,6 +240,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 info!(%height, %round, "Processing synced value");
 
                 let value = decode_value(value_bytes);
+                // TODO - verify the validity of value
+
                 let proposed_value = ProposedValue {
                     height,
                     round,
@@ -249,6 +251,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                     validity: Validity::Valid,
                 };
 
+                // TODO - should we store invalid values?
                 state
                     .store
                     .store_undecided_proposal(proposed_value.clone())
@@ -327,6 +330,10 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                             .await?;
                     }
                 }
+            }
+
+            AppMsg::ReceivedProposal { .. } => {
+                panic!("ReceivedProposal should not be called in the channel app example");
             }
         }
     }

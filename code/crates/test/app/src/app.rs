@@ -263,6 +263,7 @@ pub async fn run(
 
                 let value = decode_value(value_bytes);
 
+                // TODO - verify the validity of value
                 let proposal = ProposedValue {
                     height,
                     round,
@@ -272,6 +273,7 @@ pub async fn run(
                     validity: Validity::Valid,
                 };
 
+                // TODO - should we store invalid values?
                 state.store_synced_value(proposal.clone()).await?;
 
                 if reply.send(proposal).is_err() {
@@ -362,6 +364,10 @@ pub async fn run(
                 if reply.send(Ok(())).is_err() {
                     error!("Failed to send VerifyVoteExtension reply");
                 }
+            }
+
+            AppMsg::ReceivedProposal { .. } => {
+                panic!("ReceivedProposal should not be called in test app");
             }
         }
     }
