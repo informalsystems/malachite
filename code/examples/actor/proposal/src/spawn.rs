@@ -12,7 +12,7 @@ use malachitebft_engine::node::{Node, NodeRef};
 use malachitebft_engine::sync::{Params as SyncParams, Sync, SyncRef};
 use malachitebft_engine::util::events::TxEvent;
 use malachitebft_engine::wal::{Wal, WalRef};
-use malachitebft_metrics::{Metrics, SharedRegistry};
+use malachitebft_metrics::{Metrics as ConsensusMetrics, SharedRegistry};
 use malachitebft_network::Keypair;
 use malachitebft_sync as sync;
 use malachitebft_test_mempool::Config as MempoolNetworkConfig;
@@ -26,6 +26,7 @@ use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
 use crate::mock_host::{MockHost, MockHostParams};
 
 use crate::config::Config;
+use crate::metrics::Metrics as AppMetrics;
 use crate::types::{
     address::Address,
     context::MockContext,
@@ -48,7 +49,11 @@ pub async fn spawn_node_actor(
     let start_height = start_height.unwrap_or(Height::new(1));
 
     let registry = SharedRegistry::global().with_moniker(cfg.moniker.as_str());
-    let metrics = Metrics::register(&registry);
+
+    let consensus_metrics = ConsensusMetrics::register(&registry);
+    let app_metrics = AppMetrics::register(&registry);
+    let sync_metrics: malachitebft_sync::Metrics = sync::Metrics::register(&registry);
+
     let address = Address::from_public_key(&private_key.public_key());
 
     // Spawn mempool and its gossip layer
@@ -69,7 +74,7 @@ pub async fn spawn_node_actor(
         &initial_validator_set,
         mempool,
         mempool_load,
-        metrics.clone(),
+        app_metrics,
         &span,
     )
     .await;
@@ -79,7 +84,7 @@ pub async fn spawn_node_actor(
         network.clone(),
         host.clone(),
         &cfg.value_sync,
-        &registry,
+        sync_metrics,
         &span,
     )
     .await;
@@ -99,7 +104,7 @@ pub async fn spawn_node_actor(
         host.clone(),
         wal.clone(),
         sync.clone(),
-        metrics,
+        consensus_metrics,
         tx_event,
         &span,
     )
@@ -134,7 +139,7 @@ async fn spawn_sync_actor(
     network: NetworkRef<MockContext>,
     host: HostRef<MockContext>,
     config: &ValueSyncConfig,
-    registry: &SharedRegistry,
+    sync_metrics: sync::Metrics,
     span: &tracing::Span,
 ) -> Option<SyncRef<MockContext>> {
     if !config.enabled {
@@ -146,8 +151,7 @@ async fn spawn_sync_actor(
         request_timeout: config.request_timeout,
     };
 
-    let metrics = sync::Metrics::register(registry);
-    let actor_ref = Sync::spawn(ctx, network, host, params, metrics, span.clone())
+    let actor_ref = Sync::spawn(ctx, network, host, params, sync_metrics, span.clone())
         .await
         .unwrap();
 
@@ -166,7 +170,7 @@ async fn spawn_consensus_actor(
     host: HostRef<MockContext>,
     wal: WalRef<MockContext>,
     sync: Option<SyncRef<MockContext>>,
-    metrics: Metrics,
+    consensus_metrics: ConsensusMetrics,
     tx_event: TxEvent<MockContext>,
     span: &tracing::Span,
 ) -> ConsensusRef<MockContext> {
@@ -194,7 +198,7 @@ async fn spawn_consensus_actor(
         host,
         wal,
         sync,
-        metrics,
+        consensus_metrics,
         tx_event,
         span.clone(),
     )
@@ -335,7 +339,7 @@ async fn spawn_host_actor(
     initial_validator_set: &ValidatorSet,
     mempool: MempoolRef,
     mempool_load: MempoolLoadRef,
-    metrics: Metrics,
+    app_metrics: AppMetrics,
     span: &tracing::Span,
 ) -> HostRef<MockContext> {
     let mock_params = MockHostParams {
@@ -361,7 +365,7 @@ async fn spawn_host_actor(
         mock_host,
         mempool,
         mempool_load,
-        metrics,
+        app_metrics,
         span.clone(),
     )
     .await

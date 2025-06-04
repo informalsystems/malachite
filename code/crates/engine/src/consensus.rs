@@ -531,7 +531,6 @@ where
                             error!(%from, "Error when processing proposal: {e}");
                         }
 
-                        // TODO - pass the received value up to the host that will verify and give back validity.
                         if state.consensus.params.value_payload.proposal_only() {
                             self.host
                                 .call_and_forward(

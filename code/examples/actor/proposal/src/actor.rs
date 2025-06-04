@@ -17,12 +17,12 @@ use malachitebft_core_consensus::Role;
 use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
 use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
-use malachitebft_metrics::Metrics;
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
 use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::mempool_load::MempoolLoadRef;
+use crate::metrics::Metrics;
 use crate::mock_host::MockHost;
 use crate::state::HostState;
 use crate::types::address::Address;
