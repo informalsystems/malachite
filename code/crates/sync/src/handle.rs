@@ -1,51 +1,13 @@
-use core::marker::PhantomData;
-
 use derive_where::derive_where;
-use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 
 use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Height};
 
 use crate::co::Co;
 use crate::{
-    perform, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue, Request, State,
-    Status, ValueRequest, ValueResponse,
+    perform, Effect, Error, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue,
+    Request, Resume, State, Status, ValueRequest, ValueResponse,
 };
-
-#[derive_where(Debug)]
-#[derive(Error)]
-pub enum Error<Ctx: Context> {
-    /// The coroutine was resumed with a value which
-    /// does not match the expected type of resume value.
-    #[error("Unexpected resume: {0:?}, expected one of: {1}")]
-    UnexpectedResume(Resume<Ctx>, &'static str),
-}
-
-#[derive_where(Debug)]
-pub enum Resume<Ctx: Context> {
-    Continue(PhantomData<Ctx>),
-}
-
-impl<Ctx: Context> Default for Resume<Ctx> {
-    fn default() -> Self {
-        Self::Continue(PhantomData)
-    }
-}
-
-#[derive_where(Debug)]
-pub enum Effect<Ctx: Context> {
-    /// Broadcast our status to our direct peers
-    BroadcastStatus(Ctx::Height),
-
-    /// Send a ValueSync request to a peer
-    SendValueRequest(PeerId, ValueRequest<Ctx>),
-
-    /// Send a response to a ValueSync request
-    SendValueResponse(InboundRequestId, ValueResponse<Ctx>),
-
-    /// Retrieve a value from the application
-    GetDecidedValue(InboundRequestId, Ctx::Height),
-}
 
 #[derive_where(Debug)]
 pub enum Input<Ctx: Context> {
@@ -65,8 +27,8 @@ pub enum Input<Ctx: Context> {
     /// A ValueSync request has been received from a peer
     ValueRequest(InboundRequestId, PeerId, ValueRequest<Ctx>),
 
-    /// A ValueSync response has been received
-    ValueResponse(OutboundRequestId, PeerId, ValueResponse<Ctx>),
+    /// A (possibly empty or invalid) ValueSync response has been received
+    ValueResponse(OutboundRequestId, PeerId, Option<ValueResponse<Ctx>>),
 
     /// Got a response from the application to our `GetValue` request
     GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
@@ -102,12 +64,16 @@ where
             on_value_request(co, state, metrics, request_id, peer_id, request).await
         }
 
-        Input::ValueResponse(request_id, peer_id, response) => {
+        Input::ValueResponse(request_id, peer_id, Some(response)) => {
             on_value_response(co, state, metrics, request_id, peer_id, response).await
         }
 
+        Input::ValueResponse(request_id, peer_id, None) => {
+            on_empty_value_response(co, state, metrics, request_id, peer_id).await
+        }
+
         Input::GotDecidedValue(request_id, height, value) => {
-            on_value(co, state, metrics, request_id, height, value).await
+            on_got_decided_value(co, state, metrics, request_id, height, value).await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -130,7 +96,10 @@ where
 {
     debug!(height.tip = %state.tip_height, "Broadcasting status");
 
-    perform!(co, Effect::BroadcastStatus(state.tip_height));
+    perform!(
+        co,
+        Effect::BroadcastStatus(state.tip_height, Default::default())
+    );
 
     Ok(())
 }
@@ -208,7 +177,7 @@ where
     debug!(height.tip = %height, "Updating tip height");
 
     state.tip_height = height;
-    state.remove_pending_decided_value_request(height);
+    state.remove_pending_decided_value_request_by_height(&height);
 
     Ok(())
 }
@@ -228,7 +197,10 @@ where
 
     metrics.decided_value_request_received(request.height.as_u64());
 
-    perform!(co, Effect::GetDecidedValue(request_id, request.height));
+    perform!(
+        co,
+        Effect::GetDecidedValue(request_id, request.height, Default::default())
+    );
 
     Ok(())
 }
@@ -246,14 +218,31 @@ where
 {
     debug!(%response.height, %request_id, %peer, "Received response");
 
-    state.remove_pending_decided_value_request(response.height);
+    state.remove_pending_decided_value_request_by_height(&response.height);
 
     metrics.decided_value_response_received(response.height.as_u64());
 
     Ok(())
 }
 
-pub async fn on_value<Ctx>(
+pub async fn on_empty_value_response<Ctx>(
+    _co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    request_id: OutboundRequestId,
+    peer: PeerId,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    debug!(%request_id, %peer, "Received empty response");
+
+    state.remove_pending_decided_value_request_by_id(&request_id);
+
+    Ok(())
+}
+
+pub async fn on_got_decided_value<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -284,7 +273,11 @@ where
 
     perform!(
         co,
-        Effect::SendValueResponse(request_id, ValueResponse::new(height, response))
+        Effect::SendValueResponse(
+            request_id,
+            ValueResponse::new(height, response),
+            Default::default()
+        )
     );
 
     metrics.decided_value_response_sent(height.as_u64());
@@ -306,12 +299,32 @@ where
         Request::ValueRequest(value_request) => {
             let height = value_request.height;
             warn!(%peer_id, %height, "Value request timed out");
-            state.remove_pending_decided_value_request(height);
+
+            state.remove_pending_decided_value_request_by_height(&height);
             metrics.decided_value_request_timed_out(height.as_u64());
         }
     };
 
     Ok(())
+}
+
+async fn on_invalid_certificate<Ctx>(
+    co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    from: PeerId,
+    certificate: CommitCertificate<Ctx>,
+    error: CertificateError<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    error!(%error, %certificate.height, %certificate.round, "Received invalid certificate");
+    trace!("Certificate: {certificate:#?}");
+
+    state.remove_pending_decided_value_request_by_height(&certificate.height);
+
+    request_value_from_peer_except(co, state, metrics, certificate.height, from).await
 }
 
 /// If there are no pending requests for the sync height,
@@ -351,40 +364,43 @@ async fn request_value_from_peer<Ctx>(
 where
     Ctx: Context,
 {
-    info!(height.sync = %height, %peer, "Requesting sync value from peer");
+    info!(height.sync = %height, %peer, "Requesting sync from peer");
 
-    perform!(
+    let request_id = perform!(
         co,
-        Effect::SendValueRequest(peer, ValueRequest::new(height))
+        Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
+        Resume::ValueRequestId(id) => id,
     );
 
     metrics.decided_value_request_sent(height.as_u64());
-    state.store_pending_decided_value_request(height, peer);
+
+    if let Some(request_id) = request_id {
+        debug!(%request_id, %peer, "Sent value request to peer");
+        state.store_pending_decided_value_request(height, request_id);
+    } else {
+        warn!(height.sync = %height, %peer, "Failed to send value request to peer");
+    }
 
     Ok(())
 }
 
-async fn on_invalid_certificate<Ctx>(
+async fn request_value_from_peer_except<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    from: PeerId,
-    certificate: CommitCertificate<Ctx>,
-    error: CertificateError<Ctx>,
+    height: Ctx::Height,
+    except: PeerId,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    error!(%error, %certificate.height, %certificate.round, "Received invalid certificate");
-    trace!("Certificate: {certificate:#?}");
+    info!(height.sync = %height, "Requesting sync from another peer");
 
-    info!(height.sync = %certificate.height, "Requesting sync from another peer");
-    state.remove_pending_decided_value_request(certificate.height);
+    if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
+        request_value_from_peer(co, state, metrics, height, peer).await?;
+    } else {
+        error!(height.sync = %height, "No peer to request sync from");
+    }
 
-    let Some(peer) = state.random_peer_with_tip_at_or_above_except(certificate.height, from) else {
-        error!(height.sync = %certificate.height, "No other peer to request sync from");
-        return Ok(());
-    };
-
-    request_value_from_peer(co, state, metrics, certificate.height, peer).await
+    Ok(())
 }
