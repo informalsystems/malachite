@@ -7,6 +7,7 @@ use tracing::{debug, error, info, trace, warn};
 use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Height};
 
 use crate::co::Co;
+use crate::scoring::SyncResult;
 use crate::{
     perform, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue, Request, State,
     Status, ValueRequest, ValueResponse,
@@ -107,7 +108,7 @@ where
         }
 
         Input::GotDecidedValue(request_id, height, value) => {
-            on_value(co, state, metrics, request_id, height, value).await
+            on_decided_value(co, state, metrics, request_id, height, value).await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -131,6 +132,13 @@ where
     debug!(height.tip = %state.tip_height, "Broadcasting status");
 
     perform!(co, Effect::BroadcastStatus(state.tip_height));
+
+    if let Some(inactive_threshold) = state.inactive_threshold {
+        // If we are at or above the inactive threshold, we can prune inactive peers.
+        state.peer_scorer.prune_inactive_peers(inactive_threshold);
+    }
+
+    debug!("Peer scores: {:#?}", state.peer_scorer.get_scores());
 
     Ok(())
 }
@@ -226,7 +234,7 @@ where
 {
     debug!(%request.height, %peer, "Received request for value");
 
-    metrics.decided_value_request_received(request.height.as_u64());
+    metrics.value_request_received(request.height.as_u64());
 
     perform!(co, Effect::GetDecidedValue(request_id, request.height));
 
@@ -238,22 +246,37 @@ pub async fn on_value_response<Ctx>(
     state: &mut State<Ctx>,
     metrics: &Metrics,
     request_id: OutboundRequestId,
-    peer: PeerId,
+    peer_id: PeerId,
     response: ValueResponse<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    debug!(%response.height, %request_id, %peer, "Received response");
+    debug!(%response.height, %request_id, %peer_id, "Received response");
 
     state.remove_pending_decided_value_request(response.height);
 
-    metrics.decided_value_response_received(response.height.as_u64());
+    let response_time = metrics.value_response_received(response.height.as_u64());
+
+    if let Some(response_time) = response_time {
+        let sync_result = if response.value.is_none() {
+            SyncResult::Failure
+        } else {
+            SyncResult::Success(response_time)
+        };
+
+        state
+            .peer_scorer
+            .update_score_with_metrics(peer_id, sync_result, &metrics.scoring);
+    }
+
+    // We do not update the peer score if we do not know the response time.
+    // This should never happen, but we need to handle it gracefully just in case.
 
     Ok(())
 }
 
-pub async fn on_value<Ctx>(
+pub async fn on_decided_value<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -272,7 +295,7 @@ where
         Some(value) if value.certificate.height != height => {
             error!(
                 %height, value.height = %value.certificate.height,
-                "Received value response for wrong height"
+                "Received value response for wrong height from host"
             );
             None
         }
@@ -287,7 +310,7 @@ where
         Effect::SendValueResponse(request_id, ValueResponse::new(height, response))
     );
 
-    metrics.decided_value_response_sent(height.as_u64());
+    metrics.value_response_sent(height.as_u64());
 
     Ok(())
 }
@@ -306,8 +329,11 @@ where
         Request::ValueRequest(value_request) => {
             let height = value_request.height;
             warn!(%peer_id, %height, "Value request timed out");
+
             state.remove_pending_decided_value_request(height);
-            metrics.decided_value_request_timed_out(height.as_u64());
+            metrics.value_request_timed_out(height.as_u64());
+
+            state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
         }
     };
 
@@ -358,7 +384,7 @@ where
         Effect::SendValueRequest(peer, ValueRequest::new(height))
     );
 
-    metrics.decided_value_request_sent(height.as_u64());
+    metrics.value_request_sent(height.as_u64());
     state.store_pending_decided_value_request(height, peer);
 
     Ok(())
@@ -368,20 +394,23 @@ async fn on_invalid_certificate<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    from: PeerId,
+    peer_id: PeerId,
     certificate: CommitCertificate<Ctx>,
     error: CertificateError<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    error!(%error, %certificate.height, %certificate.round, "Received invalid certificate");
+    error!(%error, %peer_id, %certificate.height, %certificate.round, "Received invalid certificate");
     trace!("Certificate: {certificate:#?}");
+
+    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
 
     info!(height.sync = %certificate.height, "Requesting sync from another peer");
     state.remove_pending_decided_value_request(certificate.height);
 
-    let Some(peer) = state.random_peer_with_tip_at_or_above_except(certificate.height, from) else {
+    let Some(peer) = state.random_peer_with_tip_at_or_above_except(certificate.height, peer_id)
+    else {
         error!(height.sync = %certificate.height, "No other peer to request sync from");
         return Ok(());
     };
