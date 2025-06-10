@@ -262,6 +262,16 @@ where
                 reply_to.send(rx.await?)?;
             }
 
+            HostMsg::GetDecidedValues { from, to, reply_to } => {
+                let (reply, rx) = oneshot::channel();
+
+                self.sender
+                    .send(AppMsg::GetDecidedValues { from, to, reply })
+                    .await?;
+
+                reply_to.send(rx.await?)?;
+            }
+
             HostMsg::ProcessSyncedValue {
                 height,
                 round,

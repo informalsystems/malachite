@@ -115,8 +115,32 @@ where
         self.pending_decided_value_requests.insert(height, peer);
     }
 
+    pub fn store_pending_decided_batch_request(
+        &mut self,
+        from: Ctx::Height,
+        to: Ctx::Height,
+        peer: PeerId,
+    ) {
+        let mut height = from;
+        loop {
+            self.pending_decided_value_requests.insert(height, peer);
+            if height >= to {
+                break;
+            }
+            height = height.increment();
+        }
+    }
+
     pub fn remove_pending_decided_value_request(&mut self, height: Ctx::Height) {
         self.pending_decided_value_requests.remove(&height);
+    }
+
+    pub fn remove_pending_decided_batch_request(&mut self, from: Ctx::Height, to: Ctx::Height) {
+        let mut height = from;
+        while height <= to {
+            self.pending_decided_value_requests.remove(&height);
+            height = height.increment();
+        }
     }
 
     pub fn has_pending_decided_value_request(&self, height: &Ctx::Height) -> bool {

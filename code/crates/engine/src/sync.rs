@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -88,6 +88,14 @@ pub enum Msg<Ctx: Context> {
 
     /// Host has a response for the blocks request
     GotDecidedBlock(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+
+    /// Host has a response for the batch blocks request
+    GotDecidedBlocks(
+        InboundRequestId,
+        Ctx::Height,
+        Ctx::Height,
+        BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+    ),
 
     /// A timeout has elapsed
     TimeoutElapsed(TimeoutElapsed<Timeout>),
@@ -260,12 +268,59 @@ where
                     .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
             }
 
+            Effect::SendBatchRequest(peer_id, batch_request) => {
+                let request = Request::BatchRequest(batch_request);
+                let result = ractor::call!(self.gossip, |reply_to| {
+                    NetworkMsg::OutgoingRequest(peer_id, request.clone(), reply_to)
+                });
+
+                match result {
+                    Ok(request_id) => {
+                        let request_id = OutboundRequestId::new(request_id);
+
+                        timers.start_timer(
+                            Timeout::Request(request_id.clone()),
+                            self.params.request_timeout,
+                        );
+
+                        inflight.insert(
+                            request_id.clone(),
+                            InflightRequest {
+                                peer_id,
+                                request_id,
+                                request,
+                            },
+                        );
+                    }
+                    Err(e) => {
+                        error!("Failed to send batch request to network layer: {e}");
+                    }
+                }
+            }
+
+            Effect::SendBatchResponse(request_id, batch_response) => {
+                let response = Response::BatchResponse(batch_response);
+                self.gossip
+                    .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
+            }
+
             Effect::GetDecidedValue(request_id, height) => {
                 self.host.call_and_forward(
                     |reply_to| HostMsg::GetDecidedValue { height, reply_to },
                     myself,
                     move |synced_value| {
                         Msg::<Ctx>::GotDecidedBlock(request_id, height, synced_value)
+                    },
+                    None,
+                )?;
+            }
+
+            Effect::GetDecidedValues(request_id, from, to) => {
+                self.host.call_and_forward(
+                    |reply_to| HostMsg::GetDecidedValues { from, to, reply_to },
+                    myself,
+                    move |synced_values| {
+                        Msg::<Ctx>::GotDecidedBlocks(request_id, from, to, synced_values)
                     },
                     None,
                 )?;
@@ -382,6 +437,15 @@ where
                     &myself,
                     state,
                     sync::Input::GotDecidedValue(request_id, height, block),
+                )
+                .await?;
+            }
+
+            Msg::GotDecidedBlocks(request_id, from, to, blocks) => {
+                self.process_input(
+                    &myself,
+                    state,
+                    sync::Input::GotDecidedValues(request_id, from, to, blocks),
                 )
                 .await?;
             }

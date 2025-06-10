@@ -105,14 +105,16 @@ impl<Ctx: Context> ValueResponse<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchRequest<Ctx: Context> {
-    pub range: (Ctx::Height, Ctx::Height),
+    pub from: Ctx::Height,
+    pub to: Ctx::Height,
     pub max_response_size: usize,
 }
 
 impl<Ctx: Context> BatchRequest<Ctx> {
-    pub fn new(range: (Ctx::Height, Ctx::Height), max_response_size: usize) -> Self {
+    pub fn new(from: Ctx::Height, to: Ctx::Height, max_response_size: usize) -> Self {
         Self {
-            range,
+            from,
+            to,
             max_response_size,
         }
     }
@@ -120,12 +122,18 @@ impl<Ctx: Context> BatchRequest<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchResponse<Ctx: Context> {
+    pub from: Ctx::Height,
+    pub to: Ctx::Height,
     pub values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
 }
 
 impl<Ctx: Context> BatchResponse<Ctx> {
-    pub fn new(values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>) -> Self {
-        Self { values }
+    pub fn new(
+        from: Ctx::Height,
+        to: Ctx::Height,
+        values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+    ) -> Self {
+        Self { from, to, values }
     }
 }
 

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use eyre::eyre;
@@ -278,6 +279,31 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
 
                 if reply.send(raw_decided_value).is_err() {
                     error!("Failed to send GetDecidedValue reply");
+                }
+            }
+
+            AppMsg::GetDecidedValues { from, to, reply } => {
+                info!(from = %from, to = %to, "Received sync request for decided values");
+
+                let decided_values = state.get_decided_values(from, to).await;
+                info!(from = %from, to = %to, "Found decided values: {decided_values:?}");
+
+                let raw_decided_values: BTreeMap<Height, RawDecidedValue<TestContext>> =
+                    decided_values
+                        .into_iter()
+                        .map(|(height, decided_value)| {
+                            (
+                                height,
+                                RawDecidedValue {
+                                    certificate: decided_value.certificate,
+                                    value_bytes: encode_value(&decided_value.value),
+                                },
+                            )
+                        })
+                        .collect();
+
+                if reply.send(raw_decided_values).is_err() {
+                    error!("Failed to send GetDecidedValues reply");
                 }
             }
 

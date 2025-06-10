@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use derive_where::derive_where;
 use ractor::{ActorRef, RpcReplyPort};
@@ -106,6 +106,13 @@ pub enum HostMsg<Ctx: Context> {
     GetDecidedValue {
         height: Ctx::Height,
         reply_to: RpcReplyPort<Option<RawDecidedValue<Ctx>>>,
+    },
+
+    // Retrieve decided values in a batch from the block store
+    GetDecidedValues {
+        from: Ctx::Height,
+        to: Ctx::Height,
+        reply_to: RpcReplyPort<BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>>,
     },
 
     // Process a value synced from another node via the ValueSync protocol.

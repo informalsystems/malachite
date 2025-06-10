@@ -1,7 +1,7 @@
 //! Internal state of the application. This is a simplified abstract to keep it simple.
 //! A regular application would have mempool implemented, a proper database and input methods like RPC.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use bytes::Bytes;
 use eyre::eyre;
@@ -154,6 +154,18 @@ impl State {
     /// Retrieves a decided block at the given height
     pub async fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
         self.store.get_decided_value(height).await.ok().flatten()
+    }
+
+    /// Retrieves decided values in the range from `from` to `to` heights.
+    pub async fn get_decided_values(
+        &self,
+        from: Height,
+        to: Height,
+    ) -> BTreeMap<Height, DecidedValue> {
+        self.store
+            .get_decided_values(from, to)
+            .await
+            .unwrap_or_default()
     }
 
     /// Commits a value with the given certificate, updating internal state
