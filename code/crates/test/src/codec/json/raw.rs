@@ -153,6 +153,9 @@ impl From<Request<TestContext>> for RawRequest {
             Request::ValueRequest(block_request) => Self::SyncRequest(ValueRawRequest {
                 height: block_request.height,
             }),
+            Request::BatchRequest(_) => {
+                panic!("TODO")
+            }
         }
     }
 }
@@ -271,6 +274,9 @@ impl From<Response<TestContext>> for RawResponse {
     fn from(value: Response<TestContext>) -> Self {
         match value {
             Response::ValueResponse(block_response) => Self::ValueResponse(block_response.into()),
+            Response::BatchResponse(_) => {
+                panic!("TODO")
+            }
         }
     }
 }

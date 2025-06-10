@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
+
 use bytes::Bytes;
 use derive_where::derive_where;
 use displaydoc::Display;
 use libp2p::request_response;
 use serde::{Deserialize, Serialize};
 
-use malachitebft_core_types::{CommitCertificate, Context};
+use malachitebft_core_types::{CommitCertificate, Context, Height};
 pub use malachitebft_peer::PeerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
@@ -29,6 +31,12 @@ impl OutboundRequestId {
 
 pub type ResponseChannel = request_response::ResponseChannel<RawResponse>;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PeerKind {
+    SyncV1,
+    SyncV2,
+}
+
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct Status<Ctx: Context> {
     pub peer_id: PeerId,
@@ -36,14 +44,40 @@ pub struct Status<Ctx: Context> {
     pub history_min_height: Ctx::Height,
 }
 
+impl<Ctx: Context> Status<Ctx> {
+    pub(crate) fn default(peer_id: PeerId) -> Self {
+        Self {
+            peer_id,
+            tip_height: Ctx::Height::ZERO,
+            history_min_height: Ctx::Height::ZERO,
+        }
+    }
+}
+
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct PeerDetails<Ctx: Context> {
+    /// The kind of protocol the peer supports.
+    pub kind: PeerKind,
+    /// The peer's status.
+    pub status: Status<Ctx>,
+}
+
+impl<Ctx: Context> PeerDetails<Ctx> {
+    pub(crate) fn update_status(&mut self, status: Status<Ctx>) {
+        self.status = status;
+    }
+}
+
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum Request<Ctx: Context> {
-    ValueRequest(ValueRequest<Ctx>),
+    ValueRequest(ValueRequest<Ctx>), // Sync v1
+    BatchRequest(BatchRequest<Ctx>), // Sync v2
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum Response<Ctx: Context> {
-    ValueResponse(ValueResponse<Ctx>),
+    ValueResponse(ValueResponse<Ctx>), // Sync v1
+    BatchResponse(BatchResponse<Ctx>), // Sync v2
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +100,32 @@ pub struct ValueResponse<Ctx: Context> {
 impl<Ctx: Context> ValueResponse<Ctx> {
     pub fn new(height: Ctx::Height, value: Option<RawDecidedValue<Ctx>>) -> Self {
         Self { height, value }
+    }
+}
+
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct BatchRequest<Ctx: Context> {
+    pub range: (Ctx::Height, Ctx::Height),
+    pub max_response_size: usize,
+}
+
+impl<Ctx: Context> BatchRequest<Ctx> {
+    pub fn new(range: (Ctx::Height, Ctx::Height), max_response_size: usize) -> Self {
+        Self {
+            range,
+            max_response_size,
+        }
+    }
+}
+
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct BatchResponse<Ctx: Context> {
+    pub values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+}
+
+impl<Ctx: Context> BatchResponse<Ctx> {
+    pub fn new(values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>) -> Self {
+        Self { values }
     }
 }
 

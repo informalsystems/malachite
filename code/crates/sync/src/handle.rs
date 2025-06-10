@@ -8,8 +8,8 @@ use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Heig
 
 use crate::co::Co;
 use crate::{
-    perform, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue, Request, State,
-    Status, ValueRequest, ValueResponse,
+    perform, BatchRequest, BatchResponse, InboundRequestId, Metrics, OutboundRequestId, PeerId,
+    RawDecidedValue, Request, State, Status, ValueRequest, ValueResponse,
 };
 
 #[derive_where(Debug)]
@@ -68,6 +68,12 @@ pub enum Input<Ctx: Context> {
     /// A ValueSync response has been received
     ValueResponse(OutboundRequestId, PeerId, ValueResponse<Ctx>),
 
+    /// A BatchSync request has been received from a peer
+    BatchRequest(InboundRequestId, PeerId, BatchRequest<Ctx>),
+
+    /// A BatchSync response has been received
+    BatchResponse(OutboundRequestId, PeerId, BatchResponse<Ctx>),
+
     /// Got a response from the application to our `GetValue` request
     GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
 
@@ -104,6 +110,14 @@ where
 
         Input::ValueResponse(request_id, peer_id, response) => {
             on_value_response(co, state, metrics, request_id, peer_id, response).await
+        }
+
+        Input::BatchRequest(request_id, peer_id, request) => {
+            on_batch_request(co, state, metrics, request_id, peer_id, request).await
+        }
+
+        Input::BatchResponse(request_id, peer_id, response) => {
+            on_batch_response(co, state, metrics, request_id, peer_id, response).await
         }
 
         Input::GotDecidedValue(request_id, height, value) => {
@@ -253,6 +267,38 @@ where
     Ok(())
 }
 
+pub async fn on_batch_request<Ctx>(
+    _co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    _request_id: InboundRequestId,
+    _peer: PeerId,
+    _request: BatchRequest<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    // TODO
+
+    Ok(())
+}
+
+pub async fn on_batch_response<Ctx>(
+    _co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    _request_id: OutboundRequestId,
+    _peer: PeerId,
+    _response: BatchResponse<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    // TODO
+
+    Ok(())
+}
+
 pub async fn on_value<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
@@ -308,6 +354,18 @@ where
             warn!(%peer_id, %height, "Value request timed out");
             state.remove_pending_decided_value_request(height);
             metrics.decided_value_request_timed_out(height.as_u64());
+        }
+        Request::BatchRequest(batch_request) => {
+            let (mut height, end) = batch_request.range;
+            warn!(%peer_id, start = %height, end = %end, "Batch request timed out");
+            loop {
+                state.remove_pending_decided_value_request(height);
+                metrics.decided_value_request_timed_out(height.as_u64());
+                if height == end {
+                    break;
+                }
+                height = height.increment();
+            }
         }
     };
 

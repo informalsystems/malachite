@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use derive_where::derive_where;
 use eyre::eyre;
 use libp2p::identity::Keypair;
-use libp2p::request_response;
+use libp2p::{request_response, StreamProtocol};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use tokio::task::JoinHandle;
 use tracing::{error, trace};
@@ -100,7 +100,7 @@ pub struct Args {
 pub enum NetworkEvent<Ctx: Context> {
     Listening(Multiaddr),
 
-    PeerConnected(PeerId),
+    PeerConnected(PeerId, Option<Vec<StreamProtocol>>),
     PeerDisconnected(PeerId),
 
     Vote(PeerId, SignedVote<Ctx>),
@@ -254,7 +254,7 @@ where
                 }
 
                 for peer in peers.iter() {
-                    subscriber.send(NetworkEvent::PeerConnected(*peer));
+                    subscriber.send(NetworkEvent::PeerConnected(*peer, None));
                 }
 
                 subscriber.subscribe_to_port(output_port);
@@ -333,9 +333,9 @@ where
                 output_port.send(NetworkEvent::Listening(addr));
             }
 
-            Msg::NewEvent(Event::PeerConnected(peer_id)) => {
+            Msg::NewEvent(Event::PeerConnected(peer_id, protocols)) => {
                 peers.insert(peer_id);
-                output_port.send(NetworkEvent::PeerConnected(peer_id));
+                output_port.send(NetworkEvent::PeerConnected(peer_id, protocols));
             }
 
             Msg::NewEvent(Event::PeerDisconnected(peer_id)) => {

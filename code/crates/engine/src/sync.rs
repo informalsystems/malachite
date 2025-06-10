@@ -287,6 +287,16 @@ where
                     .await?;
             }
 
+            Msg::NetworkEvent(NetworkEvent::PeerConnected(peer_id, protocols)) => {
+                info!(%peer_id, "Connected to peer");
+
+                if let Some(protocols) = protocols {
+                    state.sync.add_peer(peer_id, protocols);
+                } else {
+                    warn!(%peer_id, "Skipping peer connected event, no protocols found");
+                }
+            }
+
             Msg::NetworkEvent(NetworkEvent::PeerDisconnected(peer_id)) => {
                 info!(%peer_id, "Disconnected from peer");
 
@@ -316,6 +326,14 @@ where
                         )
                         .await?;
                     }
+                    Request::BatchRequest(batch_request) => {
+                        self.process_input(
+                            &myself,
+                            state,
+                            sync::Input::BatchRequest(request_id, from, batch_request),
+                        )
+                        .await?;
+                    }
                 };
             }
 
@@ -329,6 +347,14 @@ where
                             &myself,
                             state,
                             sync::Input::ValueResponse(request_id, peer, value_response),
+                        )
+                        .await?;
+                    }
+                    Response::BatchResponse(batch_response) => {
+                        self.process_input(
+                            &myself,
+                            state,
+                            sync::Input::BatchResponse(request_id, peer, batch_response),
                         )
                         .await?;
                     }

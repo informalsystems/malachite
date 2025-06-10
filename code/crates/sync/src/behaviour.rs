@@ -55,16 +55,26 @@ impl Default for Config {
 }
 
 impl Behaviour {
-    pub const PROTOCOL: [(StreamProtocol, ProtocolSupport); 1] = [(
+    pub const SYNC_V2_PROTOCOL: (StreamProtocol, ProtocolSupport) = (
+        StreamProtocol::new("/malachitebft-sync/v2beta1"),
+        ProtocolSupport::Full,
+    );
+
+    pub const SYNC_V1_PROTOCOL: (StreamProtocol, ProtocolSupport) = (
         StreamProtocol::new("/malachitebft-sync/v1beta1"),
         ProtocolSupport::Full,
-    )];
+    );
+
+    pub const PROTOCOLS: [(StreamProtocol, ProtocolSupport); 2] = [
+        Self::SYNC_V2_PROTOCOL, // Sync v2 is preferred
+        Self::SYNC_V1_PROTOCOL, // Sync v1 is for backward compatibility
+    ];
 
     pub fn new(config: Config) -> Self {
         let rpc_config = rpc::Config::default().with_request_timeout(config.request_timeout);
 
         Self {
-            rpc: rpc::Behaviour::with_codec(Codec::new(config), Self::PROTOCOL, rpc_config),
+            rpc: rpc::Behaviour::with_codec(Codec::new(config), Self::PROTOCOLS, rpc_config),
             // metrics: None,
         }
     }
@@ -73,7 +83,7 @@ impl Behaviour {
         let rpc_config = rpc::Config::default().with_request_timeout(config.request_timeout);
 
         Self {
-            rpc: rpc::Behaviour::with_codec(Codec::new(config), Self::PROTOCOL, rpc_config),
+            rpc: rpc::Behaviour::with_codec(Codec::new(config), Self::PROTOCOLS, rpc_config),
             // metrics: Some(Metrics::new(registry)),
         }
     }

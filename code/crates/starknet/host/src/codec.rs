@@ -200,6 +200,9 @@ pub fn encode_sync_request(
                 },
             )),
         },
+        sync::Request::BatchRequest(_) => {
+            panic!("TODO")
+        }
     };
 
     Ok(proto)
@@ -253,6 +256,9 @@ pub fn encode_sync_response(
                 },
             )),
         },
+        sync::Response::BatchResponse(_) => {
+            panic!("TODO")
+        }
     };
 
     Ok(proto)

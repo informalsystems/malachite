@@ -370,6 +370,9 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                     },
                 )),
             },
+            sync::Request::BatchRequest(_) => {
+                panic!("TODO")
+            }
         };
 
         Ok(Bytes::from(proto.encode_to_vec()))
@@ -423,6 +426,9 @@ pub fn encode_sync_response(
                 },
             )),
         },
+        sync::Response::BatchResponse(_) => {
+            panic!("TODO")
+        }
     };
 
     Ok(proto)
