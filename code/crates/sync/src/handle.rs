@@ -192,13 +192,12 @@ where
         return Ok(());
     }
 
-    // TODO: move this parameter to config
-    if peer_height > state.tip_height.increment_by(3) {
+    if peer_height > state.tip_height {
         warn!(
             height.tip = %state.tip_height,
             height.sync = %state.sync_height,
             height.peer = %peer_height,
-            "SYNC REQUIRED: Falling behind by more than 3 heights",
+            "SYNC REQUIRED: Falling behind",
         );
 
         // We are lagging behind one of our peer at least,

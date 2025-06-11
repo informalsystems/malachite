@@ -345,11 +345,7 @@ where
             Msg::NetworkEvent(NetworkEvent::PeerConnected(peer_id, protocols)) => {
                 info!(%peer_id, "Connected to peer");
 
-                if let Some(protocols) = protocols {
-                    state.sync.add_peer(peer_id, protocols);
-                } else {
-                    warn!(%peer_id, "Skipping peer connected event, no protocols found");
-                }
+                state.sync.add_peer(peer_id, protocols);
             }
 
             Msg::NetworkEvent(NetworkEvent::PeerDisconnected(peer_id)) => {

@@ -143,7 +143,7 @@ impl TransportProtocol {
 #[derive(Clone, Debug)]
 pub enum Event {
     Listening(Multiaddr),
-    PeerConnected(PeerId, Option<Vec<StreamProtocol>>),
+    PeerConnected(PeerId, Vec<StreamProtocol>),
     PeerDisconnected(PeerId),
     ConsensusMessage(Channel, PeerId, Bytes),
     LivenessMessage(Channel, PeerId, Bytes),
@@ -469,7 +469,7 @@ async fn handle_swarm_event(
                 if let Err(e) = tx_event
                     .send(Event::PeerConnected(
                         PeerId::from_libp2p(&peer_id),
-                        Some(info.protocols),
+                        info.protocols.clone(),
                     ))
                     .await
                 {
