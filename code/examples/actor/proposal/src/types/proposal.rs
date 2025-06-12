@@ -2,6 +2,8 @@ use bytes::Bytes;
 use malachitebft_core_types::Round;
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 
+use super::proto;
+
 use crate::types::{address::Address, context::MockContext, height::Height, value::Value};
 
 /// A proposal for a value in a round
@@ -67,7 +69,7 @@ impl malachitebft_core_types::Proposal<MockContext> for Proposal {
 }
 
 impl Protobuf for Proposal {
-    type Proto = super::proto::Proposal;
+    type Proto = proto::Proposal;
 
     #[cfg_attr(coverage_nightly, coverage(off))]
     fn to_proto(&self) -> Result<Self::Proto, ProtoError> {

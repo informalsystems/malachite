@@ -2,8 +2,11 @@ use core::fmt;
 
 use crate::types::hash::Hash;
 use bytes::Bytes;
-use malachitebft_proto::{self as proto};
 use serde::{Deserialize, Serialize};
+
+use malachitebft_proto::{Error as ProtoError, Protobuf};
+
+use super::proto;
 
 /// Transaction
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -60,16 +63,16 @@ impl fmt::Debug for Transaction {
     }
 }
 
-impl proto::Protobuf for Transaction {
-    type Proto = super::proto::ConsensusTransaction;
+impl Protobuf for Transaction {
+    type Proto = proto::ConsensusTransaction;
 
-    fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
+    fn from_proto(proto: Self::Proto) -> Result<Self, ProtoError> {
         let data = proto.tx;
         let hash = Self::compute_hash(&data);
         Ok(Self { data, hash })
     }
 
-    fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
+    fn to_proto(&self) -> Result<Self::Proto, ProtoError> {
         Ok(Self::Proto {
             tx: self.data.clone(),
             hash: Bytes::from(self.hash.to_vec()),
@@ -132,10 +135,10 @@ impl TransactionBatch {
     }
 }
 
-impl proto::Protobuf for TransactionBatch {
-    type Proto = super::proto::TransactionBatch;
+impl Protobuf for TransactionBatch {
+    type Proto = proto::TransactionBatch;
 
-    fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
+    fn from_proto(proto: Self::Proto) -> Result<Self, ProtoError> {
         Ok(Self::new(
             proto
                 .transactions
@@ -145,8 +148,8 @@ impl proto::Protobuf for TransactionBatch {
         ))
     }
 
-    fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
-        Ok(super::proto::TransactionBatch {
+    fn to_proto(&self) -> Result<Self::Proto, ProtoError> {
+        Ok(proto::TransactionBatch {
             transactions: self
                 .as_slice()
                 .iter()

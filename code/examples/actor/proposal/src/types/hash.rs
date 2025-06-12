@@ -2,9 +2,11 @@ use bytes::Bytes;
 use sha3::{Digest, Sha3_256};
 use std::fmt;
 
-use malachitebft_proto::{self as proto};
 use serde::{Deserialize, Serialize};
 
+use malachitebft_proto::{Error as ProtoError, Protobuf};
+
+use super::proto;
 // Define the size of the hash (32 bytes for SHA3-256).
 const HASH_SIZE: usize = 32;
 
@@ -77,16 +79,16 @@ impl Hash {
     }
 }
 
-impl proto::Protobuf for Hash {
-    type Proto = super::proto::Hash;
+impl Protobuf for Hash {
+    type Proto = proto::Hash;
 
-    fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
+    fn from_proto(proto: Self::Proto) -> Result<Self, ProtoError> {
         Hash::from_bytes(&proto.elements)
-            .map_err(|_| proto::Error::invalid_data::<Self::Proto>("invalid hash"))
+            .map_err(|_| ProtoError::invalid_data::<Self::Proto>("invalid hash"))
     }
 
-    fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
-        Ok(super::proto::Hash {
+    fn to_proto(&self) -> Result<Self::Proto, ProtoError> {
+        Ok(proto::Hash {
             elements: Bytes::from(self.to_vec()),
         })
     }
