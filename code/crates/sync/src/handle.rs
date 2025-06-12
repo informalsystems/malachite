@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
 use thiserror::Error;
@@ -54,7 +55,7 @@ pub enum Effect<Ctx: Context> {
     GetDecidedValue(InboundRequestId, Ctx::Height),
 
     /// Retrieve a batch of values from the application
-    GetDecidedValues(InboundRequestId, Ctx::Height, Ctx::Height),
+    GetDecidedValues(InboundRequestId, RangeInclusive<Ctx::Height>),
 }
 
 #[derive_where(Debug)]
@@ -90,8 +91,7 @@ pub enum Input<Ctx: Context> {
     /// Got a response from the application to our `GetValues` request
     GotDecidedValues(
         InboundRequestId,
-        Ctx::Height,
-        Ctx::Height,
+        RangeInclusive<Ctx::Height>,
         BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
     ),
 
@@ -142,8 +142,8 @@ where
             on_value(co, state, metrics, request_id, height, value).await
         }
 
-        Input::GotDecidedValues(request_id, from, to, values) => {
-            on_values(co, state, metrics, request_id, from, to, values).await
+        Input::GotDecidedValues(request_id, range, values) => {
+            on_values(co, state, metrics, request_id, range, values).await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -301,14 +301,11 @@ pub async fn on_batch_request<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(from_height = %request.from, to_height = %request.to, peer = %peer, "Received batch request");
+    debug!(from_height = %request.range.start(), to_height = %request.range.end(), peer = %peer, "Received batch request");
 
     // TODO: update metrics
 
-    perform!(
-        co,
-        Effect::GetDecidedValues(request_id, request.from, request.to)
-    );
+    perform!(co, Effect::GetDecidedValues(request_id, request.range));
 
     Ok(())
 }
@@ -324,12 +321,12 @@ pub async fn on_batch_response<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(from = %response.from, to = %response.to, peer = %peer, "Received batch response");
+    debug!(from = %response.range.start(), to = %response.range.end(), peer = %peer, "Received batch response");
 
-    let mut height = response.from;
+    let mut height = *response.range.start();
     loop {
         state.remove_pending_decided_value_request(height);
-        if height >= response.to {
+        if height >= *response.range.end() {
             break;
         }
         height = height.increment();
@@ -384,18 +381,21 @@ pub async fn on_values<Ctx>(
     _state: &mut State<Ctx>,
     _metrics: &Metrics,
     request_id: InboundRequestId,
-    from: Ctx::Height,
-    to: Ctx::Height,
+    range: RangeInclusive<Ctx::Height>,
     values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
     // TODO: clean
-    if values.len() != (to.as_u64() - from.as_u64() + 1).try_into().unwrap() {
+    if values.len()
+        != (range.end().as_u64() - range.start().as_u64() + 1)
+            .try_into()
+            .unwrap()
+    {
         error!(
-            from_height = %from,
-            to_height = %to,
+            from_height = %range.start(),
+            to_height = %range.end(),
             "Received batch response with unexpected number of values: {}",
             values.len()
         );
@@ -404,7 +404,7 @@ where
 
     perform!(
         co,
-        Effect::SendBatchResponse(request_id, BatchResponse::new(from, to, values))
+        Effect::SendBatchResponse(request_id, BatchResponse::new(range, values))
     );
 
     // TODO: update metrics
@@ -430,12 +430,12 @@ where
             metrics.decided_value_request_timed_out(height.as_u64());
         }
         Request::BatchRequest(batch_request) => {
-            let mut height = batch_request.from;
-            warn!(%peer_id, from_height = %height, to_height = %batch_request.to, "Batch request timed out");
+            let mut height = *batch_request.range.start();
+            warn!(%peer_id, from_height = %height, to_height = %batch_request.range.end(), "Batch request timed out");
             loop {
                 state.remove_pending_decided_value_request(height);
                 metrics.decided_value_request_timed_out(height.as_u64());
-                if height >= batch_request.to {
+                if height >= *batch_request.range.end() {
                     break;
                 }
                 height = height.increment();

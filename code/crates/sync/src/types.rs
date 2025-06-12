@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, ops::RangeInclusive};
 
 use bytes::Bytes;
 use derive_where::derive_where;
@@ -105,16 +105,14 @@ impl<Ctx: Context> ValueResponse<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchRequest<Ctx: Context> {
-    pub from: Ctx::Height,
-    pub to: Ctx::Height,
+    pub range: RangeInclusive<Ctx::Height>,
     pub max_response_size: usize,
 }
 
 impl<Ctx: Context> BatchRequest<Ctx> {
-    pub fn new(from: Ctx::Height, to: Ctx::Height, max_response_size: usize) -> Self {
+    pub fn new(range: RangeInclusive<Ctx::Height>, max_response_size: usize) -> Self {
         Self {
-            from,
-            to,
+            range,
             max_response_size,
         }
     }
@@ -122,18 +120,16 @@ impl<Ctx: Context> BatchRequest<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchResponse<Ctx: Context> {
-    pub from: Ctx::Height,
-    pub to: Ctx::Height,
+    pub range: RangeInclusive<Ctx::Height>,
     pub values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
 }
 
 impl<Ctx: Context> BatchResponse<Ctx> {
     pub fn new(
-        from: Ctx::Height,
-        to: Ctx::Height,
+        range: RangeInclusive<Ctx::Height>,
         values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
     ) -> Self {
-        Self { from, to, values }
+        Self { range, values }
     }
 }
 

@@ -282,11 +282,11 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 }
             }
 
-            AppMsg::GetDecidedValues { from, to, reply } => {
-                info!(from = %from, to = %to, "Received sync request for decided values");
+            AppMsg::GetDecidedValues { range, reply } => {
+                info!(from = %range.start(), to = %range.end(), "Received sync request for decided values");
 
-                let decided_values = state.get_decided_values(from, to).await;
-                info!(from = %from, to = %to, "Found decided values: {decided_values:?}");
+                let decided_values = state.get_decided_values(range.clone()).await;
+                info!(from = %range.start(), to = %range.end(), "Found decided values: {decided_values:?}");
 
                 let raw_decided_values: BTreeMap<Height, RawDecidedValue<TestContext>> =
                     decided_values

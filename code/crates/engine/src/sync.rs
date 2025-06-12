@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -92,8 +93,7 @@ pub enum Msg<Ctx: Context> {
     /// Host has a response for the batch blocks request
     GotDecidedBlocks(
         InboundRequestId,
-        Ctx::Height,
-        Ctx::Height,
+        RangeInclusive<Ctx::Height>,
         BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
     ),
 
@@ -315,12 +315,13 @@ where
                 )?;
             }
 
-            Effect::GetDecidedValues(request_id, from, to) => {
+            Effect::GetDecidedValues(request_id, range) => {
+                let range_cloned = range.clone();
                 self.host.call_and_forward(
-                    |reply_to| HostMsg::GetDecidedValues { from, to, reply_to },
+                    |reply_to| HostMsg::GetDecidedValues { range, reply_to },
                     myself,
                     move |synced_values| {
-                        Msg::<Ctx>::GotDecidedBlocks(request_id, from, to, synced_values)
+                        Msg::<Ctx>::GotDecidedBlocks(request_id, range_cloned, synced_values)
                     },
                     None,
                 )?;
@@ -437,11 +438,11 @@ where
                 .await?;
             }
 
-            Msg::GotDecidedBlocks(request_id, from, to, blocks) => {
+            Msg::GotDecidedBlocks(request_id, range, blocks) => {
                 self.process_input(
                     &myself,
                     state,
-                    sync::Input::GotDecidedValues(request_id, from, to, blocks),
+                    sync::Input::GotDecidedValues(request_id, range, blocks),
                 )
                 .await?;
             }

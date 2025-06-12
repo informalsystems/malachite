@@ -2,6 +2,7 @@
 //! A regular application would have mempool implemented, a proper database and input methods like RPC.
 
 use std::collections::{BTreeMap, HashMap};
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
@@ -185,14 +186,13 @@ impl State {
         self.store.get_decided_value(height).await.ok().flatten()
     }
 
-    /// Retrieves decided values in the range from `from` to `to` heights.
+    /// Retrieves decided values in the specified range.
     pub async fn get_decided_values(
         &self,
-        from: Height,
-        to: Height,
+        range: RangeInclusive<Height>,
     ) -> BTreeMap<Height, DecidedValue> {
         self.store
-            .get_decided_values(from, to)
+            .get_decided_values(range)
             .await
             .unwrap_or_default()
     }

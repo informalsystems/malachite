@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::mem::size_of;
+use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -388,8 +389,7 @@ impl Store {
     /// Called by the application when a syncing peer is asking for a batch of decided values.
     pub async fn get_decided_values(
         &self,
-        from: Height,
-        to: Height,
+        range: RangeInclusive<Height>,
     ) -> Result<BTreeMap<Height, DecidedValue>, StoreError> {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || {
@@ -397,13 +397,13 @@ impl Store {
 
             // TODO: optimize this to avoid multiple database reads
 
-            let mut height = from;
+            let mut height = *range.start();
             loop {
                 if let Some(value) = db.get_decided_value(height)? {
                     values.insert(height, value);
                 }
 
-                if height >= to {
+                if height >= *range.end() {
                     break;
                 }
                 height = height.increment();

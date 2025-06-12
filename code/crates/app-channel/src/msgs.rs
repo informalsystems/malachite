@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -177,10 +178,8 @@ pub enum AppMsg<Ctx: Context> {
     ///
     /// The application MUST respond with a map of heights to decided values
     GetDecidedValues {
-        /// Starting height of the range to retrieve
-        from: Ctx::Height,
-        /// Ending height of the range to retrieve
-        to: Ctx::Height,
+        /// Range of heights for which to retrieve decided values
+        range: RangeInclusive<Ctx::Height>,
         /// Channel for sending back the decided values
         reply: Reply<BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>>,
     },
