@@ -11,8 +11,7 @@ use malachitebft_proto::Protobuf;
 use malachitebft_test_mempool::types::MempoolTransactionBatch;
 use malachitebft_test_mempool::{Event as NetworkEvent, NetworkMsg, PeerId};
 
-pub mod network;
-use network::{MempoolNetworkMsg, MempoolNetworkRef};
+use super::network::{MempoolNetworkMsg, MempoolNetworkRef};
 
 pub type MempoolMsg = Msg;
 pub type MempoolRef = ActorRef<Msg>;

@@ -22,7 +22,7 @@ use crate::codec::ProtobufCodec;
 
 use crate::mempool::network::{MempoolNetwork, MempoolNetworkRef};
 use crate::mempool::{Mempool, MempoolRef};
-use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
+use crate::mempool::{MempoolLoad, MempoolLoadRef, Params};
 use crate::mock_host::{MockHost, MockHostParams};
 
 use crate::config::Config;

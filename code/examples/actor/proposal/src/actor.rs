@@ -20,8 +20,8 @@ use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
+use crate::mempool::MempoolLoadRef;
 use crate::mempool::{MempoolMsg, MempoolRef};
-use crate::mempool_load::MempoolLoadRef;
 use crate::metrics::Metrics;
 use crate::mock_host::MockHost;
 use crate::state::HostState;
