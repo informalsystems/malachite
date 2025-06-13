@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
+
 use derive_where::derive_where;
 use tracing::{debug, error, info, trace, warn};
 
@@ -5,8 +8,9 @@ use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Heig
 
 use crate::co::Co;
 use crate::{
-    perform, Effect, Error, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue,
-    Request, Resume, State, Status, ValueRequest, ValueResponse,
+    perform, BatchRequest, BatchResponse, Effect, Error, InboundRequestId, Metrics,
+    OutboundRequestId, PeerId, RawDecidedValue, Request, Resume, State, Status, ValueRequest,
+    ValueResponse,
 };
 
 #[derive_where(Debug)]
@@ -30,8 +34,21 @@ pub enum Input<Ctx: Context> {
     /// A (possibly empty or invalid) ValueSync response has been received
     ValueResponse(OutboundRequestId, PeerId, Option<ValueResponse<Ctx>>),
 
+    /// A BatchSync request has been received from a peer
+    BatchRequest(InboundRequestId, PeerId, BatchRequest<Ctx>),
+
+    /// A BatchSync response has been received
+    BatchResponse(OutboundRequestId, PeerId, BatchResponse<Ctx>),
+
     /// Got a response from the application to our `GetValue` request
     GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+
+    /// Got a response from the application to our `GetValues` request
+    GotDecidedValues(
+        InboundRequestId,
+        RangeInclusive<Ctx::Height>,
+        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+    ),
 
     /// A request for a value timed out
     SyncRequestTimedOut(PeerId, Request<Ctx>),
@@ -72,8 +89,20 @@ where
             on_empty_value_response(co, state, metrics, request_id, peer_id).await
         }
 
+        Input::BatchRequest(request_id, peer_id, request) => {
+            on_batch_request(co, state, metrics, request_id, peer_id, request).await
+        }
+
+        Input::BatchResponse(request_id, peer_id, response) => {
+            on_batch_response(co, state, metrics, request_id, peer_id, response).await
+        }
+
         Input::GotDecidedValue(request_id, height, value) => {
             on_got_decided_value(co, state, metrics, request_id, height, value).await
+        }
+
+        Input::GotDecidedValues(request_id, range, values) => {
+            on_got_decided_values(co, state, metrics, request_id, range, values).await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -129,7 +158,7 @@ where
             height.tip = %state.tip_height,
             height.sync = %state.sync_height,
             height.peer = %peer_height,
-            "SYNC REQUIRED: Falling behind"
+            "SYNC REQUIRED: Falling behind",
         );
 
         // We are lagging behind one of our peer at least,
@@ -225,6 +254,54 @@ where
     Ok(())
 }
 
+pub async fn on_batch_request<Ctx>(
+    co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    request_id: InboundRequestId,
+    peer: PeerId,
+    request: BatchRequest<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    debug!(from_height = %request.range.start(), to_height = %request.range.end(), peer = %peer, "Received batch request");
+
+    // TODO: update metrics
+
+    perform!(
+        co,
+        Effect::GetDecidedValues(request_id, request.range, Default::default())
+    );
+
+    Ok(())
+}
+
+pub async fn on_batch_response<Ctx>(
+    _co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    _request_id: OutboundRequestId,
+    peer: PeerId,
+    response: BatchResponse<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    debug!(from = %response.range.start(), to = %response.range.end(), peer = %peer, "Received batch response");
+
+    let mut height = *response.range.start();
+    loop {
+        state.remove_pending_decided_value_request_by_height(&height);
+        if height >= *response.range.end() {
+            break;
+        }
+        height = height.increment();
+    }
+
+    Ok(())
+}
+
 pub async fn on_empty_value_response<Ctx>(
     _co: Co<Ctx>,
     state: &mut State<Ctx>,
@@ -285,6 +362,57 @@ where
     Ok(())
 }
 
+pub async fn on_got_decided_values<Ctx>(
+    co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    _metrics: &Metrics,
+    request_id: InboundRequestId,
+    range: RangeInclusive<Ctx::Height>,
+    values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    // TODO(SYNC): Double check that this function is correct
+
+    let response = if values.len()
+        != (range.end().as_u64() - range.start().as_u64() + 1)
+            .try_into()
+            .unwrap()
+    {
+        error!(
+            from_height = %range.start(),
+            to_height = %range.end(),
+            "Received batch response from host with unexpected number of values: {}",
+            values.len()
+        );
+
+        BTreeMap::new()
+    } else {
+        info!(
+            from_height = %range.start(),
+            to_height = %range.end(),
+            "Received batch response from host with {} values",
+            values.len()
+        );
+
+        values
+    };
+
+    perform!(
+        co,
+        Effect::SendBatchResponse(
+            request_id,
+            BatchResponse::new(range, response),
+            Default::default()
+        )
+    );
+
+    // TODO(SYNC): Update metrics
+
+    Ok(())
+}
+
 pub async fn on_sync_request_timed_out<Ctx>(
     _co: Co<Ctx>,
     state: &mut State<Ctx>,
@@ -302,6 +430,18 @@ where
 
             state.remove_pending_decided_value_request_by_height(&height);
             metrics.decided_value_request_timed_out(height.as_u64());
+        }
+        Request::BatchRequest(batch_request) => {
+            let mut height = *batch_request.range.start();
+            warn!(%peer_id, from_height = %height, to_height = %batch_request.range.end(), "Batch request timed out");
+            loop {
+                state.remove_pending_decided_value_request_by_height(&height);
+                metrics.decided_value_request_timed_out(height.as_u64());
+                if height >= *batch_request.range.end() {
+                    break;
+                }
+                height = height.increment();
+            }
         }
     };
 
@@ -338,6 +478,8 @@ async fn request_value<Ctx>(
 where
     Ctx: Context,
 {
+    // TODO(SYNC): Add logic to either use v1 or v2 sync protocol
+
     let sync_height = state.sync_height;
 
     if state.has_pending_decided_value_request(&sync_height) {

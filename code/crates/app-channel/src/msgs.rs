@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -170,6 +172,16 @@ pub enum AppMsg<Ctx: Context> {
         height: Ctx::Height,
         /// Channel for sending back the decided value
         reply: Reply<Option<RawDecidedValue<Ctx>>>,
+    },
+
+    /// Requests a batch of previously decided values from the application's storage.
+    ///
+    /// The application MUST respond with a map of heights to decided values
+    GetDecidedValues {
+        /// Range of heights for which to retrieve decided values
+        range: RangeInclusive<Ctx::Height>,
+        /// Channel for sending back the decided values
+        reply: Reply<BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>>,
     },
 
     /// Notifies the application that a value has been synced from the network.

@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use libp2p::StreamProtocol;
 use rand::seq::IteratorRandom;
 
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
+use tracing::warn;
 
-use crate::{OutboundRequestId, Status};
+use crate::{Behaviour, OutboundRequestId, PeerDetails, PeerKind, Status};
 
 pub struct State<Ctx>
 where
@@ -30,7 +32,7 @@ where
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
     /// TODO - For now value and vote sync peers are the same. Might need to revise in the future.
-    pub peers: BTreeMap<PeerId, Status<Ctx>>,
+    pub peers: BTreeMap<PeerId, PeerDetails<Ctx>>,
 }
 
 impl<Ctx> State<Ctx>
@@ -49,8 +51,35 @@ where
         }
     }
 
+    pub fn add_peer(&mut self, peer_id: PeerId, protocols: Vec<StreamProtocol>) {
+        if self.peers.contains_key(&peer_id) {
+            warn!("Peer {} already exists in the state", peer_id);
+            return;
+        }
+
+        let kind = if protocols.contains(&Behaviour::SYNC_V2_PROTOCOL.0) {
+            PeerKind::SyncV2
+        } else if protocols.contains(&Behaviour::SYNC_V1_PROTOCOL.0) {
+            PeerKind::SyncV1
+        } else {
+            warn!("Peer {} does not support any known sync protocol", peer_id);
+            return;
+        };
+
+        self.peers.insert(
+            peer_id,
+            PeerDetails {
+                kind,
+                status: Status::default(peer_id),
+            },
+        );
+    }
+
     pub fn update_status(&mut self, status: Status<Ctx>) {
-        self.peers.insert(status.peer_id, status);
+        // TODO: should we consider status messages from non connected peers?
+        if let Some(peer_details) = self.peers.get_mut(&status.peer_id) {
+            peer_details.update_status(status);
+        }
     }
 
     /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
@@ -61,8 +90,8 @@ where
     {
         self.peers
             .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
+            .filter_map(|(&peer, detail)| {
+                (detail.status.history_min_height..=detail.status.tip_height)
                     .contains(&height)
                     .then_some(peer)
             })
@@ -77,8 +106,8 @@ where
     ) -> Option<PeerId> {
         self.peers
             .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
+            .filter_map(|(&peer, detail)| {
+                (detail.status.history_min_height..=detail.status.tip_height)
                     .contains(&height)
                     .then_some(peer)
             })
@@ -98,6 +127,27 @@ where
             .entry(height)
             .or_default()
             .insert(request_id);
+    }
+
+    pub fn store_pending_decided_batch_request(
+        &mut self,
+        from: Ctx::Height,
+        to: Ctx::Height,
+        request_id: OutboundRequestId,
+    ) {
+        self.height_per_request_id.insert(request_id.clone(), from);
+
+        let mut height = from;
+        loop {
+            self.pending_decided_value_requests
+                .entry(height)
+                .or_default()
+                .insert(request_id.clone());
+            if height >= to {
+                break;
+            }
+            height = height.increment();
+        }
     }
 
     pub fn remove_pending_decided_value_request_by_height(&mut self, height: &Ctx::Height) {
@@ -121,6 +171,14 @@ where
             if request_ids.is_empty() {
                 self.pending_decided_value_requests.remove(&height);
             }
+        }
+    }
+
+    pub fn remove_pending_decided_batch_request(&mut self, from: Ctx::Height, to: Ctx::Height) {
+        let mut height = from;
+        while height <= to {
+            self.pending_decided_value_requests.remove(&height);
+            height = height.increment();
         }
     }
 

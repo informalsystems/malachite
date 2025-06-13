@@ -1,4 +1,6 @@
+use std::collections::BTreeMap;
 use std::mem::size_of;
+use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
@@ -381,6 +383,34 @@ impl Store {
         let db = Arc::clone(&self.db);
 
         tokio::task::spawn_blocking(move || db.get_decided_value(height)).await?
+    }
+
+    /// Retrieves decided values for a range of heights.
+    /// Called by the application when a syncing peer is asking for a batch of decided values.
+    pub async fn get_decided_values(
+        &self,
+        range: RangeInclusive<Height>,
+    ) -> Result<BTreeMap<Height, DecidedValue>, StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || {
+            let mut values = BTreeMap::new();
+
+            // TODO: optimize this to avoid multiple database reads
+
+            let mut height = *range.start();
+            loop {
+                if let Some(value) = db.get_decided_value(height)? {
+                    values.insert(height, value);
+                }
+
+                if height >= *range.end() {
+                    break;
+                }
+                height = height.increment();
+            }
+            Ok(values)
+        })
+        .await?
     }
 
     /// Stores a decided value with its certificate.
