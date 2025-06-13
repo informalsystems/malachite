@@ -92,7 +92,7 @@ pub enum Input<Ctx: Context> {
     GotDecidedValues(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,
-        BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
     ),
 
     /// A request for a value timed out
@@ -185,14 +185,15 @@ where
     let peer_height = status.tip_height;
 
     state.update_status(status);
-    // TODO: do not continue if we don't consider unconnected peers' statuses
 
     if !state.started {
         // Consensus has not started yet, no need to sync (yet).
         return Ok(());
     }
 
-    if peer_height > state.tip_height {
+    // Trigger sync if we are more than 1 height behind to avoid the time race
+    // between the sync and consensus messages.
+    if peer_height > state.tip_height.increment() {
         warn!(
             height.tip = %state.tip_height,
             height.sync = %state.sync_height,
@@ -382,13 +383,14 @@ pub async fn on_values<Ctx>(
     _metrics: &Metrics,
     request_id: InboundRequestId,
     range: RangeInclusive<Ctx::Height>,
-    values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+    values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    // TODO: clean
-    if values.len()
+    // TODO(SYNC): Double check that this function is correct
+
+    let response = if values.len()
         != (range.end().as_u64() - range.start().as_u64() + 1)
             .try_into()
             .unwrap()
@@ -396,18 +398,28 @@ where
         error!(
             from_height = %range.start(),
             to_height = %range.end(),
-            "Received batch response with unexpected number of values: {}",
+            "Received batch response from host with unexpected number of values: {}",
             values.len()
         );
-        return Ok(());
-    }
+
+        BTreeMap::new()
+    } else {
+        info!(
+            from_height = %range.start(),
+            to_height = %range.end(),
+            "Received batch response from host with {} values",
+            values.len()
+        );
+
+        values
+    };
 
     perform!(
         co,
-        Effect::SendBatchResponse(request_id, BatchResponse::new(range, values))
+        Effect::SendBatchResponse(request_id, BatchResponse::new(range, response))
     );
 
-    // TODO: update metrics
+    // TODO(SYNC): Update metrics
 
     Ok(())
 }
@@ -457,7 +469,7 @@ async fn request_value<Ctx>(
 where
     Ctx: Context,
 {
-    // TODO: add logic to use sync v2 (i.e. batch requests)
+    // TODO(SYNC): Add logic to either use v1 or v2 sync protocol
 
     let sync_height = state.sync_height;
 

@@ -94,7 +94,7 @@ pub enum Msg<Ctx: Context> {
     GotDecidedBlocks(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,
-        BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
     ),
 
     /// A timeout has elapsed

@@ -551,7 +551,7 @@ async fn on_get_decided_block(
 async fn on_get_decided_blocks(
     range: RangeInclusive<Height>,
     state: &mut HostState,
-    reply_to: RpcReplyPort<BTreeMap<Height, RawDecidedValue<MockContext>>>,
+    reply_to: RpcReplyPort<BTreeMap<Height, Option<RawDecidedValue<MockContext>>>>,
 ) -> Result<(), ActorProcessingErr> {
     debug!(from = %range.start(), to = %range.end(), "Received request for decided blocks");
 
@@ -565,7 +565,7 @@ async fn on_get_decided_blocks(
                     value_bytes: block.block.to_bytes().unwrap(),
                     certificate: block.certificate,
                 };
-                values.insert(height, block);
+                values.insert(height, Some(block));
             }
             Ok(None) => continue,
             Err(e) => {

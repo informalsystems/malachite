@@ -121,13 +121,13 @@ impl<Ctx: Context> BatchRequest<Ctx> {
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchResponse<Ctx: Context> {
     pub range: RangeInclusive<Ctx::Height>,
-    pub values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+    pub values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
 }
 
 impl<Ctx: Context> BatchResponse<Ctx> {
     pub fn new(
         range: RangeInclusive<Ctx::Height>,
-        values: BTreeMap<Ctx::Height, RawDecidedValue<Ctx>>,
+        values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
     ) -> Self {
         Self { range, values }
     }

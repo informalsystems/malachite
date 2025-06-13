@@ -21,7 +21,7 @@ use malachitebft_core_types::{
     ValidatorSet, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
-use malachitebft_sync::{self as sync, ValueResponse};
+use malachitebft_sync::{self as sync, BatchResponse, ValueResponse};
 
 use crate::host::{HostMsg, HostRef, LocallyProposedValue, ProposedValue};
 use crate::network::{NetworkEvent, NetworkMsg, NetworkRef};
@@ -459,7 +459,7 @@ where
                         peer,
                         sync::Response::ValueResponse(ValueResponse { height, value }),
                     ) => {
-                        debug!(%height, %request_id, "Received sync response");
+                        debug!(%height, %request_id, "Received value sync response");
 
                         let Some(value) = value else {
                             error!(%height, %request_id, "Received empty value sync response");
@@ -508,6 +508,16 @@ where
                             },
                             None,
                         )?;
+                    }
+
+                    NetworkEvent::Response(
+                        request_id,
+                        _peer,
+                        sync::Response::BatchResponse(BatchResponse { range, values: _ }),
+                    ) => {
+                        debug!(from = %range.start(), to = %range.end(), %request_id, "Received batch sync response");
+
+                        // TODO(SYNC): Process the batch response
                     }
 
                     NetworkEvent::Vote(from, vote) => {

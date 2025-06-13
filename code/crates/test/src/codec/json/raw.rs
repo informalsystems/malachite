@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use bytes::Bytes;
 use ed25519_consensus::Signature;
 use serde::{Deserialize, Serialize};
@@ -11,7 +13,8 @@ use malachitebft_core_types::{
 use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::{
-    PeerId, RawDecidedValue, Request, Response, Status, ValueRequest, ValueResponse,
+    BatchRequest, BatchResponse, PeerId, RawDecidedValue, Request, Response, Status, ValueRequest,
+    ValueResponse,
 };
 
 use crate::{Address, Height, Proposal, ProposalPart, TestContext, ValueId, Vote};
@@ -143,8 +146,16 @@ pub struct ValueRawRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct BatchRawRequest {
+    pub from: Height,
+    pub to: Height,
+    pub max_response_size: usize,
+}
+
+#[derive(Serialize, Deserialize)]
 pub enum RawRequest {
     SyncRequest(ValueRawRequest),
+    BatchSyncRequest(BatchRawRequest),
 }
 
 impl From<Request<TestContext>> for RawRequest {
@@ -153,9 +164,11 @@ impl From<Request<TestContext>> for RawRequest {
             Request::ValueRequest(block_request) => Self::SyncRequest(ValueRawRequest {
                 height: block_request.height,
             }),
-            Request::BatchRequest(_) => {
-                panic!("TODO")
-            }
+            Request::BatchRequest(batch_request) => Self::BatchSyncRequest(BatchRawRequest {
+                from: *batch_request.range.start(),
+                to: *batch_request.range.end(),
+                max_response_size: batch_request.max_response_size,
+            }),
         }
     }
 }
@@ -165,6 +178,10 @@ impl From<RawRequest> for Request<TestContext> {
         match value {
             RawRequest::SyncRequest(block_raw_request) => Self::ValueRequest(ValueRequest {
                 height: block_raw_request.height,
+            }),
+            RawRequest::BatchSyncRequest(batch_raw_request) => Self::BatchRequest(BatchRequest {
+                range: batch_raw_request.from..=batch_raw_request.to,
+                max_response_size: batch_raw_request.max_response_size,
             }),
         }
     }
@@ -204,6 +221,12 @@ pub struct RawCommitCertificate {
 pub struct RawSyncedValue {
     pub value_bytes: Bytes,
     pub certificate: RawCommitCertificate,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RawBatchSyncValue {
+    pub height: Height,
+    pub value: Option<RawSyncedValue>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -266,17 +289,93 @@ impl From<ValueRawResponse> for ValueResponse<TestContext> {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct BatchRawResponse {
+    pub from: Height,
+    pub to: Height,
+    pub values: Vec<RawBatchSyncValue>,
+}
+
+impl From<BatchResponse<TestContext>> for BatchRawResponse {
+    fn from(value: BatchResponse<TestContext>) -> Self {
+        Self {
+            from: *value.range.start(),
+            to: *value.range.end(),
+            values: value
+                .values
+                .into_iter()
+                .map(|(height, value)| RawBatchSyncValue {
+                    height,
+                    value: value.map(|block| RawSyncedValue {
+                        value_bytes: block.value_bytes,
+                        certificate: RawCommitCertificate {
+                            height: block.certificate.height,
+                            round: block.certificate.round,
+                            value_id: block.certificate.value_id,
+                            commit_signatures: RawCommitSignatures {
+                                signatures: block
+                                    .certificate
+                                    .commit_signatures
+                                    .iter()
+                                    .map(|sig| RawCommitSignature {
+                                        address: sig.address,
+                                        signature: *sig.signature.inner(),
+                                    })
+                                    .collect(),
+                            },
+                        },
+                    }),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<BatchRawResponse> for BatchResponse<TestContext> {
+    fn from(value: BatchRawResponse) -> Self {
+        Self {
+            range: RangeInclusive::new(value.from, value.to),
+            values: value
+                .values
+                .into_iter()
+                .map(|block| {
+                    (
+                        block.height,
+                        block.value.map(|value| RawDecidedValue {
+                            value_bytes: value.value_bytes,
+                            certificate: CommitCertificate {
+                                height: value.certificate.height,
+                                round: value.certificate.round,
+                                value_id: value.certificate.value_id,
+                                commit_signatures: value
+                                    .certificate
+                                    .commit_signatures
+                                    .signatures
+                                    .iter()
+                                    .map(|sig| CommitSignature {
+                                        address: sig.address,
+                                        signature: sig.signature.into(),
+                                    })
+                                    .collect(),
+                            },
+                        }),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub enum RawResponse {
     ValueResponse(ValueRawResponse),
+    BatchResponse(BatchRawResponse),
 }
 
 impl From<Response<TestContext>> for RawResponse {
     fn from(value: Response<TestContext>) -> Self {
         match value {
             Response::ValueResponse(block_response) => Self::ValueResponse(block_response.into()),
-            Response::BatchResponse(_) => {
-                panic!("TODO")
-            }
+            Response::BatchResponse(batch_response) => Self::BatchResponse(batch_response.into()),
         }
     }
 }
@@ -286,6 +385,9 @@ impl From<RawResponse> for Response<TestContext> {
         match value {
             RawResponse::ValueResponse(block_raw_response) => {
                 Self::ValueResponse(block_raw_response.into())
+            }
+            RawResponse::BatchResponse(batch_raw_response) => {
+                Self::BatchResponse(batch_raw_response.into())
             }
         }
     }
