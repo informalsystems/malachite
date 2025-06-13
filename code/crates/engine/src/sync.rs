@@ -15,7 +15,7 @@ use tracing::{debug, error, info, warn, Instrument};
 use malachitebft_codec as codec;
 use malachitebft_core_consensus::PeerId;
 use malachitebft_core_types::{CertificateError, CommitCertificate, Context};
-use malachitebft_sync::{self as sync, InboundRequestId, OutboundRequestId, Response};
+use malachitebft_sync::{self as sync, InboundRequestId, OutboundRequestId, Response, Resumable};
 use malachitebft_sync::{RawDecidedValue, Request};
 
 use crate::host::{HostMsg, HostRef};
@@ -88,7 +88,7 @@ pub enum Msg<Ctx: Context> {
     StartedHeight(Ctx::Height, bool),
 
     /// Host has a response for the blocks request
-    GotDecidedBlock(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+    GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
 
     /// Host has a response for the batch blocks request
     GotDecidedBlocks(
@@ -223,16 +223,18 @@ where
         use sync::Effect;
 
         match effect {
-            Effect::BroadcastStatus(height) => {
+            Effect::BroadcastStatus(height, r) => {
                 let history_min_height = self.get_history_min_height().await?;
 
                 self.gossip.cast(NetworkMsg::BroadcastStatus(Status::new(
                     height,
                     history_min_height,
                 )))?;
+
+                Ok(r.resume_with(()))
             }
 
-            Effect::SendValueRequest(peer_id, value_request) => {
+            Effect::SendValueRequest(peer_id, value_request, r) => {
                 let request = Request::ValueRequest(value_request);
                 let result = ractor::call!(self.gossip, |reply_to| {
                     NetworkMsg::OutgoingRequest(peer_id, request.clone(), reply_to)
@@ -251,24 +253,29 @@ where
                             request_id.clone(),
                             InflightRequest {
                                 peer_id,
-                                request_id,
+                                request_id: request_id.clone(),
                                 request,
                             },
                         );
+
+                        Ok(r.resume_with(Some(request_id)))
                     }
                     Err(e) => {
                         error!("Failed to send request to network layer: {e}");
+                        Ok(r.resume_with(None))
                     }
                 }
             }
 
-            Effect::SendValueResponse(request_id, value_response) => {
+            Effect::SendValueResponse(request_id, value_response, r) => {
                 let response = Response::ValueResponse(value_response);
                 self.gossip
                     .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
+
+                Ok(r.resume_with(()))
             }
 
-            Effect::SendBatchRequest(peer_id, batch_request) => {
+            Effect::SendBatchRequest(peer_id, batch_request, r) => {
                 let request = Request::BatchRequest(batch_request);
                 let result = ractor::call!(self.gossip, |reply_to| {
                     NetworkMsg::OutgoingRequest(peer_id, request.clone(), reply_to)
@@ -287,35 +294,43 @@ where
                             request_id.clone(),
                             InflightRequest {
                                 peer_id,
-                                request_id,
+                                request_id: request_id.clone(),
                                 request,
                             },
                         );
+
+                        Ok(r.resume_with(Some(request_id)))
                     }
                     Err(e) => {
                         error!("Failed to send batch request to network layer: {e}");
+
+                        Ok(r.resume_with(None))
                     }
                 }
             }
 
-            Effect::SendBatchResponse(request_id, batch_response) => {
+            Effect::SendBatchResponse(request_id, batch_response, r) => {
                 let response = Response::BatchResponse(batch_response);
                 self.gossip
                     .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
+
+                Ok(r.resume_with(()))
             }
 
-            Effect::GetDecidedValue(request_id, height) => {
+            Effect::GetDecidedValue(request_id, height, r) => {
                 self.host.call_and_forward(
                     |reply_to| HostMsg::GetDecidedValue { height, reply_to },
                     myself,
                     move |synced_value| {
-                        Msg::<Ctx>::GotDecidedBlock(request_id, height, synced_value)
+                        Msg::<Ctx>::GotDecidedValue(request_id, height, synced_value)
                     },
                     None,
                 )?;
+
+                Ok(r.resume_with(()))
             }
 
-            Effect::GetDecidedValues(request_id, range) => {
+            Effect::GetDecidedValues(request_id, range, r) => {
                 let range_cloned = range.clone();
                 self.host.call_and_forward(
                     |reply_to| HostMsg::GetDecidedValues { range, reply_to },
@@ -325,10 +340,10 @@ where
                     },
                     None,
                 )?;
+
+                Ok(r.resume_with(()))
             }
         }
-
-        Ok(sync::Resume::default())
     }
 
     async fn handle_msg(
@@ -368,7 +383,7 @@ where
                     .await?;
             }
 
-            Msg::NetworkEvent(NetworkEvent::Request(request_id, from, request)) => {
+            Msg::NetworkEvent(NetworkEvent::SyncRequest(request_id, from, request)) => {
                 match request {
                     Request::ValueRequest(value_request) => {
                         self.process_input(
@@ -389,24 +404,34 @@ where
                 };
             }
 
-            Msg::NetworkEvent(NetworkEvent::Response(request_id, peer, response)) => {
+            Msg::NetworkEvent(NetworkEvent::SyncResponse(request_id, peer, response)) => {
                 // Cancel the timer associated with the request for which we just received a response
                 state.timers.cancel(&Timeout::Request(request_id.clone()));
 
                 match response {
-                    Response::ValueResponse(value_response) => {
+                    Some(Response::ValueResponse(value_response)) => {
                         self.process_input(
                             &myself,
                             state,
-                            sync::Input::ValueResponse(request_id, peer, value_response),
+                            sync::Input::ValueResponse(request_id, peer, Some(value_response)),
                         )
                         .await?;
                     }
-                    Response::BatchResponse(batch_response) => {
+
+                    Some(Response::BatchResponse(batch_response)) => {
                         self.process_input(
                             &myself,
                             state,
                             sync::Input::BatchResponse(request_id, peer, batch_response),
+                        )
+                        .await?;
+                    }
+
+                    None => {
+                        self.process_input(
+                            &myself,
+                            state,
+                            sync::Input::ValueResponse(request_id, peer, None),
                         )
                         .await?;
                     }
@@ -429,7 +454,7 @@ where
                     .await?;
             }
 
-            Msg::GotDecidedBlock(request_id, height, block) => {
+            Msg::GotDecidedValue(request_id, height, block) => {
                 self.process_input(
                     &myself,
                     state,

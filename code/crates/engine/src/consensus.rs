@@ -454,10 +454,10 @@ where
                         }
                     }
 
-                    NetworkEvent::Response(
+                    NetworkEvent::SyncResponse(
                         request_id,
                         peer,
-                        sync::Response::ValueResponse(ValueResponse { height, value }),
+                        Some(sync::Response::ValueResponse(ValueResponse { height, value })),
                     ) => {
                         debug!(%height, %request_id, "Received value sync response");
 
@@ -510,10 +510,10 @@ where
                         )?;
                     }
 
-                    NetworkEvent::Response(
+                    NetworkEvent::SyncResponse(
                         request_id,
                         _peer,
-                        sync::Response::BatchResponse(BatchResponse { range, values: _ }),
+                        Some(sync::Response::BatchResponse(BatchResponse { range, values: _ })),
                     ) => {
                         debug!(from = %range.start(), to = %range.end(), %request_id, "Received batch sync response");
 

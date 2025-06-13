@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ops::RangeInclusive};
+use std::{collections::BTreeMap, ops::RangeInclusive, sync::Arc};
 
 use bytes::Bytes;
 use derive_where::derive_where;
@@ -11,21 +11,21 @@ pub use malachitebft_peer::PeerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
 #[displaydoc("{0}")]
-pub struct InboundRequestId(String);
+pub struct InboundRequestId(Arc<str>);
 
 impl InboundRequestId {
     pub fn new(id: impl ToString) -> Self {
-        Self(id.to_string())
+        Self(Arc::from(id.to_string()))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
 #[displaydoc("{0}")]
-pub struct OutboundRequestId(String);
+pub struct OutboundRequestId(Arc<str>);
 
 impl OutboundRequestId {
     pub fn new(id: impl ToString) -> Self {
-        Self(id.to_string())
+        Self(Arc::from(id.to_string()))
     }
 }
 

@@ -200,7 +200,7 @@ impl Host {
             } => on_decided(state, &consensus, &self.mempool, certificate, &self.metrics).await,
 
             HostMsg::GetDecidedValue { height, reply_to } => {
-                on_get_decided_block(height, state, reply_to).await
+                on_get_decided_value(height, state, reply_to).await
             }
 
             HostMsg::GetDecidedValues { range, reply_to } => {
@@ -513,7 +513,7 @@ fn on_process_synced_value(
     Ok(())
 }
 
-async fn on_get_decided_block(
+async fn on_get_decided_value(
     height: Height,
     state: &mut HostState,
     reply_to: RpcReplyPort<Option<RawDecidedValue<MockContext>>>,
