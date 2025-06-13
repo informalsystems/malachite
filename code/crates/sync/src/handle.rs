@@ -153,9 +153,7 @@ where
         return Ok(());
     }
 
-    // Trigger sync if we are more than 1 height behind to avoid the time race
-    // between the sync and consensus messages.
-    if peer_height > state.tip_height.increment() {
+    if peer_height > state.tip_height {
         warn!(
             height.tip = %state.tip_height,
             height.sync = %state.sync_height,
