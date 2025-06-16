@@ -224,7 +224,7 @@ where
 {
     debug!(%request.height, %peer, "Received request for value");
 
-    metrics.decided_value_request_received(request.height.as_u64(), 1);
+    metrics.value_request_received(request.height.as_u64(), 1);
 
     perform!(
         co,
@@ -249,7 +249,7 @@ where
 
     state.remove_pending_decided_value_request_by_height(&response.height);
 
-    metrics.decided_value_response_received(response.height.as_u64(), 1);
+    metrics.value_response_received(response.height.as_u64(), 1);
 
     Ok(())
 }
@@ -270,7 +270,7 @@ where
     debug!(from_height = %start, to_height = %end, peer = %peer, "Received batch request");
 
     let batch_size = end.as_u64() - start.as_u64() + 1;
-    metrics.decided_value_request_received(start.as_u64(), batch_size);
+    metrics.value_request_received(start.as_u64(), batch_size);
 
     perform!(
         co,
@@ -360,7 +360,7 @@ where
         )
     );
 
-    metrics.decided_value_response_sent(height.as_u64(), 1);
+    metrics.value_response_sent(height.as_u64(), 1);
 
     Ok(())
 }
@@ -409,7 +409,7 @@ where
         )
     );
 
-    metrics.decided_value_response_sent(start, batch_size);
+    metrics.value_response_sent(start, batch_size);
 
     Ok(())
 }
@@ -430,14 +430,14 @@ where
             warn!(%peer_id, %height, "Value request timed out");
 
             state.remove_pending_decided_value_request_by_height(&height);
-            metrics.decided_value_request_timed_out(height.as_u64());
+            metrics.value_request_timed_out(height.as_u64());
         }
         Request::BatchRequest(batch_request) => {
             let mut height = *batch_request.range.start();
             warn!(%peer_id, from_height = %height, to_height = %batch_request.range.end(), "Batch request timed out");
             loop {
                 state.remove_pending_decided_value_request_by_height(&height);
-                metrics.decided_value_request_timed_out(height.as_u64());
+                metrics.value_request_timed_out(height.as_u64());
                 if height >= *batch_request.range.end() {
                     break;
                 }
@@ -534,7 +534,7 @@ where
         )
     };
 
-    metrics.decided_value_request_sent(height.as_u64(), batch_size);
+    metrics.value_request_sent(height.as_u64(), batch_size);
 
     // Store the request ID in the state
     if let Some(request_id) = request_id {
