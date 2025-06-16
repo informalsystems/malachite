@@ -9,7 +9,7 @@
 - Take minimum available height into account when requesting values from peers ([#1074](https://github.com/informalsystems/malachite/issues/1074))
 - Add support for making progress in the presence of equivocating proposals ([#1018](https://github.com/informalsystems/malachite/issues/1018))
 - Add support for all listen addresses of a peer in discovery and fixed the concurrent dial issue (introducing a new `max_connections_per_peer` parameter to discovery) ([#1056](https://github.com/informalsystems/malachite/issues/1056))
-- Add v2 protocol to the sync module for batching sync requests ([#1082](https://github.com/informalsystems/malachite/issues/1082)). See the corresponding issue ([#1070](https://github.com/informalsystems/malachite/issues/1070)) for more details.
+- Add batching mechanism to sync module ([#1082](https://github.com/informalsystems/malachite/issues/1082)). See the corresponding issue ([#1070](https://github.com/informalsystems/malachite/issues/1070)) for more details.
 
 ## 0.2.0
 
