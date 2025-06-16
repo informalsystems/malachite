@@ -224,7 +224,7 @@ where
 {
     debug!(%request.height, %peer, "Received request for value");
 
-    metrics.decided_value_request_received(request.height.as_u64());
+    metrics.decided_value_request_received(request.height.as_u64(), 1);
 
     perform!(
         co,
@@ -249,7 +249,7 @@ where
 
     state.remove_pending_decided_value_request_by_height(&response.height);
 
-    metrics.decided_value_response_received(response.height.as_u64());
+    metrics.decided_value_response_received(response.height.as_u64(), 1);
 
     Ok(())
 }
@@ -257,7 +257,7 @@ where
 pub async fn on_batch_request<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
     request_id: InboundRequestId,
     peer: PeerId,
     request: BatchRequest<Ctx>,
@@ -265,9 +265,12 @@ pub async fn on_batch_request<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(from_height = %request.range.start(), to_height = %request.range.end(), peer = %peer, "Received batch request");
+    let start = request.range.start();
+    let end = request.range.end();
+    debug!(from_height = %start, to_height = %end, peer = %peer, "Received batch request");
 
-    // TODO: update metrics
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    metrics.decided_value_request_received(start.as_u64(), batch_size);
 
     perform!(
         co,
@@ -357,7 +360,7 @@ where
         )
     );
 
-    metrics.decided_value_response_sent(height.as_u64());
+    metrics.decided_value_response_sent(height.as_u64(), 1);
 
     Ok(())
 }
@@ -365,7 +368,7 @@ where
 pub async fn on_got_decided_values<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
     request_id: InboundRequestId,
     range: RangeInclusive<Ctx::Height>,
     values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
@@ -373,25 +376,23 @@ pub async fn on_got_decided_values<Ctx>(
 where
     Ctx: Context,
 {
-    // TODO(SYNC): Double check that this function is correct
-
-    let response = if values.len()
-        != (range.end().as_u64() - range.start().as_u64() + 1)
-            .try_into()
-            .unwrap()
-    {
+    let start = range.start().as_u64();
+    let end = range.end().as_u64();
+    let batch_size = end - start + 1;
+    let response = if values.len() != batch_size.try_into().unwrap() {
         error!(
-            from_height = %range.start(),
-            to_height = %range.end(),
+            from_height = %start,
+            to_height = %end,
             "Received batch response from host with unexpected number of values: {}",
             values.len()
         );
 
+        // TODO(SYNC): discard whole response? why trust the sender?
         BTreeMap::new()
     } else {
         info!(
-            from_height = %range.start(),
-            to_height = %range.end(),
+            from_height = %start,
+            to_height = %end,
             "Received batch response from host with {} values",
             values.len()
         );
@@ -408,7 +409,7 @@ where
         )
     );
 
-    // TODO(SYNC): Update metrics
+    metrics.decided_value_response_sent(start, batch_size);
 
     Ok(())
 }
@@ -533,7 +534,7 @@ where
         )
     };
 
-    metrics.decided_value_request_sent(height.as_u64());
+    metrics.decided_value_request_sent(height.as_u64(), batch_size);
 
     // Store the request ID in the state
     if let Some(request_id) = request_id {

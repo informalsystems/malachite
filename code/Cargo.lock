@@ -2500,6 +2500,7 @@ dependencies = [
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-peer",
  "libp2p",
+ "prometheus-client",
  "rand 0.8.5",
  "serde",
  "thiserror 2.0.12",

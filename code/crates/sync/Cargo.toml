@@ -16,6 +16,7 @@ all-features = true
 malachitebft-core-types = { workspace = true }
 malachitebft-metrics = { workspace = true }
 malachitebft-peer = { workspace = true }
+prometheus-client = { workspace = true }
 
 async-trait = { workspace = true }
 bytes = { workspace = true, features = ["serde"] }

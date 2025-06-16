@@ -3,9 +3,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dashmap::DashMap;
-use malachitebft_metrics::prometheus::metrics::counter::Counter;
-use malachitebft_metrics::prometheus::metrics::histogram::{exponential_buckets, Histogram};
 use malachitebft_metrics::SharedRegistry;
+use prometheus_client::encoding::EncodeLabelSet;
+use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::family::Family;
+use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 
 pub type DecidedValuesMetrics = Inner;
 
@@ -20,12 +22,17 @@ impl Deref for Metrics {
     }
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct RequestLabels {
+    batch_size: u64,
+}
+
 #[derive(Debug)]
 pub struct Inner {
-    requests_sent: Counter,
-    requests_received: Counter,
-    responses_sent: Counter,
-    responses_received: Counter,
+    requests_sent: Family<RequestLabels, Counter>,
+    requests_received: Family<RequestLabels, Counter>,
+    responses_sent: Family<RequestLabels, Counter>,
+    responses_received: Family<RequestLabels, Counter>,
     client_latency: Histogram,
     server_latency: Histogram,
     request_timeouts: Counter,
@@ -37,10 +44,10 @@ pub struct Inner {
 impl Inner {
     pub fn new() -> Self {
         Self {
-            requests_sent: Counter::default(),
-            requests_received: Counter::default(),
-            responses_sent: Counter::default(),
-            responses_received: Counter::default(),
+            requests_sent: Family::default(),
+            requests_received: Family::default(),
+            responses_sent: Family::default(),
+            responses_received: Family::default(),
             client_latency: Histogram::new(exponential_buckets(0.1, 2.0, 20)),
             server_latency: Histogram::new(exponential_buckets(0.1, 2.0, 20)),
             request_timeouts: Counter::default(),
@@ -116,22 +123,31 @@ impl Metrics {
         metrics
     }
 
-    pub fn decided_value_request_sent(&self, height: u64) {
-        self.decided_values().requests_sent.inc();
+    pub fn decided_value_request_sent(&self, height: u64, batch_size: u64) {
+        self.decided_values()
+            .requests_sent
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
         self.decided_values()
             .instant_request_sent
             .insert((height, -1), Instant::now());
     }
 
-    pub fn decided_value_request_received(&self, height: u64) {
-        self.decided_values().requests_received.inc();
+    pub fn decided_value_request_received(&self, height: u64, batch_size: u64) {
+        self.decided_values()
+            .requests_received
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
         self.decided_values()
             .instant_request_received
             .insert((height, -1), Instant::now());
     }
 
-    pub fn decided_value_response_sent(&self, height: u64) {
-        self.decided_values().responses_sent.inc();
+    pub fn decided_value_response_sent(&self, height: u64, batch_size: u64) {
+        self.decided_values()
+            .responses_sent
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
 
         if let Some((_, instant)) = self
             .decided_values()
@@ -144,8 +160,11 @@ impl Metrics {
         }
     }
 
-    pub fn decided_value_response_received(&self, height: u64) {
-        self.decided_values().responses_received.inc();
+    pub fn decided_value_response_received(&self, height: u64, batch_size: u64) {
+        self.decided_values()
+            .responses_received
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
 
         if let Some((_, instant)) = self
             .decided_values()
@@ -160,6 +179,7 @@ impl Metrics {
 
     pub fn decided_value_request_timed_out(&self, height: u64) {
         self.decided_values().request_timeouts.inc();
+        // TODO(SYNC): Check if this is correct: key (height, 0) is never inserted
         self.decided_values()
             .instant_request_sent
             .remove(&(height, 0));
