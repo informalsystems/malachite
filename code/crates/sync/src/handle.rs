@@ -9,8 +9,8 @@ use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Heig
 use crate::co::Co;
 use crate::{
     perform, BatchRequest, BatchResponse, Effect, Error, InboundRequestId, Metrics,
-    OutboundRequestId, PeerId, RawDecidedValue, Request, Resume, State, Status, ValueRequest,
-    ValueResponse,
+    OutboundRequestId, PeerId, PeerKind, RawDecidedValue, Request, Resume, State, Status,
+    ValueRequest, ValueResponse,
 };
 
 #[derive_where(Debug)]
@@ -478,8 +478,6 @@ async fn request_value<Ctx>(
 where
     Ctx: Context,
 {
-    // TODO(SYNC): Add logic to either use v1 or v2 sync protocol
-
     let sync_height = state.sync_height;
 
     if state.has_pending_decided_value_request(&sync_height) {
@@ -508,19 +506,41 @@ where
 {
     info!(height.sync = %height, %peer, "Requesting sync from peer");
 
-    let request_id = perform!(
-        co,
-        Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
-        Resume::ValueRequestId(id) => id,
-    );
+    // Determine the batch size to use based on the peer's kind
+    let batch_size = state
+        .peers
+        .get(&peer)
+        .map(|peer_details| match peer_details.kind {
+            PeerKind::SyncV1 => 1,
+            PeerKind::SyncV2 => 100,
+        })
+        .unwrap_or(1);
+
+    // Send the request
+    let end_height = height.increment_by(batch_size);
+    let request_id = if batch_size > 1 {
+        let max_response_size = 10 * 1024 * 1024; // 10 MiB
+        perform!(
+            co,
+            Effect::SendBatchRequest(peer, BatchRequest::new(RangeInclusive::new(height, end_height), max_response_size), Default::default()),
+            Resume::ValueRequestId(id) => id,
+        )
+    } else {
+        perform!(
+            co,
+            Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
+            Resume::ValueRequestId(id) => id,
+        )
+    };
 
     metrics.decided_value_request_sent(height.as_u64());
 
+    // Store the request ID in the state
     if let Some(request_id) = request_id {
-        debug!(%request_id, %peer, "Sent value request to peer");
-        state.store_pending_decided_value_request(height, request_id);
+        debug!(%request_id, %peer, "Sent sync request to peer");
+        state.store_pending_decided_request(height, end_height, request_id);
     } else {
-        warn!(height.sync = %height, %peer, "Failed to send value request to peer");
+        warn!(height.sync = %height, %peer, "Failed to send sync request to peer");
     }
 
     Ok(())

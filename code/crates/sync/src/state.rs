@@ -22,6 +22,7 @@ where
     pub tip_height: Ctx::Height,
 
     /// Height currently syncing.
+    /// If syncing in batches, this is first height in the batch being synced.
     pub sync_height: Ctx::Height,
 
     /// Decided value requests for these heights have been sent out to peers.
@@ -129,21 +130,7 @@ where
             .choose_stable(&mut self.rng)
     }
 
-    pub fn store_pending_decided_value_request(
-        &mut self,
-        height: Ctx::Height,
-        request_id: OutboundRequestId,
-    ) {
-        self.height_per_request_id
-            .insert(request_id.clone(), height);
-
-        self.pending_decided_value_requests
-            .entry(height)
-            .or_default()
-            .insert(request_id);
-    }
-
-    pub fn store_pending_decided_batch_request(
+    pub fn store_pending_decided_request(
         &mut self,
         from: Ctx::Height,
         to: Ctx::Height,
