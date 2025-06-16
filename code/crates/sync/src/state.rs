@@ -88,14 +88,28 @@ where
     where
         Ctx: Context,
     {
-        self.peers
+        let peers_at_later_height = self
+            .peers
             .iter()
-            .filter_map(|(&peer, detail)| {
-                (detail.status.history_min_height..=detail.status.tip_height)
-                    .contains(&height)
-                    .then_some(peer)
+            .filter(|(_, detail)| {
+                (detail.status.history_min_height..=detail.status.tip_height).contains(&height)
             })
+            .collect::<Vec<_>>();
+
+        let (v2_peers, v1_peers): (Vec<_>, Vec<_>) = peers_at_later_height
+            .iter()
+            .partition(|(_, detail)| detail.kind == PeerKind::SyncV2);
+
+        // Prefer peers with higher sync version
+        let peers = if !v2_peers.is_empty() {
+            v2_peers
+        } else {
+            v1_peers
+        };
+        peers
+            .iter()
             .choose_stable(&mut self.rng)
+            .map(|(&peer, _)| peer)
     }
 
     /// Same as [`Self::random_peer_with_tip_at_or_above`], but excludes the given peer.
