@@ -27,13 +27,7 @@ use crate::mock_host::{MockHost, MockHostParams};
 
 use crate::config::Config;
 use crate::metrics::Metrics as AppMetrics;
-use crate::types::{
-    address::Address,
-    context::MockContext,
-    height::Height,
-    signing::{Ed25519Provider, PrivateKey},
-    validator_set::ValidatorSet,
-};
+use crate::types::{Address, Ed25519Provider, Height, MockContext, PrivateKey, ValidatorSet};
 
 pub async fn spawn_node_actor(
     cfg: Config,

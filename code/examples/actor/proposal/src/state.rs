@@ -1,7 +1,7 @@
 use malachitebft_core_consensus::Role;
 use std::path::Path;
 
-use crate::types::signing::Ed25519Provider;
+use crate::types::{Address, Ed25519Provider, Height, MockContext};
 use rand::RngCore;
 
 use malachitebft_core_types::Round;
@@ -9,9 +9,6 @@ use malachitebft_engine::consensus::ConsensusRef;
 
 use crate::mock_host::MockHost;
 use crate::store::BlockStore;
-use crate::types::address::Address;
-use crate::types::context::MockContext;
-use crate::types::height::Height;
 
 pub struct HostState {
     pub ctx: MockContext,

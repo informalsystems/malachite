@@ -1,4 +1,4 @@
-use crate::types::{hash::BlockHash, height::Height};
+use crate::types::{BlockHash, Height};
 use core::mem::size_of;
 use malachitebft_core_types::Round;
 
@@ -109,7 +109,7 @@ impl redb::Value for BlockHashKey {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("Round")
+        redb::TypeName::new("BlockHash")
     }
 }
 

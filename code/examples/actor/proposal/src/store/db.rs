@@ -1,71 +1,21 @@
 use std::ops::RangeBounds;
 use std::path::Path;
-use std::sync::Arc;
 
 use bytes::Bytes;
-use prost::Message;
 use redb::ReadableTable;
-use thiserror::Error;
 use tracing::error;
 
 use malachitebft_codec::Codec;
 use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::{CommitCertificate, Round};
-use malachitebft_proto::{Error as ProtoError, Protobuf};
+use malachitebft_core_types::Round;
+use malachitebft_proto::Protobuf;
 
-use crate::codec::{self, ProtobufCodec};
-use crate::types::context::MockContext;
-use crate::types::proto;
-use crate::types::{block::Block, hash::BlockHash, height::Height};
+use crate::codec::ProtobufCodec;
+use crate::types::{Block, BlockHash, Height, MockContext};
 
-mod keys;
-use keys::{HeightKey, UndecidedValueKey};
-
-#[derive(Clone, Debug)]
-pub struct DecidedBlock {
-    pub block: Block,
-    pub certificate: CommitCertificate<MockContext>,
-}
-
-fn decode_certificate(bytes: &[u8]) -> Result<CommitCertificate<MockContext>, ProtoError> {
-    let proto = proto::CommitCertificate::decode(bytes)?;
-    codec::decode_commit_certificate(proto)
-}
-
-fn encode_certificate(certificate: &CommitCertificate<MockContext>) -> Result<Vec<u8>, ProtoError> {
-    let proto = codec::encode_commit_certificate(certificate)?;
-    Ok(proto.encode_to_vec())
-}
-
-#[derive(Debug, Error)]
-pub enum StoreError {
-    #[error("Database error: {0}")]
-    Database(#[from] redb::DatabaseError),
-
-    #[error("Storage error: {0}")]
-    Storage(#[from] redb::StorageError),
-
-    #[error("Table error: {0}")]
-    Table(#[from] redb::TableError),
-
-    #[error("Commit error: {0}")]
-    Commit(#[from] redb::CommitError),
-
-    #[error("Transaction error: {0}")]
-    Transaction(#[from] Box<redb::TransactionError>),
-
-    #[error("Failed to encode/decode Protobuf: {0}")]
-    Protobuf(#[from] ProtoError),
-
-    #[error("Failed to join on task: {0}")]
-    TaskJoin(#[from] tokio::task::JoinError),
-}
-
-impl From<redb::TransactionError> for StoreError {
-    fn from(err: redb::TransactionError) -> Self {
-        Self::Transaction(Box::new(err))
-    }
-}
+use super::error::StoreError;
+use super::keys::{HeightKey, UndecidedValueKey};
+use super::types::{decode_certificate, encode_certificate, DecidedBlock};
 
 const CERTIFICATES_TABLE: redb::TableDefinition<HeightKey, Vec<u8>> =
     redb::TableDefinition::new("certificates");
@@ -76,18 +26,18 @@ const DECIDED_BLOCKS_TABLE: redb::TableDefinition<HeightKey, Vec<u8>> =
 const UNDECIDED_VALUES_TABLE: redb::TableDefinition<UndecidedValueKey, Vec<u8>> =
     redb::TableDefinition::new("undecided_blocks");
 
-struct Db {
+pub struct Db {
     db: redb::Database,
 }
 
 impl Db {
-    fn new(path: impl AsRef<Path>) -> Result<Self, StoreError> {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         Ok(Self {
             db: redb::Database::create(path).map_err(StoreError::Database)?,
         })
     }
 
-    fn get_decided_block(&self, height: Height) -> Result<Option<DecidedBlock>, StoreError> {
+    pub fn get_decided_block(&self, height: Height) -> Result<Option<DecidedBlock>, StoreError> {
         let tx = self.db.begin_read()?;
         let block = {
             let table = tx.open_table(DECIDED_BLOCKS_TABLE)?;
@@ -107,7 +57,7 @@ impl Db {
         Ok(decided_block)
     }
 
-    fn insert_decided_block(&self, decided_block: DecidedBlock) -> Result<(), StoreError> {
+    pub fn insert_decided_block(&self, decided_block: DecidedBlock) -> Result<(), StoreError> {
         let height = decided_block.block.height;
 
         let tx = self.db.begin_write()?;
@@ -153,7 +103,10 @@ impl Db {
         Ok(values)
     }
 
-    fn insert_undecided_value(&self, value: ProposedValue<MockContext>) -> Result<(), StoreError> {
+    pub fn insert_undecided_value(
+        &self,
+        value: ProposedValue<MockContext>,
+    ) -> Result<(), StoreError> {
         let key = (
             value.height,
             value.round,
@@ -169,7 +122,7 @@ impl Db {
         Ok(())
     }
 
-    fn height_range<Table>(
+    pub fn height_range<Table>(
         &self,
         table: &Table,
         range: impl RangeBounds<Height>,
@@ -184,7 +137,7 @@ impl Db {
             .collect::<Vec<_>>())
     }
 
-    fn undecided_values_range<Table>(
+    pub fn undecided_values_range<Table>(
         &self,
         table: &Table,
         range: impl RangeBounds<(Height, Round, BlockHash)>,
@@ -199,7 +152,7 @@ impl Db {
             .collect::<Vec<_>>())
     }
 
-    fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
+    pub fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
         let tx = self.db.begin_write().unwrap();
         let pruned = {
             let mut undecided = tx.open_table(UNDECIDED_VALUES_TABLE)?;
@@ -226,21 +179,21 @@ impl Db {
         Ok(pruned)
     }
 
-    fn first_key(&self) -> Option<Height> {
+    pub fn first_key(&self) -> Option<Height> {
         let tx = self.db.begin_read().unwrap();
         let table = tx.open_table(DECIDED_BLOCKS_TABLE).unwrap();
         let (key, _) = table.first().ok()??;
         Some(key.value())
     }
 
-    fn last_key(&self) -> Option<Height> {
+    pub fn last_key(&self) -> Option<Height> {
         let tx = self.db.begin_read().unwrap();
         let table = tx.open_table(DECIDED_BLOCKS_TABLE).unwrap();
         let (key, _) = table.last().ok()??;
         Some(key.value())
     }
 
-    fn create_tables(&self) -> Result<(), StoreError> {
+    pub fn create_tables(&self) -> Result<(), StoreError> {
         let tx = self.db.begin_write()?;
         // Implicitly creates the tables if they do not exist yet
         let _ = tx.open_table(DECIDED_BLOCKS_TABLE)?;
@@ -248,83 +201,5 @@ impl Db {
         let _ = tx.open_table(UNDECIDED_VALUES_TABLE)?;
         tx.commit()?;
         Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub struct BlockStore {
-    db: Arc<Db>,
-}
-
-impl BlockStore {
-    pub async fn new(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let path = path.as_ref().to_owned();
-        tokio::task::spawn_blocking(move || {
-            let db = Db::new(path)?;
-            db.create_tables()?;
-
-            Ok(Self { db: Arc::new(db) })
-        })
-        .await?
-    }
-
-    pub async fn min_decided_value_height(&self) -> Option<Height> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.first_key())
-            .await
-            .ok()
-            .flatten()
-    }
-
-    pub async fn max_decided_value_height(&self) -> Option<Height> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.last_key())
-            .await
-            .ok()
-            .flatten()
-    }
-
-    pub async fn get_decided_value(
-        &self,
-        height: Height,
-    ) -> Result<Option<DecidedBlock>, StoreError> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.get_decided_block(height)).await?
-    }
-
-    pub async fn store_decided_block(
-        &self,
-        certificate: &CommitCertificate<MockContext>,
-        block: &Block,
-    ) -> Result<(), StoreError> {
-        let decided_block = DecidedBlock {
-            block: block.clone(),
-            certificate: certificate.clone(),
-        };
-
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.insert_decided_block(decided_block)).await?
-    }
-
-    pub async fn store_undecided_proposal(
-        &self,
-        value: ProposedValue<MockContext>,
-    ) -> Result<(), StoreError> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.insert_undecided_value(value)).await?
-    }
-
-    pub async fn get_undecided_proposals(
-        &self,
-        height: Height,
-        round: Round,
-    ) -> Result<Vec<ProposedValue<MockContext>>, StoreError> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.get_undecided_values(height, round)).await?
-    }
-
-    pub async fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
-        let db = Arc::clone(&self.db);
-        tokio::task::spawn_blocking(move || db.prune(retain_height)).await?
     }
 }

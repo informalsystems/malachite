@@ -13,22 +13,15 @@ use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_signing_ed25519::Signature;
 use malachitebft_sync::{self as sync, PeerId};
 
-use crate::types::context::MockContext as TestContext;
+use crate::types::MockContext as TestContext;
 use crate::types::{
-    address::Address,
-    block::Block,
-    hash::BlockHash,
-    height::Height,
-    proposal::Proposal,
-    proposal_part::ProposalPart,
-    transaction::TransactionBatch,
-    value::{Value, ValueId},
-    vote::Vote,
+    Address, Block, BlockHash, Height, Proposal, ProposalPart, TransactionBatch, Value, ValueId,
+    Vote,
 };
 
 use crate::types::proto;
 
-use crate::types::vote::{decode_votetype, encode_votetype};
+use crate::types::{decode_votetype, encode_votetype};
 
 #[derive(Copy, Clone, Debug)]
 pub struct ProtobufCodec;

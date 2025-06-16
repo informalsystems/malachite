@@ -5,8 +5,7 @@ use async_trait::async_trait;
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use tracing::{error, info, trace};
 
-use crate::types::hash::Hash;
-use crate::types::transaction::{Transaction, TransactionBatch};
+use crate::types::{Hash, Transaction, TransactionBatch};
 use malachitebft_proto::Protobuf;
 use malachitebft_test_mempool::types::MempoolTransactionBatch;
 use malachitebft_test_mempool::{Event as NetworkEvent, NetworkMsg, PeerId};

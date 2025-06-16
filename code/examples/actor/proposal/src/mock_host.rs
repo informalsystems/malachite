@@ -7,11 +7,8 @@ use malachitebft_signing_ed25519::PrivateKey;
 
 use crate::mempool::MempoolRef;
 use crate::proposal::build_proposal_task;
-use crate::types::address::Address;
-use crate::types::block::Block;
-use crate::types::context::MockContext;
-use crate::types::height::Height;
-use crate::types::validator_set::ValidatorSet;
+
+use crate::types::{Address, Block, Height, MockContext, ValidatorSet};
 
 #[derive(Copy, Clone, Debug)]
 pub struct MockHostParams {

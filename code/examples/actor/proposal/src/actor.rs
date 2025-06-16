@@ -10,9 +10,9 @@ use rand::SeedableRng;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
-use crate::types::hash::Hash;
-use crate::types::signing::Ed25519Provider;
-use crate::types::value::Value;
+use crate::types::{
+    Address, Block, Ed25519Provider, Hash, Height, MockContext, ValidatorSet, Value,
+};
 use malachitebft_core_consensus::Role;
 use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
 use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
@@ -25,11 +25,6 @@ use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::metrics::Metrics;
 use crate::mock_host::MockHost;
 use crate::state::HostState;
-use crate::types::address::Address;
-use crate::types::block::Block;
-use crate::types::context::MockContext;
-use crate::types::height::Height;
-use crate::types::validator_set::ValidatorSet;
 
 pub struct Host {
     mempool: MempoolRef,

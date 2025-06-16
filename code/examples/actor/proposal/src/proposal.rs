@@ -11,9 +11,7 @@ use malachitebft_core_types::Round;
 
 use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::mock_host::MockHostParams;
-use crate::types::{
-    address::Address, block::Block, hash::Hash, height::Height, transaction::TransactionBatch,
-};
+use crate::types::{Address, Block, Hash, Height, TransactionBatch};
 
 pub async fn build_proposal_task(
     height: Height,

@@ -12,7 +12,7 @@ use malachitebft_config::mempool_load::{NonUniformLoadConfig, UniformLoadConfig}
 use malachitebft_config::MempoolLoadType;
 
 use crate::mempool::{MempoolMsg, MempoolRef};
-use crate::types::transaction::{Transaction, TransactionBatch};
+use crate::types::{Transaction, TransactionBatch};
 
 pub type MempoolLoadMsg = Msg;
 pub type MempoolLoadRef = ActorRef<Msg>;
