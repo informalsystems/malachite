@@ -36,7 +36,6 @@ members = [
   "crates/starknet/test/mbt",
 
   # Examples
-  "examples/actor/parts",
   "examples/channel",
 ]
 
