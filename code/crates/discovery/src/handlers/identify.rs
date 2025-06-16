@@ -170,6 +170,6 @@ where
 
         self.update_discovery_metrics();
 
-        return is_already_connected;
+        is_already_connected
     }
 }

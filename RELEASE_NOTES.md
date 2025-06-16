@@ -6,9 +6,10 @@
 - Reply to `GetValidatorSet` is now optional ([#990](https://github.com/informalsystems/malachite/issues/990))
 - Clarify and improve the application handling of multiple proposals for same height and round ([#833](https://github.com/informalsystems/malachite/issues/833))
 - Prune votes and polka certificates that are from lower rounds than node's `locked_round` ([#1019](https://github.com/informalsystems/malachite/issues/1019))
-- Take minimum available height into account when requesting values from peers ([#1074](https://github.com/informalsystems/malachite/issues/1074))
 - Add support for making progress in the presence of equivocating proposals ([#1018](https://github.com/informalsystems/malachite/issues/1018))
-- Add support for all listen addresses of a peer in discovery and fixed the concurrent dial issue (introducing a new `max_connections_per_peer` parameter to discovery) ([#1056](https://github.com/informalsystems/malachite/issues/1056))
+- Take minimum available height into account when requesting values from peers ([#1074](https://github.com/informalsystems/malachite/issues/1074))
+- Add peer scoring system to the sync module with customizable scoring strategy ([#1072](https://github.com/informalsystems/malachite/issues/1072))
+  [See the corresponding PR](https://github.com/informalsystems/malachite/pull/1071) for more details.
 - Add batching mechanism to sync module ([#1082](https://github.com/informalsystems/malachite/issues/1082)). See the corresponding issue ([#1070](https://github.com/informalsystems/malachite/issues/1070)) for more details.
 
 ## 0.2.0

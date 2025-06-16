@@ -48,7 +48,7 @@ impl DialData {
                 )
             }
         } else {
-            return None; // No addresses to dial
+            None // No addresses to dial
         }
     }
 }

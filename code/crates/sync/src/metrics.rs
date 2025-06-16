@@ -1,6 +1,6 @@
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use malachitebft_metrics::SharedRegistry;
@@ -9,10 +9,8 @@ use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 
-pub type DecidedValuesMetrics = Inner;
-
 #[derive(Clone, Debug)]
-pub struct Metrics(Arc<DecidedValuesMetrics>);
+pub struct Metrics(Arc<Inner>);
 
 impl Deref for Metrics {
     type Target = Inner;
@@ -39,6 +37,8 @@ pub struct Inner {
 
     instant_request_sent: Arc<DashMap<u64, Instant>>,
     instant_request_received: Arc<DashMap<u64, Instant>>,
+
+    pub scoring: crate::scoring::metrics::Metrics,
 }
 
 impl Inner {
@@ -53,6 +53,7 @@ impl Inner {
             value_request_timeouts: Counter::default(),
             instant_request_sent: Arc::new(DashMap::new()),
             instant_request_received: Arc::new(DashMap::new()),
+            scoring: crate::scoring::metrics::Metrics::new(),
         }
     }
 }
@@ -114,6 +115,8 @@ impl Metrics {
                 "Number of ValueSync request timeouts",
                 metrics.value_request_timeouts.clone(),
             );
+
+            metrics.scoring.register(registry);
         });
 
         metrics
@@ -144,14 +147,17 @@ impl Metrics {
         }
     }
 
-    pub fn value_response_received(&self, height: u64, batch_size: u64) {
+    pub fn value_response_received(&self, height: u64, batch_size: u64) -> Option<Duration> {
         self.value_responses_received
             .get_or_create(&RequestLabels { batch_size })
             .inc();
 
-        if let Some((_, instant)) = self.instant_request_sent.remove(&height) {
-            self.value_client_latency
-                .observe(instant.elapsed().as_secs_f64());
+        if let Some((_, instant_request_sent)) = self.instant_request_sent.remove(&height) {
+            let latency = instant_request_sent.elapsed();
+            self.value_client_latency.observe(latency.as_secs_f64());
+            Some(latency)
+        } else {
+            None
         }
     }
 
