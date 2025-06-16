@@ -161,9 +161,9 @@ where
             "SYNC REQUIRED: Falling behind",
         );
 
-        // We are lagging behind one of our peer at least,
-        // request sync from any peer already at or above that peer's height.
-        request_value(co, state, metrics).await?;
+        // We are lagging behind on one of our peers at least.
+        // Request value(s) from any peer already at later height.
+        request_values(co, state, metrics).await?;
     }
 
     Ok(())
@@ -188,8 +188,8 @@ where
     state.tip_height = tip_height;
 
     // Check if there is any peer already at or above the height we just started,
-    // and request sync from that peer in order to catch up.
-    request_value(co, state, metrics).await?;
+    // and request value(s) from any of those peers in order to catch up.
+    request_values(co, state, metrics).await?;
 
     Ok(())
 }
@@ -471,7 +471,7 @@ where
 /// If there are no pending requests for the sync height,
 /// and there is peer at a higher height than our sync height,
 /// then sync from that peer.
-async fn request_value<Ctx>(
+async fn request_values<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -487,7 +487,7 @@ where
     }
 
     if let Some(peer) = state.random_peer_with_tip_at_or_above(sync_height) {
-        request_value_from_peer(co, state, metrics, sync_height, peer).await?;
+        request_values_from_peer(co, state, metrics, sync_height, peer).await?;
     } else {
         debug!(height.sync = %sync_height, "No peer to request sync from");
     }
@@ -495,7 +495,7 @@ where
     Ok(())
 }
 
-async fn request_value_from_peer<Ctx>(
+async fn request_values_from_peer<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -560,7 +560,7 @@ where
     info!(height.sync = %height, "Requesting sync from another peer");
 
     if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
-        request_value_from_peer(co, state, metrics, height, peer).await?;
+        request_values_from_peer(co, state, metrics, height, peer).await?;
     } else {
         error!(height.sync = %height, "No peer to request sync from");
     }
