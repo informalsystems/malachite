@@ -37,8 +37,8 @@ pub struct Inner {
     value_server_latency: Histogram,
     value_request_timeouts: Counter,
 
-    instant_request_sent: Arc<DashMap<(u64, i64), Instant>>,
-    instant_request_received: Arc<DashMap<(u64, i64), Instant>>,
+    instant_request_sent: Arc<DashMap<u64, Instant>>,
+    instant_request_received: Arc<DashMap<u64, Instant>>,
 }
 
 impl Inner {
@@ -123,16 +123,14 @@ impl Metrics {
         self.value_requests_sent
             .get_or_create(&RequestLabels { batch_size })
             .inc();
-        self.instant_request_sent
-            .insert((height, -1), Instant::now());
+        self.instant_request_sent.insert(height, Instant::now());
     }
 
     pub fn value_request_received(&self, height: u64, batch_size: u64) {
         self.value_requests_received
             .get_or_create(&RequestLabels { batch_size })
             .inc();
-        self.instant_request_received
-            .insert((height, -1), Instant::now());
+        self.instant_request_received.insert(height, Instant::now());
     }
 
     pub fn value_response_sent(&self, height: u64, batch_size: u64) {
@@ -140,7 +138,7 @@ impl Metrics {
             .get_or_create(&RequestLabels { batch_size })
             .inc();
 
-        if let Some((_, instant)) = self.instant_request_received.remove(&(height, -1)) {
+        if let Some((_, instant)) = self.instant_request_received.remove(&height) {
             self.value_server_latency
                 .observe(instant.elapsed().as_secs_f64());
         }
@@ -151,7 +149,7 @@ impl Metrics {
             .get_or_create(&RequestLabels { batch_size })
             .inc();
 
-        if let Some((_, instant)) = self.instant_request_sent.remove(&(height, -1)) {
+        if let Some((_, instant)) = self.instant_request_sent.remove(&height) {
             self.value_client_latency
                 .observe(instant.elapsed().as_secs_f64());
         }
@@ -159,8 +157,7 @@ impl Metrics {
 
     pub fn value_request_timed_out(&self, height: u64) {
         self.value_request_timeouts.inc();
-        // TODO(SYNC): Check if this is correct: key (height, 0) is never inserted
-        self.instant_request_sent.remove(&(height, 0));
+        self.instant_request_sent.remove(&height);
     }
 }
 
