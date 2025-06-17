@@ -7,7 +7,7 @@ use rand::RngCore;
 use malachitebft_core_types::Round;
 use malachitebft_engine::consensus::ConsensusRef;
 
-use crate::mock_host::MockHost;
+use crate::app::App;
 use crate::store::BlockStore;
 
 pub struct HostState {
@@ -17,7 +17,7 @@ pub struct HostState {
     pub round: Round,
     pub proposer: Option<Address>,
     pub role: Role,
-    pub host: MockHost,
+    pub host: App,
     pub consensus: Option<ConsensusRef<MockContext>>,
     pub block_store: BlockStore,
     pub nonce: u64,
@@ -27,7 +27,7 @@ impl HostState {
     pub async fn new<R>(
         ctx: MockContext,
         signing_provider: Ed25519Provider,
-        host: MockHost,
+        host: App,
         db_path: impl AsRef<Path>,
         rng: &mut R,
     ) -> Self

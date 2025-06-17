@@ -20,10 +20,10 @@ use malachitebft_test_mempool::Config as MempoolNetworkConfig;
 use crate::actor::Host;
 use crate::codec::ProtobufCodec;
 
+use crate::app::{App, AppParams};
 use crate::mempool::network::{MempoolNetwork, MempoolNetworkRef};
 use crate::mempool::{Mempool, MempoolRef};
 use crate::mempool::{MempoolLoad, MempoolLoadRef, Params};
-use crate::mock_host::{MockHost, MockHostParams};
 
 use crate::config::Config;
 use crate::metrics::Metrics as AppMetrics;
@@ -336,14 +336,14 @@ async fn spawn_host_actor(
     app_metrics: AppMetrics,
     span: &tracing::Span,
 ) -> HostRef<MockContext> {
-    let mock_params = MockHostParams {
+    let mock_params = AppParams {
         max_block_size: cfg.test.max_block_size,
         time_allowance_factor: cfg.test.time_allowance_factor,
         exec_time_per_tx: cfg.test.exec_time_per_tx,
         max_retain_blocks: cfg.test.max_retain_blocks,
     };
 
-    let mock_host = MockHost::new(
+    let app = App::new(
         mock_params,
         mempool.clone(),
         *address,
@@ -356,7 +356,7 @@ async fn spawn_host_actor(
     Host::spawn(
         home_dir.to_owned(),
         signing_provider,
-        mock_host,
+        app,
         mempool,
         mempool_load,
         app_metrics,

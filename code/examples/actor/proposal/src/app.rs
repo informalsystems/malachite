@@ -11,24 +11,24 @@ use crate::proposal::build_proposal_task;
 use crate::types::{Address, Block, Height, MockContext, ValidatorSet};
 
 #[derive(Copy, Clone, Debug)]
-pub struct MockHostParams {
+pub struct AppParams {
     pub max_block_size: ByteSize,
     pub time_allowance_factor: f32,
     pub exec_time_per_tx: Duration,
     pub max_retain_blocks: usize,
 }
 
-pub struct MockHost {
-    pub params: MockHostParams,
+pub struct App {
+    pub params: AppParams,
     pub mempool: MempoolRef,
     pub address: Address,
     pub private_key: PrivateKey,
     pub validator_set: ValidatorSet,
 }
 
-impl MockHost {
+impl App {
     pub fn new(
-        params: MockHostParams,
+        params: AppParams,
         mempool: MempoolRef,
         address: Address,
         private_key: PrivateKey,

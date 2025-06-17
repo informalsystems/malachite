@@ -9,15 +9,15 @@ use tracing::{debug, trace};
 
 use malachitebft_core_types::Round;
 
+use crate::app::AppParams;
 use crate::mempool::{MempoolMsg, MempoolRef};
-use crate::mock_host::MockHostParams;
 use crate::types::{Address, Block, Hash, Height, TransactionBatch};
 
 pub async fn build_proposal_task(
     height: Height,
     round: Round,
     _proposer: Address, // TODO: add to block def
-    params: MockHostParams,
+    params: AppParams,
     deadline: Instant,
     mempool: MempoolRef,
 ) -> Result<Block, Box<dyn core::error::Error + Send + Sync>> {

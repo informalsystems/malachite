@@ -20,10 +20,10 @@ use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
+use crate::app::App;
 use crate::mempool::MempoolLoadRef;
 use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::metrics::Metrics;
-use crate::mock_host::MockHost;
 use crate::state::HostState;
 
 pub struct Host {
@@ -41,7 +41,7 @@ impl Host {
     pub async fn spawn(
         home_dir: PathBuf,
         signing_provider: Ed25519Provider,
-        host: MockHost,
+        host: App,
         mempool: MempoolRef,
         mempool_load: MempoolLoadRef,
         metrics: Metrics,
