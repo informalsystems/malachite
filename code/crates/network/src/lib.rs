@@ -432,7 +432,7 @@ async fn handle_swarm_event(
                 .discovery
                 .handle_closed_connection(swarm, peer_id, connection_id);
 
-            if num_established <= 0 {
+            if num_established == 0 {
                 if let Err(e) = tx_event
                     .send(Event::PeerDisconnected(PeerId::from_libp2p(&peer_id)))
                     .await
