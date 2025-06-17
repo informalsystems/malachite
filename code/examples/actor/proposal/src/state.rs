@@ -17,7 +17,7 @@ pub struct HostState {
     pub round: Round,
     pub proposer: Option<Address>,
     pub role: Role,
-    pub host: App,
+    pub app: App,
     pub consensus: Option<ConsensusRef<MockContext>>,
     pub block_store: BlockStore,
     pub nonce: u64,
@@ -27,7 +27,7 @@ impl HostState {
     pub async fn new<R>(
         ctx: MockContext,
         signing_provider: Ed25519Provider,
-        host: App,
+        app: App,
         db_path: impl AsRef<Path>,
         rng: &mut R,
     ) -> Self
@@ -41,7 +41,7 @@ impl HostState {
             round: Round::Nil,
             proposer: None,
             role: Role::None,
-            host,
+            app,
             consensus: None,
             block_store: BlockStore::new(db_path).await.unwrap(),
             nonce: rng.next_u64(),

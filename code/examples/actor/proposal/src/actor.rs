@@ -228,7 +228,7 @@ async fn on_consensus_ready(
 
     consensus.cast(ConsensusMsg::StartHeight(
         start_height,
-        state.host.validator_set.clone(),
+        state.app.validator_set.clone(),
     ))?;
 
     Ok(())
@@ -297,7 +297,7 @@ async fn on_get_validator_set(
     _height: Height,
     reply_to: RpcReplyPort<Option<ValidatorSet>>,
 ) -> Result<(), ActorProcessingErr> {
-    reply_to.send(Some(state.host.validator_set.clone()))?;
+    reply_to.send(Some(state.app.validator_set.clone()))?;
     Ok(())
 }
 
@@ -325,7 +325,7 @@ async fn on_get_value(
     debug!(%height, %round, "Building new proposal...");
 
     let block = state
-        .host
+        .app
         .build_new_proposal(height, round, deadline)
         .await?;
 
@@ -333,7 +333,7 @@ async fn on_get_value(
         height,
         round,
         valid_round: Round::Nil,
-        proposer: state.host.address,
+        proposer: state.app.address,
         value: Value::new(block.clone()),
         validity: Validity::Valid,
     };
@@ -360,9 +360,7 @@ async fn find_previously_built_value(
         .get_undecided_proposals(height, round)
         .await?;
 
-    let proposed_value = values
-        .into_iter()
-        .find(|v| v.proposer == state.host.address);
+    let proposed_value = values.into_iter().find(|v| v.proposer == state.app.address);
 
     Ok(proposed_value)
 }
@@ -549,12 +547,12 @@ async fn on_decided(
     mempool.cast(MempoolMsg::Update { tx_hashes })?;
 
     // Notify the Host of the decision
-    state.host.decision(certificate).await;
+    state.app.decision(certificate).await;
 
     // Start the next height
     consensus.cast(ConsensusMsg::StartHeight(
         state.height.increment(),
-        state.host.validator_set.clone(),
+        state.app.validator_set.clone(),
     ))?;
 
     Ok(())
@@ -566,7 +564,7 @@ async fn prune_block_store(state: &mut HostState) {
         .max_decided_value_height()
         .await
         .unwrap_or_default();
-    let max_retain_blocks = state.host.params.max_retain_blocks as u64;
+    let max_retain_blocks = state.app.params.max_retain_blocks as u64;
 
     // Compute the height to retain blocks higher than
     let retain_height = max_height.as_u64().saturating_sub(max_retain_blocks);
