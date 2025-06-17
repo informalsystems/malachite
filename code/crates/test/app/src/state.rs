@@ -1,7 +1,7 @@
 //! Internal state of the application. This is a simplified abstract to keep it simple.
 //! A regular application would have mempool implemented, a proper database and input methods like RPC.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
 use bytes::Bytes;
@@ -158,10 +158,7 @@ impl State {
     }
 
     /// Retrieves decided values in the range from `from` to `to` heights.
-    pub async fn get_decided_values(
-        &self,
-        range: RangeInclusive<Height>,
-    ) -> BTreeMap<Height, DecidedValue> {
+    pub async fn get_decided_values(&self, range: RangeInclusive<Height>) -> Vec<DecidedValue> {
         self.store
             .get_decided_values(range)
             .await

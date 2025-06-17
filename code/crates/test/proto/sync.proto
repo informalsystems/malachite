@@ -17,6 +17,8 @@ message Status {
 
 message ValueRequest {
     uint64 height = 1;
+    optional uint64 end_height = 2;
+    optional uint64 max_response_size = 3;
 }
 
 message ValueResponse {
@@ -24,26 +26,14 @@ message ValueResponse {
     SyncedValue value = 2;
 }
 
-message BatchRequest {
-    uint64 from_height = 1;
-    uint64 to_height = 2;
-    uint64 max_response_size = 3;
-}
-
 message BatchResponse {
-    uint64 from_height = 1;
-    uint64 to_height = 2;
-    repeated BatchSyncValue values = 3;
+    uint64 height = 1;
+    repeated SyncedValue values = 2;
 }
 
 message SyncedValue {
     bytes value_bytes = 1;
     CommitCertificate certificate = 2;
-}
-
-message BatchSyncValue {
-    uint64 height = 1;
-    SyncedValue value = 2;
 }
 
 message CommitSignature {
@@ -71,7 +61,6 @@ message ProposedValue {
 message SyncRequest {
   oneof request {
     ValueRequest value_request = 1;
-    BatchRequest batch_request = 2;
   }
 }
 
@@ -81,4 +70,3 @@ message SyncResponse {
     BatchResponse batch_response = 2;
   }
 }
-

@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
@@ -48,7 +47,7 @@ pub enum Input<Ctx: Context> {
     GotDecidedValues(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,
-        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+        Vec<RawDecidedValue<Ctx>>,
     ),
 
     /// A request for a value timed out
@@ -418,7 +417,7 @@ pub async fn on_got_decided_values<Ctx>(
     metrics: &Metrics,
     request_id: InboundRequestId,
     range: RangeInclusive<Ctx::Height>,
-    values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+    values: Vec<RawDecidedValue<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -430,42 +429,17 @@ where
         values.len()
     );
 
-    let mut response = BTreeMap::new();
-
-    let mut height = *range.start();
-    loop {
-        if let Some(value) = values.get(&height) {
-            response.insert(height, value.clone());
-        } else {
-            break;
-        }
-
-        if height >= *range.end() {
-            break;
-        }
-        height = height.increment();
-    }
-
-    let new_end = height.decrement().unwrap_or(*range.start());
-    let new_size = new_end.as_u64() - range.start().as_u64() + 1;
-
-    info!(
-        from_height = %range.start(),
-        to_height = %new_end,
-        "Sending batch response with {} values",
-        response.len()
-    );
-
     perform!(
         co,
         Effect::SendBatchResponse(
             request_id,
-            BatchResponse::new(RangeInclusive::new(*range.start(), new_end), response),
+            BatchResponse::new(RangeInclusive::new(*range.start(), *range.end()), values),
             Default::default()
         )
     );
 
-    metrics.value_response_sent(range.start().as_u64(), new_size);
+    let batch_size = range.end().as_u64() - range.start().as_u64() + 1;
+    metrics.value_response_sent(range.start().as_u64(), batch_size);
 
     Ok(())
 }

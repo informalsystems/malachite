@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::Arc;
@@ -300,23 +299,15 @@ impl Store {
     pub async fn get_decided_values(
         &self,
         range: RangeInclusive<Height>,
-    ) -> Result<BTreeMap<Height, DecidedValue>, StoreError> {
+    ) -> Result<Vec<DecidedValue>, StoreError> {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || {
-            let mut values = BTreeMap::new();
-
             // TODO: optimize this to avoid multiple database reads
-
-            let mut height = *range.start();
-            loop {
-                if let Some(value) = db.get_decided_value(height)? {
-                    values.insert(height, value);
+            let mut values = Vec::new();
+            for h in range.start().as_u64()..=range.end().as_u64() {
+                if let Some(value) = db.get_decided_value(Height::new(h))? {
+                    values.push(value);
                 }
-
-                if height >= *range.end() {
-                    break;
-                }
-                height = height.increment();
             }
             Ok(values)
         })
