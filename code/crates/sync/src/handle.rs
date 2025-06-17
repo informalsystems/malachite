@@ -422,24 +422,38 @@ pub async fn on_got_decided_values<Ctx>(
 where
     Ctx: Context,
 {
+    let start = range.start();
+    let end = range.end();
+
     info!(
-        from_height = %range.start(),
-        to_height = %range.end(),
+        from_height = %start,
+        to_height = %end,
         "Received batch response from host with {} values",
         values.len()
     );
+
+    // Validate response from host
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    if batch_size != values.len() as u64 {
+        error!(
+            from_height = %start,
+            to_height = %end,
+            "Received batch response from host with {} values, expected {}",
+            values.len(),
+            batch_size
+        )
+    }
 
     perform!(
         co,
         Effect::SendBatchResponse(
             request_id,
-            BatchResponse::new(RangeInclusive::new(*range.start(), *range.end()), values),
+            BatchResponse::new(RangeInclusive::new(*start, *end), values),
             Default::default()
         )
     );
 
-    let batch_size = range.end().as_u64() - range.start().as_u64() + 1;
-    metrics.value_response_sent(range.start().as_u64(), batch_size);
+    metrics.value_response_sent(start.as_u64(), batch_size);
 
     Ok(())
 }
