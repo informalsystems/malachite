@@ -303,6 +303,7 @@ impl Store {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || {
             // TODO: optimize this to avoid multiple database reads
+
             let mut values = Vec::new();
             for h in range.start().as_u64()..=range.end().as_u64() {
                 if let Some(value) = db.get_decided_value(Height::new(h))? {

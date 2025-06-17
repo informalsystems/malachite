@@ -358,18 +358,15 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
 
         match request {
             proto::sync_request::Request::ValueRequest(req) => match req.end_height {
-                Some(end_height) => {
-                    if end_height > req.height {
-                        Ok(sync::Request::BatchRequest(sync::BatchRequest::new(
-                            RangeInclusive::new(Height::new(req.height), Height::new(end_height)),
-                            req.max_response_size.ok_or_else(|| {
-                                ProtoError::invalid_data::<proto::SyncRequest>("max_response_size")
-                            })? as usize,
-                        )))
-                    } else {
-                        Err(ProtoError::invalid_data::<proto::SyncRequest>("end_height"))
-                    }
+                Some(end_height) if end_height < req.height => {
+                    Err(ProtoError::invalid_data::<proto::SyncRequest>("end_height"))
                 }
+                Some(end_height) => Ok(sync::Request::BatchRequest(sync::BatchRequest::new(
+                    RangeInclusive::new(Height::new(req.height), Height::new(end_height)),
+                    req.max_response_size.ok_or_else(|| {
+                        ProtoError::invalid_data::<proto::SyncRequest>("max_response_size")
+                    })? as usize,
+                ))),
                 None => Ok(sync::Request::ValueRequest(sync::ValueRequest::new(
                     Height::new(req.height),
                 ))),

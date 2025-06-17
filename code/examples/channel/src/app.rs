@@ -290,8 +290,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 let raw_decided_values: Vec<RawDecidedValue<TestContext>> = decided_values
                     .into_iter()
                     .map(|decided_value| RawDecidedValue {
-                        certificate: decided_value.certificate,
                         value_bytes: encode_value(&decided_value.value),
+                        certificate: decided_value.certificate,
                     })
                     .collect();
 
