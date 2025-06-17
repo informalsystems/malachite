@@ -401,6 +401,8 @@ impl Store {
             loop {
                 if let Some(value) = db.get_decided_value(height)? {
                     values.insert(height, value);
+                } else {
+                    break;
                 }
 
                 if height >= *range.end() {

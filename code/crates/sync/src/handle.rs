@@ -373,37 +373,43 @@ pub async fn on_got_decided_values<Ctx>(
 where
     Ctx: Context,
 {
-    // TODO(SYNC): Double check that this function is correct
+    info!(
+        from_height = %range.start(),
+        to_height = %range.end(),
+        "Received batch response from host with {} values",
+        values.len()
+    );
 
-    let response = if values.len()
-        != (range.end().as_u64() - range.start().as_u64() + 1)
-            .try_into()
-            .unwrap()
-    {
-        error!(
-            from_height = %range.start(),
-            to_height = %range.end(),
-            "Received batch response from host with unexpected number of values: {}",
-            values.len()
-        );
+    let mut response = BTreeMap::new();
 
-        BTreeMap::new()
-    } else {
-        info!(
-            from_height = %range.start(),
-            to_height = %range.end(),
-            "Received batch response from host with {} values",
-            values.len()
-        );
+    let mut height = *range.start();
+    loop {
+        if let Some(value) = values.get(&height) {
+            response.insert(height, value.clone());
+        } else {
+            break;
+        }
 
-        values
-    };
+        if height >= *range.end() {
+            break;
+        }
+        height = height.increment();
+    }
+
+    let new_end = height.decrement().unwrap_or(*range.start());
+
+    info!(
+        from_height = %range.start(),
+        to_height = %new_end,
+        "Sending batch response with {} values",
+        response.len()
+    );
 
     perform!(
         co,
         Effect::SendBatchResponse(
             request_id,
-            BatchResponse::new(range, response),
+            BatchResponse::new(RangeInclusive::new(*range.start(), new_end), response),
             Default::default()
         )
     );

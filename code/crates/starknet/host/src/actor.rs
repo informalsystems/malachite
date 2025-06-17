@@ -567,10 +567,10 @@ async fn on_get_decided_blocks(
                 };
                 values.insert(height, Some(block));
             }
-            Ok(None) => continue,
+            Ok(None) => break,
             Err(e) => {
                 error!(%e, %height, "Failed to get decided block");
-                continue;
+                break;
             }
         }
 
