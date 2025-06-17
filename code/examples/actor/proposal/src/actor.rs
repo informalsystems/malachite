@@ -21,14 +21,10 @@ use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
 use crate::app::App;
-use crate::mempool::MempoolLoadRef;
-use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::metrics::Metrics;
 use crate::state::HostState;
 
 pub struct Host {
-    mempool: MempoolRef,
-    mempool_load: MempoolLoadRef,
     metrics: Metrics,
     span: tracing::Span,
 }
@@ -42,8 +38,6 @@ impl Host {
         home_dir: PathBuf,
         signing_provider: Ed25519Provider,
         host: App,
-        mempool: MempoolRef,
-        mempool_load: MempoolLoadRef,
         metrics: Metrics,
         span: tracing::Span,
     ) -> Result<HostRef, SpawnErr> {
@@ -55,7 +49,7 @@ impl Host {
 
         let (actor_ref, _) = Actor::spawn(
             None,
-            Self::new(mempool, mempool_load, metrics, span),
+            Self::new(metrics, span),
             HostState::new(
                 ctx,
                 signing_provider,
@@ -70,18 +64,8 @@ impl Host {
         Ok(actor_ref)
     }
 
-    pub fn new(
-        mempool: MempoolRef,
-        mempool_load: MempoolLoadRef,
-        metrics: Metrics,
-        span: tracing::Span,
-    ) -> Self {
-        Self {
-            mempool,
-            mempool_load,
-            metrics,
-            span,
-        }
+    pub fn new(metrics: Metrics, span: tracing::Span) -> Self {
+        Self { metrics, span }
     }
 }
 
@@ -93,12 +77,9 @@ impl Actor for Host {
 
     async fn pre_start(
         &self,
-        myself: HostRef,
+        _myself: HostRef,
         initial_state: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
-        self.mempool.link(myself.get_cell());
-        self.mempool_load.link(myself.get_cell());
-
         Ok(initial_state)
     }
 
@@ -174,7 +155,7 @@ impl Host {
                 certificate,
                 consensus,
                 ..
-            } => on_decided(state, &consensus, &self.mempool, certificate, &self.metrics).await,
+            } => on_decided(state, &consensus, certificate, &self.metrics).await,
 
             HostMsg::GetDecidedValue { height, reply_to } => {
                 on_get_decided_block(height, state, reply_to).await
@@ -492,7 +473,6 @@ async fn on_get_decided_block(
 async fn on_decided(
     state: &mut HostState,
     consensus: &ConsensusRef<MockContext>,
-    mempool: &MempoolRef,
     certificate: CommitCertificate<MockContext>,
     metrics: &Metrics,
 ) -> Result<(), ActorProcessingErr> {
@@ -533,21 +513,11 @@ async fn on_decided(
     metrics.block_size_bytes.observe(block_size as f64);
     metrics.finalized_txes.inc_by(tx_count as u64);
 
-    // Gather hashes of all the tx-es included in the block,
-    // so that we can notify the mempool to remove them.
-    let mut tx_hashes = vec![];
-    for tx in block.transactions.to_vec().iter() {
-        tx_hashes.push(tx.hash().clone());
-    }
-
     // Prune the block store, keeping only the last `max_retain_blocks` blocks
     prune_block_store(state).await;
 
-    // Notify the mempool to remove corresponding txs
-    mempool.cast(MempoolMsg::Update { tx_hashes })?;
-
-    // Notify the Host of the decision
-    state.app.decision(certificate).await;
+    // Notify the App of the decision
+    state.app.decision(block, certificate).await;
 
     // Start the next height
     consensus.cast(ConsensusMsg::StartHeight(

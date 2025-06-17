@@ -53,7 +53,7 @@ pub async fn spawn_node_actor(
     // Spawn mempool and its gossip layer
     let mempool_network = spawn_mempool_network_actor(&cfg, &private_key, &registry, &span).await;
     let mempool = spawn_mempool_actor(mempool_network, &cfg.mempool, &span).await;
-    let mempool_load = spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
+    spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
 
     // Spawn consensus gossip
     let network: ractor::ActorRef<malachitebft_engine::network::Msg<MockContext>> =
@@ -67,7 +67,6 @@ pub async fn spawn_node_actor(
         &private_key,
         &initial_validator_set,
         mempool,
-        mempool_load,
         app_metrics,
         &span,
     )
@@ -332,7 +331,6 @@ async fn spawn_host_actor(
     private_key: &PrivateKey,
     initial_validator_set: &ValidatorSet,
     mempool: MempoolRef,
-    mempool_load: MempoolLoadRef,
     app_metrics: AppMetrics,
     span: &tracing::Span,
 ) -> HostRef<MockContext> {
@@ -357,8 +355,6 @@ async fn spawn_host_actor(
         home_dir.to_owned(),
         signing_provider,
         app,
-        mempool,
-        mempool_load,
         app_metrics,
         span.clone(),
     )

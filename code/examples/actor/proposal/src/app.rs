@@ -5,7 +5,7 @@ use bytesize::ByteSize;
 use malachitebft_core_types::{CommitCertificate, Round};
 use malachitebft_signing_ed25519::PrivateKey;
 
-use crate::mempool::MempoolRef;
+use crate::mempool::{MempoolMsg, MempoolRef};
 use crate::proposal::build_proposal_task;
 
 use crate::types::{Address, Block, Height, MockContext, ValidatorSet};
@@ -63,6 +63,21 @@ impl App {
     /// - brock_hash - The ID of the content which has been decided.
     /// - precommits - The list of precommits from the round the decision was made (both for and against).
     /// - height     - The height of the decision.
-    #[tracing::instrument(skip_all, fields(height = %_certificate.height, block_hash = %_certificate.value_id))]
-    pub async fn decision(&self, _certificate: CommitCertificate<MockContext>) {}
+    pub async fn decision(&self, block: Block, certificate: CommitCertificate<MockContext>) {
+        // Gather hashes of all the tx-es included in the block,
+        // so that we can notify the mempool to remove them.
+        let mut tx_hashes = vec![];
+        for tx in block.transactions.to_vec().iter() {
+            tx_hashes.push(tx.hash().clone());
+        }
+        // Notify the mempool to remove corresponding txs
+        if let Err(err) = self.mempool.cast(MempoolMsg::Update { tx_hashes }) {
+            tracing::error!(
+                error = ?err,
+                height = ?certificate.height,
+                block_hash = ?certificate.value_id,
+                "Failed to notify mempool about decided transactions"
+            );
+        }
+    }
 }

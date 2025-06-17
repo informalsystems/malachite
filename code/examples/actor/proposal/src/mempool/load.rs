@@ -140,6 +140,8 @@ impl Actor for MempoolLoad {
         myself: MempoolLoadRef,
         _args: (),
     ) -> Result<State, ActorProcessingErr> {
+        self.mempool.link(myself.get_cell());
+
         let ticker = match self.params.load_type.clone() {
             MempoolLoadType::NoLoad => tokio::spawn(async {}),
             MempoolLoadType::UniformLoad(uniform_load_config) => {
@@ -149,6 +151,7 @@ impl Actor for MempoolLoad {
                 Self::run_non_uniform_load(non_uniform_load_config, myself.clone()),
             ),
         };
+
         Ok(State { ticker })
     }
 
