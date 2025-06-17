@@ -363,9 +363,6 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                 }
                 Some(end_height) => Ok(sync::Request::BatchRequest(sync::BatchRequest::new(
                     RangeInclusive::new(Height::new(req.height), Height::new(end_height)),
-                    req.max_response_size.ok_or_else(|| {
-                        ProtoError::invalid_data::<proto::SyncRequest>("max_response_size")
-                    })? as usize,
                 ))),
                 None => Ok(sync::Request::ValueRequest(sync::ValueRequest::new(
                     Height::new(req.height),
@@ -381,7 +378,6 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                     proto::ValueRequest {
                         height: req.height.as_u64(),
                         end_height: None,
-                        max_response_size: None,
                     },
                 )),
             },
@@ -390,7 +386,6 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                     proto::ValueRequest {
                         height: req.range.start().as_u64(),
                         end_height: Some(req.range.end().as_u64()),
-                        max_response_size: Some(req.max_response_size as u64),
                     },
                 )),
             },

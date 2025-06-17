@@ -18,7 +18,6 @@ message Status {
 message ValueRequest {
     uint64 height = 1;
     optional uint64 end_height = 2;
-    optional uint64 max_response_size = 3;
 }
 
 message ValueResponse {

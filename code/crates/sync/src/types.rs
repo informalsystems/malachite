@@ -106,15 +106,11 @@ impl<Ctx: Context> ValueResponse<Ctx> {
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct BatchRequest<Ctx: Context> {
     pub range: RangeInclusive<Ctx::Height>,
-    pub max_response_size: usize,
 }
 
 impl<Ctx: Context> BatchRequest<Ctx> {
-    pub fn new(range: RangeInclusive<Ctx::Height>, max_response_size: usize) -> Self {
-        Self {
-            range,
-            max_response_size,
-        }
+    pub fn new(range: RangeInclusive<Ctx::Height>) -> Self {
+        Self { range }
     }
 }
 

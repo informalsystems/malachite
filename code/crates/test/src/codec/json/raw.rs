@@ -149,7 +149,6 @@ pub struct ValueRawRequest {
 pub struct BatchRawRequest {
     pub from: Height,
     pub to: Height,
-    pub max_response_size: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -167,7 +166,6 @@ impl From<Request<TestContext>> for RawRequest {
             Request::BatchRequest(batch_request) => Self::BatchSyncRequest(BatchRawRequest {
                 from: *batch_request.range.start(),
                 to: *batch_request.range.end(),
-                max_response_size: batch_request.max_response_size,
             }),
         }
     }
@@ -181,7 +179,6 @@ impl From<RawRequest> for Request<TestContext> {
             }),
             RawRequest::BatchSyncRequest(batch_raw_request) => Self::BatchRequest(BatchRequest {
                 range: batch_raw_request.from..=batch_raw_request.to,
-                max_response_size: batch_raw_request.max_response_size,
             }),
         }
     }
