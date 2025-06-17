@@ -577,8 +577,9 @@ where
         .unwrap_or(1);
 
     // Send the request
-    let end_height = height.increment_by(batch_size);
+    let mut end_height = height;
     let request_id = if batch_size > 1 {
+        end_height = end_height.increment_by(batch_size);
         let max_response_size = 10 * 1024 * 1024; // 10 MiB
         perform!(
             co,
