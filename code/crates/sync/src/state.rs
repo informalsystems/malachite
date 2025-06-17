@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::RangeInclusive;
 
 use libp2p::StreamProtocol;
 use std::time::Duration;
@@ -174,6 +175,21 @@ where
             for request_id in request_ids {
                 self.height_per_request_id.remove(&request_id);
             }
+        }
+    }
+
+    /// Remove all pending decided value requests for a given range of heights.
+    pub fn remove_pending_value_request_by_height_range(
+        &mut self,
+        range: &RangeInclusive<Ctx::Height>,
+    ) {
+        let mut height = *range.start();
+        loop {
+            self.remove_pending_value_request_by_height(&height);
+            if height >= *range.end() {
+                break;
+            }
+            height = height.increment();
         }
     }
 

@@ -314,7 +314,7 @@ where
 pub async fn on_batch_response<Ctx>(
     _co: Co<Ctx>,
     state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
     _request_id: OutboundRequestId,
     peer: PeerId,
     response: BatchResponse<Ctx>,
@@ -322,15 +322,26 @@ pub async fn on_batch_response<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(from = %response.range.start(), to = %response.range.end(), peer = %peer, "Received batch response");
+    let start = response.range.start().as_u64();
+    let end = response.range.end().as_u64();
+    let batch_size = end - start + 1;
+    debug!(from = %start, to = %end, peer = %peer, "Received batch response");
 
-    let mut height = *response.range.start();
-    loop {
-        state.remove_pending_value_request_by_height(&height);
-        if height >= *response.range.end() {
-            break;
-        }
-        height = height.increment();
+    state.remove_pending_value_request_by_height_range(&response.range);
+
+    let response_time = metrics.value_response_received(start, batch_size);
+
+    if let Some(_response_time) = response_time {
+        // TODO(SYNC): update peer score
+    }
+
+    // We do not update the peer score if we do not know the response time.
+    // This should never happen, but we need to handle it gracefully just in case.
+
+    if response.values.is_empty() {
+        warn!(from = %start, to = %end, peer = %peer, "Received invalid response");
+
+        // TODO(SYNC): request invalid values from another peer.
     }
 
     Ok(())
