@@ -192,12 +192,12 @@ pub fn encode_sync_request(
     let proto = match request {
         sync::Request::ValueRequest(value_request) => {
             let height = value_request.range.start();
-            assert_eq!(height, value_request.range.end());
             proto::sync::SyncRequest {
                 messages: Some(proto::sync::sync_request::Messages::ValueRequest(
                     proto::sync::ValueRequest {
                         fork_id: height.fork_id,
                         block_number: height.block_number,
+                        end_block_number: Some(value_request.range.end().block_number),
                     },
                 )),
             }
@@ -233,10 +233,9 @@ pub fn decode_sync_response(
                 height..=height,
                 value_response
                     .value
-                    .map(decode_synced_value)
-                    .transpose()?
                     .into_iter()
-                    .collect(),
+                    .map(decode_synced_value)
+                    .collect::<Result<Vec<_>, ProtoError>>()?,
             ))
         }
     };
@@ -259,9 +258,9 @@ pub fn encode_sync_response(
                         block_number: height.block_number,
                         value: value_response
                             .values
-                            .first()
+                            .iter()
                             .map(encode_synced_value)
-                            .transpose()?,
+                            .collect::<Result<Vec<_>, _>>()?,
                     },
                 )),
             }
