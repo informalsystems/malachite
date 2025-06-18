@@ -70,59 +70,48 @@ impl<Ctx: Context> PeerDetails<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum Request<Ctx: Context> {
-    ValueRequest(ValueRequest<Ctx>), // Sync v1
-    BatchRequest(BatchRequest<Ctx>), // Sync v2
+    ValueRequest(ValueRequest<Ctx>),
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum Response<Ctx: Context> {
-    ValueResponse(ValueResponse<Ctx>), // Sync v1
-    BatchResponse(BatchResponse<Ctx>), // Sync v2
+    ValueResponse(ValueResponse<Ctx>),
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueRequest<Ctx: Context> {
-    pub height: Ctx::Height,
-}
-
-impl<Ctx: Context> ValueRequest<Ctx> {
-    pub fn new(height: Ctx::Height) -> Self {
-        Self { height }
-    }
-}
-
-#[derive_where(Clone, Debug, PartialEq, Eq)]
-pub struct ValueResponse<Ctx: Context> {
-    pub height: Ctx::Height,
-    pub value: Option<RawDecidedValue<Ctx>>,
-}
-
-impl<Ctx: Context> ValueResponse<Ctx> {
-    pub fn new(height: Ctx::Height, value: Option<RawDecidedValue<Ctx>>) -> Self {
-        Self { height, value }
-    }
-}
-
-#[derive_where(Clone, Debug, PartialEq, Eq)]
-pub struct BatchRequest<Ctx: Context> {
     pub range: RangeInclusive<Ctx::Height>,
 }
 
-impl<Ctx: Context> BatchRequest<Ctx> {
+impl<Ctx: Context> ValueRequest<Ctx> {
     pub fn new(range: RangeInclusive<Ctx::Height>) -> Self {
         Self { range }
     }
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
-pub struct BatchResponse<Ctx: Context> {
-    pub range: RangeInclusive<Ctx::Height>,
+pub struct ValueResponse<Ctx: Context> {
+    /// The height of the first value in the response.
+    pub start_height: Ctx::Height,
+
+    /// Values are sequentially ordered by height.
     pub values: Vec<RawDecidedValue<Ctx>>,
 }
 
-impl<Ctx: Context> BatchResponse<Ctx> {
-    pub fn new(range: RangeInclusive<Ctx::Height>, values: Vec<RawDecidedValue<Ctx>>) -> Self {
-        Self { range, values }
+impl<Ctx: Context> ValueResponse<Ctx> {
+    pub fn new(start_height: Ctx::Height, values: Vec<RawDecidedValue<Ctx>>) -> Self {
+        Self {
+            start_height,
+            values,
+        }
+    }
+
+    pub fn end_height(&self) -> Option<Ctx::Height> {
+        if self.values.is_empty() {
+            None
+        } else {
+            Some(self.start_height.increment_by(self.values.len() as u64 - 1))
+        }
     }
 }
 

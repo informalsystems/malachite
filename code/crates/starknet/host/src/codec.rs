@@ -178,10 +178,8 @@ pub fn decode_sync_request(
         .ok_or_else(|| ProtoError::missing_field::<proto::sync::SyncRequest>("messages"))?;
     let request = match messages {
         proto::sync::sync_request::Messages::ValueRequest(value_request) => {
-            sync::Request::ValueRequest(ValueRequest::new(Height::new(
-                value_request.block_number,
-                value_request.fork_id,
-            )))
+            let height = Height::new(value_request.block_number, value_request.fork_id);
+            sync::Request::ValueRequest(ValueRequest::new(height..=height))
         }
     };
 
@@ -192,16 +190,17 @@ pub fn encode_sync_request(
     request: &sync::Request<MockContext>,
 ) -> Result<proto::sync::SyncRequest, ProtoError> {
     let proto = match request {
-        sync::Request::ValueRequest(value_request) => proto::sync::SyncRequest {
-            messages: Some(proto::sync::sync_request::Messages::ValueRequest(
-                proto::sync::ValueRequest {
-                    fork_id: value_request.height.fork_id,
-                    block_number: value_request.height.block_number,
-                },
-            )),
-        },
-        sync::Request::BatchRequest(_) => {
-            panic!("TODO")
+        sync::Request::ValueRequest(value_request) => {
+            let height = value_request.range.start();
+            proto::sync::SyncRequest {
+                messages: Some(proto::sync::sync_request::Messages::ValueRequest(
+                    proto::sync::ValueRequest {
+                        fork_id: height.fork_id,
+                        block_number: height.block_number,
+                        end_block_number: Some(value_request.range.end().block_number),
+                    },
+                )),
+            }
         }
     };
 
@@ -231,7 +230,11 @@ pub fn decode_sync_response(
         proto::sync::sync_response::Messages::ValueResponse(value_response) => {
             sync::Response::ValueResponse(ValueResponse::new(
                 Height::new(value_response.block_number, value_response.fork_id),
-                value_response.value.map(decode_synced_value).transpose()?,
+                value_response
+                    .values
+                    .into_iter()
+                    .map(decode_synced_value)
+                    .collect::<Result<Vec<_>, ProtoError>>()?,
             ))
         }
     };
@@ -246,19 +249,16 @@ pub fn encode_sync_response(
         sync::Response::ValueResponse(value_response) => proto::sync::SyncResponse {
             messages: Some(proto::sync::sync_response::Messages::ValueResponse(
                 proto::sync::ValueResponse {
-                    fork_id: value_response.height.fork_id,
-                    block_number: value_response.height.block_number,
-                    value: value_response
-                        .value
-                        .as_ref()
+                    fork_id: value_response.start_height.fork_id,
+                    block_number: value_response.start_height.block_number,
+                    values: value_response
+                        .values
+                        .iter()
                         .map(encode_synced_value)
-                        .transpose()?,
+                        .collect::<Result<Vec<_>, _>>()?,
                 },
             )),
         },
-        sync::Response::BatchResponse(_) => {
-            panic!("TODO")
-        }
     };
 
     Ok(proto)

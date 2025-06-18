@@ -1,5 +1,3 @@
-use std::ops::RangeInclusive;
-
 use bytes::Bytes;
 use prost::Message;
 
@@ -361,11 +359,8 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                 Some(end_height) if end_height < req.height => {
                     Err(ProtoError::invalid_data::<proto::SyncRequest>("end_height"))
                 }
-                Some(end_height) => Ok(sync::Request::BatchRequest(sync::BatchRequest::new(
-                    RangeInclusive::new(Height::new(req.height), Height::new(end_height)),
-                ))),
-                None => Ok(sync::Request::ValueRequest(sync::ValueRequest::new(
-                    Height::new(req.height),
+                end_height => Ok(sync::Request::ValueRequest(sync::ValueRequest::new(
+                    Height::new(req.height)..=Height::new(end_height.unwrap_or(req.height)),
                 ))),
             },
         }
@@ -374,14 +369,6 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
     fn encode(&self, msg: &sync::Request<TestContext>) -> Result<Bytes, Self::Error> {
         let proto = match msg {
             sync::Request::ValueRequest(req) => proto::SyncRequest {
-                request: Some(proto::sync_request::Request::ValueRequest(
-                    proto::ValueRequest {
-                        height: req.height.as_u64(),
-                        end_height: None,
-                    },
-                )),
-            },
-            sync::Request::BatchRequest(req) => proto::SyncRequest {
                 request: Some(proto::sync_request::Request::ValueRequest(
                     proto::ValueRequest {
                         height: req.range.start().as_u64(),
@@ -415,24 +402,14 @@ pub fn decode_sync_response(
         .ok_or_else(|| ProtoError::missing_field::<proto::SyncResponse>("messages"))?;
 
     let response = match response {
-        proto::sync_response::Response::ValueResponse(value_response) => {
+        proto::sync_response::Response::ValueResponse(response) => {
             sync::Response::ValueResponse(sync::ValueResponse::new(
-                Height::new(value_response.height),
-                value_response.value.map(decode_synced_value).transpose()?,
-            ))
-        }
-        proto::sync_response::Response::BatchResponse(batch_response) => {
-            let values = batch_response
-                .values
-                .iter()
-                .map(|v| decode_synced_value(v.clone()))
-                .collect::<Result<Vec<_>, ProtoError>>()?;
-            sync::Response::BatchResponse(sync::BatchResponse::new(
-                RangeInclusive::new(
-                    Height::new(batch_response.height),
-                    Height::new(batch_response.height + batch_response.values.len() as u64 - 1),
-                ),
-                values,
+                Height::new(response.start_height),
+                response
+                    .values
+                    .into_iter()
+                    .map(decode_synced_value)
+                    .collect::<Result<Vec<_>, ProtoError>>()?,
             ))
         }
     };
@@ -445,28 +422,16 @@ pub fn encode_sync_response(
 ) -> Result<proto::SyncResponse, ProtoError> {
     let proto = match response {
         sync::Response::ValueResponse(value_response) => proto::SyncResponse {
-            response: Some(proto::sync_response::Response::ValueResponse(
-                proto::ValueResponse {
-                    height: value_response.height.as_u64(),
-                    value: value_response
-                        .value
-                        .as_ref()
-                        .map(encode_synced_value)
-                        .transpose()?,
-                },
-            )),
-        },
-        sync::Response::BatchResponse(batch_response) => proto::SyncResponse {
-            response: Some(proto::sync_response::Response::BatchResponse(
-                proto::BatchResponse {
-                    height: batch_response.range.start().as_u64(),
-                    values: batch_response
+            response: Some({
+                proto::sync_response::Response::ValueResponse(proto::ValueResponse {
+                    start_height: value_response.start_height.as_u64(),
+                    values: value_response
                         .values
                         .iter()
                         .map(encode_synced_value)
-                        .collect::<Result<Vec<_>, ProtoError>>()?,
-                },
-            )),
+                        .collect::<Result<Vec<_>, _>>()?,
+                })
+            }),
         },
     };
 

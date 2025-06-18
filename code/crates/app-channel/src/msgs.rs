@@ -163,21 +163,14 @@ pub enum AppMsg<Ctx: Context> {
         reply: Reply<ConsensusMsg<Ctx>>,
     },
 
-    /// Requests a previously decided value from the application's storage.
+    /// Requests a range of previously decided values from the application's storage.
     ///
-    /// The application MUST respond with that value if available, or `None` otherwise.
-    GetDecidedValue {
-        /// Height of the decided value to retrieve
-        height: Ctx::Height,
-        /// Channel for sending back the decided value
-        reply: Reply<Option<RawDecidedValue<Ctx>>>,
-    },
-
-    /// Requests a batch of previously decided values from the application's storage.
-    ///
-    /// The application MUST respond with a map of heights to decided values
+    /// The application MUST respond with:
+    /// - all decided values in the range, if available,
+    /// - a prefix of the list of requested values, in case one of them is not available (that is, discarding the rest of the range)
+    /// - or an empty list otherwise.
     GetDecidedValues {
-        /// Range of heights for which to retrieve decided values
+        /// Range of heights to retrieve
         range: RangeInclusive<Ctx::Height>,
         /// Channel for sending back the decided values
         reply: Reply<Vec<RawDecidedValue<Ctx>>>,
