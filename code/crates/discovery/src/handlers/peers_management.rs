@@ -64,7 +64,7 @@ where
             .filter(|(peer_id, _)| !self.outbound_peers.contains_key(peer_id))
             // Remove inbound peers
             .filter(|(peer_id, _)| !self.inbound_peers.contains(peer_id))
-            .map(|(peer_id, connection_ids)| ((*peer_id).clone(), connection_ids.clone()))
+            .map(|(peer_id, connection_ids)| (*peer_id, connection_ids.clone()))
             .collect();
 
         debug!(

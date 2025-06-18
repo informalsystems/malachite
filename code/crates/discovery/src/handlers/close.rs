@@ -20,9 +20,7 @@ where
             || self
                 .active_connections
                 .get(&peer_id)
-                .map_or(true, |connection_ids| {
-                    !connection_ids.contains(&connection_id)
-                })
+                .is_none_or(|connection_ids| !connection_ids.contains(&connection_id))
     }
 
     pub fn close_connection(

@@ -208,6 +208,7 @@ impl Metrics {
         self.total_discovered.inc();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_connections_status(
         &self,
         num_active_peers: usize,
