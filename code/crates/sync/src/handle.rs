@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
@@ -48,7 +47,7 @@ pub enum Input<Ctx: Context> {
     GotDecidedValues(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,
-        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+        Vec<RawDecidedValue<Ctx>>,
     ),
 
     /// A request for a value timed out
@@ -418,54 +417,43 @@ pub async fn on_got_decided_values<Ctx>(
     metrics: &Metrics,
     request_id: InboundRequestId,
     range: RangeInclusive<Ctx::Height>,
-    values: BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+    values: Vec<RawDecidedValue<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
+    let start = range.start();
+    let end = range.end();
+
     info!(
-        from_height = %range.start(),
-        to_height = %range.end(),
+        from_height = %start,
+        to_height = %end,
         "Received batch response from host with {} values",
         values.len()
     );
 
-    let mut response = BTreeMap::new();
-
-    let mut height = *range.start();
-    loop {
-        if let Some(value) = values.get(&height) {
-            response.insert(height, value.clone());
-        } else {
-            break;
-        }
-
-        if height >= *range.end() {
-            break;
-        }
-        height = height.increment();
+    // Validate response from host
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    if batch_size != values.len() as u64 {
+        error!(
+            from_height = %start,
+            to_height = %end,
+            "Received batch response from host with {} values, expected {}",
+            values.len(),
+            batch_size
+        )
     }
-
-    let new_end = height.decrement().unwrap_or(*range.start());
-    let new_size = new_end.as_u64() - range.start().as_u64() + 1;
-
-    info!(
-        from_height = %range.start(),
-        to_height = %new_end,
-        "Sending batch response with {} values",
-        response.len()
-    );
 
     perform!(
         co,
         Effect::SendBatchResponse(
             request_id,
-            BatchResponse::new(RangeInclusive::new(*range.start(), new_end), response),
+            BatchResponse::new(RangeInclusive::new(*start, *end), values),
             Default::default()
         )
     );
 
-    metrics.value_response_sent(range.start().as_u64(), new_size);
+    metrics.value_response_sent(start.as_u64(), batch_size);
 
     Ok(())
 }
@@ -580,10 +568,9 @@ where
     let mut end_height = height;
     let request_id = if batch_size > 1 {
         end_height = end_height.increment_by(batch_size);
-        let max_response_size = 10 * 1024 * 1024; // 10 MiB
         perform!(
             co,
-            Effect::SendBatchRequest(peer, BatchRequest::new(RangeInclusive::new(height, end_height), max_response_size), Default::default()),
+            Effect::SendBatchRequest(peer, BatchRequest::new(RangeInclusive::new(height, end_height)), Default::default()),
             Resume::ValueRequestId(id) => id,
         )
     } else {
