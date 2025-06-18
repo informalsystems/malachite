@@ -173,3 +173,7 @@ toml               = "0.8.21"
 tracing            = "0.1.41"
 tracing-appender   = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+[patch.crates-io]
+libp2p-dns = { git = "https://github.com/informalsystems/rust-libp2p.git", branch = "reth" }
+libp2p-mdns = { git = "https://github.com/informalsystems/rust-libp2p.git", branch = "reth" }
