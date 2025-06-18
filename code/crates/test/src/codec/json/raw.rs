@@ -151,9 +151,9 @@ pub enum RawRequest {
 impl From<Request<TestContext>> for RawRequest {
     fn from(value: Request<TestContext>) -> Self {
         match value {
-            Request::ValueRequest(block_request) => Self::SyncRequest(ValueRawRequest {
-                height: *block_request.range.start(),
-                end_height: Some(*block_request.range.end()),
+            Request::ValueRequest(request) => Self::SyncRequest(ValueRawRequest {
+                height: *request.range.start(),
+                end_height: Some(*request.range.end()),
             }),
         }
     }
@@ -162,13 +162,12 @@ impl From<Request<TestContext>> for RawRequest {
 impl From<RawRequest> for Request<TestContext> {
     fn from(value: RawRequest) -> Self {
         match value {
-            RawRequest::SyncRequest(block_raw_request) => {
-                let range = match block_raw_request.end_height {
-                    Some(end_height) => block_raw_request.height..=end_height,
-                    None => block_raw_request.height..=block_raw_request.height,
-                };
-                Self::ValueRequest(ValueRequest { range })
-            }
+            RawRequest::SyncRequest(raw_request) => Self::ValueRequest(ValueRequest {
+                range: match raw_request.end_height {
+                    Some(end_height) => raw_request.height..=end_height,
+                    None => raw_request.height..=raw_request.height,
+                },
+            }),
         }
     }
 }
@@ -251,49 +250,15 @@ pub struct RawSyncedValue {
 #[derive(Serialize, Deserialize)]
 pub struct ValueRawResponse {
     pub height: Height,
-    pub block: Option<RawSyncedValue>,
+    pub value: Vec<RawSyncedValue>,
 }
 
 impl From<ValueResponse<TestContext>> for ValueRawResponse {
-    // We assume the response contains a single value
     fn from(response: ValueResponse<TestContext>) -> Self {
+        // TODO(SYNC): check that values and range are consistent
         Self {
             height: *response.range.start(),
-            block: response.values.first().map(|block| RawSyncedValue {
-                value_bytes: block.value_bytes.clone(),
-                certificate: block.certificate.clone().into(),
-            }),
-        }
-    }
-}
-
-impl From<ValueRawResponse> for ValueResponse<TestContext> {
-    fn from(response: ValueRawResponse) -> Self {
-        Self {
-            range: response.height..=response.height,
-            values: response
-                .block
-                .map(|block| RawDecidedValue {
-                    value_bytes: block.value_bytes.clone(),
-                    certificate: block.certificate.into(),
-                })
-                .into_iter()
-                .collect(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BatchRawResponse {
-    pub height: Height,
-    pub values: Vec<RawSyncedValue>,
-}
-
-impl From<ValueResponse<TestContext>> for BatchRawResponse {
-    fn from(response: ValueResponse<TestContext>) -> Self {
-        Self {
-            height: *response.range.start(),
-            values: response
+            value: response
                 .values
                 .into_iter()
                 .map(|value| RawSyncedValue {
@@ -305,15 +270,15 @@ impl From<ValueResponse<TestContext>> for BatchRawResponse {
     }
 }
 
-impl From<BatchRawResponse> for ValueResponse<TestContext> {
-    fn from(response: BatchRawResponse) -> Self {
+impl From<ValueRawResponse> for ValueResponse<TestContext> {
+    fn from(response: ValueRawResponse) -> Self {
         // If the list of values in the response is empty, then end height is
         // one less than the start height and the range is empty.
-        let end_height = Height::new(response.height.as_u64() + response.values.len() as u64 - 1);
+        let end_height = Height::new(response.height.as_u64() + response.value.len() as u64 - 1);
         Self {
             range: response.height..=end_height,
             values: response
-                .values
+                .value
                 .into_iter()
                 .map(|value| RawDecidedValue {
                     value_bytes: value.value_bytes,
@@ -327,21 +292,12 @@ impl From<BatchRawResponse> for ValueResponse<TestContext> {
 #[derive(Serialize, Deserialize)]
 pub enum RawResponse {
     ValueResponse(ValueRawResponse),
-    BatchResponse(BatchRawResponse),
 }
 
 impl From<Response<TestContext>> for RawResponse {
     fn from(value: Response<TestContext>) -> Self {
         match value {
-            Response::ValueResponse(response) => {
-                if response.range.start() == response.range.end() {
-                    assert_eq!(response.values.len(), 1);
-                    Self::ValueResponse(response.into())
-                } else {
-                    assert_ne!(response.values.len(), 1);
-                    Self::BatchResponse(response.into())
-                }
-            }
+            Response::ValueResponse(block_response) => Self::ValueResponse(block_response.into()),
         }
     }
 }
@@ -351,9 +307,6 @@ impl From<RawResponse> for Response<TestContext> {
         match value {
             RawResponse::ValueResponse(block_raw_response) => {
                 Self::ValueResponse(block_raw_response.into())
-            }
-            RawResponse::BatchResponse(batch_raw_response) => {
-                Self::ValueResponse(batch_raw_response.into())
             }
         }
     }
