@@ -12,7 +12,7 @@ use tokio::time::Instant;
 use tracing::{debug, error, error_span, info, warn};
 
 use malachitebft_codec as codec;
-use malachitebft_config::TimeoutConfig;
+use malachitebft_config::{ConsensusConfig, TimeoutConfig};
 use malachitebft_core_consensus::{
     Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
 };
@@ -72,7 +72,7 @@ where
 {
     ctx: Ctx,
     params: ConsensusParams<Ctx>,
-    timeout_config: TimeoutConfig,
+    consensus_config: ConsensusConfig,
     signing_provider: Box<dyn SigningProvider<Ctx>>,
     network: NetworkRef<Ctx>,
     host: HostRef<Ctx>,
@@ -271,7 +271,7 @@ where
     pub async fn spawn(
         ctx: Ctx,
         params: ConsensusParams<Ctx>,
-        timeout_config: TimeoutConfig,
+        consensus_config: ConsensusConfig,
         signing_provider: Box<dyn SigningProvider<Ctx>>,
         network: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
@@ -284,7 +284,7 @@ where
         let node = Self {
             ctx,
             params,
-            timeout_config,
+            consensus_config,
             signing_provider,
             network,
             host,
@@ -909,7 +909,7 @@ where
     ) -> Result<Resume<Ctx>, ActorProcessingErr> {
         match effect {
             Effect::ResetTimeouts(r) => {
-                state.timeouts.reset(self.timeout_config);
+                state.timeouts.reset(self.consensus_config.timeouts);
                 Ok(r.resume_with(()))
             }
 
@@ -1213,8 +1213,12 @@ where
 
         Ok(State {
             timers: Timers::new(Box::new(myself)),
-            timeouts: Timeouts::new(self.timeout_config),
-            consensus: ConsensusState::new(self.ctx.clone(), self.params.clone()),
+            timeouts: Timeouts::new(self.consensus_config.timeouts),
+            consensus: ConsensusState::new(
+                self.ctx.clone(),
+                self.params.clone(),
+                self.consensus_config.queue_capacity,
+            ),
             connected_peers: BTreeSet::new(),
             phase: Phase::Unstarted,
             msg_buffer: MessageBuffer::new(MAX_BUFFER_SIZE),

@@ -38,7 +38,7 @@ impl<Ctx> State<Ctx>
 where
     Ctx: Context,
 {
-    pub fn new(ctx: Ctx, params: Params<Ctx>) -> Self {
+    pub fn new(ctx: Ctx, params: Params<Ctx>, queue_capacity: usize) -> Self {
         let driver = Driver::new(
             ctx.clone(),
             params.initial_height,
@@ -51,7 +51,7 @@ where
             ctx,
             driver,
             params,
-            input_queue: BoundedQueue::new(100), // FIXME
+            input_queue: BoundedQueue::new(queue_capacity),
             full_proposal_keeper: Default::default(),
             last_signed_prevote: None,
             last_signed_precommit: None,
