@@ -228,11 +228,10 @@ pub fn decode_sync_response(
 
     let response = match messages {
         proto::sync::sync_response::Messages::ValueResponse(value_response) => {
-            let height = Height::new(value_response.block_number, value_response.fork_id);
             sync::Response::ValueResponse(ValueResponse::new(
-                height..=height,
+                Height::new(value_response.block_number, value_response.fork_id),
                 value_response
-                    .value
+                    .values
                     .into_iter()
                     .map(decode_synced_value)
                     .collect::<Result<Vec<_>, ProtoError>>()?,
@@ -247,24 +246,19 @@ pub fn encode_sync_response(
     response: &sync::Response<MockContext>,
 ) -> Result<proto::sync::SyncResponse, ProtoError> {
     let proto = match response {
-        sync::Response::ValueResponse(value_response) => {
-            let height = value_response.range.start();
-            assert_eq!(height, value_response.range.end());
-            assert_eq!(value_response.values.len(), 1);
-            proto::sync::SyncResponse {
-                messages: Some(proto::sync::sync_response::Messages::ValueResponse(
-                    proto::sync::ValueResponse {
-                        fork_id: height.fork_id,
-                        block_number: height.block_number,
-                        value: value_response
-                            .values
-                            .iter()
-                            .map(encode_synced_value)
-                            .collect::<Result<Vec<_>, _>>()?,
-                    },
-                )),
-            }
-        }
+        sync::Response::ValueResponse(value_response) => proto::sync::SyncResponse {
+            messages: Some(proto::sync::sync_response::Messages::ValueResponse(
+                proto::sync::ValueResponse {
+                    fork_id: value_response.start_height.fork_id,
+                    block_number: value_response.start_height.block_number,
+                    values: value_response
+                        .values
+                        .iter()
+                        .map(encode_synced_value)
+                        .collect::<Result<Vec<_>, _>>()?,
+                },
+            )),
+        },
     };
 
     Ok(proto)

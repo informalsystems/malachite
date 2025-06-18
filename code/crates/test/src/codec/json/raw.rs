@@ -249,15 +249,14 @@ pub struct RawSyncedValue {
 
 #[derive(Serialize, Deserialize)]
 pub struct ValueRawResponse {
-    pub height: Height,
+    pub start_height: Height,
     pub value: Vec<RawSyncedValue>,
 }
 
 impl From<ValueResponse<TestContext>> for ValueRawResponse {
     fn from(response: ValueResponse<TestContext>) -> Self {
-        // TODO(SYNC): check that values and range are consistent
         Self {
-            height: *response.range.start(),
+            start_height: response.start_height,
             value: response
                 .values
                 .into_iter()
@@ -272,11 +271,8 @@ impl From<ValueResponse<TestContext>> for ValueRawResponse {
 
 impl From<ValueRawResponse> for ValueResponse<TestContext> {
     fn from(response: ValueRawResponse) -> Self {
-        // If the list of values in the response is empty, then end height is
-        // one less than the start height and the range is empty.
-        let end_height = Height::new(response.height.as_u64() + response.value.len() as u64 - 1);
         Self {
-            range: response.height..=end_height,
+            start_height: response.start_height,
             values: response
                 .value
                 .into_iter()

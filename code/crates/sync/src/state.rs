@@ -30,8 +30,8 @@ where
     /// Decided value requests for these heights have been sent out to peers.
     pub pending_value_requests: BTreeMap<Ctx::Height, BTreeSet<OutboundRequestId>>,
 
-    /// Maps request ID to height for pending decided value requests.
-    pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
+    /// Maps request ID to range of heights for pending decided value requests.
+    pub height_range_per_request_id: BTreeMap<OutboundRequestId, RangeInclusive<Ctx::Height>>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
     pub peers: BTreeMap<PeerId, PeerDetails<Ctx>>,
@@ -61,7 +61,7 @@ where
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
             pending_value_requests: BTreeMap::new(),
-            height_per_request_id: BTreeMap::new(),
+            height_range_per_request_id: BTreeMap::new(),
             peers: BTreeMap::new(),
             peer_scorer: PeerScorer::new(scoring_strategy),
             inactive_threshold,
@@ -145,7 +145,8 @@ where
         to: Ctx::Height,
         request_id: OutboundRequestId,
     ) {
-        self.height_per_request_id.insert(request_id.clone(), from);
+        self.height_range_per_request_id
+            .insert(request_id.clone(), from..=to);
 
         let mut height = from;
         loop {
@@ -164,7 +165,7 @@ where
     pub fn remove_pending_value_request_by_height(&mut self, height: &Ctx::Height) {
         if let Some(request_ids) = self.pending_value_requests.remove(height) {
             for request_id in request_ids {
-                self.height_per_request_id.remove(&request_id);
+                self.height_range_per_request_id.remove(&request_id);
             }
         }
     }
@@ -184,32 +185,33 @@ where
         }
     }
 
-    /// Remove a pending decided value request by its ID and return the height it was associated with.
+    /// Remove a pending decided value request by its ID and return the height range it was associated with.
     pub fn remove_pending_value_request_by_id(
         &mut self,
         request_id: &OutboundRequestId,
-    ) -> Option<Ctx::Height> {
-        let height = self.height_per_request_id.remove(request_id)?;
+    ) -> Option<RangeInclusive<Ctx::Height>> {
+        let range = self.height_range_per_request_id.remove(request_id)?;
 
-        if let Some(request_ids) = self.pending_value_requests.get_mut(&height) {
-            request_ids.remove(request_id);
+        let mut height = *range.start();
+        loop {
+            if let Some(request_ids) = self.pending_value_requests.get_mut(&height) {
+                request_ids.remove(request_id);
 
-            // If there are no more requests for this height, remove the entry
-            if request_ids.is_empty() {
-                self.pending_value_requests.remove(&height);
+                // If there are no more requests for this height, remove the entry
+                if request_ids.is_empty() {
+                    self.pending_value_requests.remove(&height);
+                }
+
+                if height >= *range.end() {
+                    break;
+                }
+                height = height.increment();
+            } else {
+                break;
             }
         }
 
-        Some(height)
-    }
-
-    // TODO(SYNC): Unused method? Then remove.
-    pub fn remove_pending_decided_batch_request(&mut self, from: Ctx::Height, to: Ctx::Height) {
-        let mut height = from;
-        while height <= to {
-            self.pending_value_requests.remove(&height);
-            height = height.increment();
-        }
+        Some(range)
     }
 
     /// Check if there are any pending decided value requests for a given height.
@@ -217,5 +219,11 @@ where
         self.pending_value_requests
             .get(height)
             .is_some_and(|ids| !ids.is_empty())
+    }
+
+    pub fn requested_batch_size(&self, request_id: &OutboundRequestId) -> Option<usize> {
+        self.height_range_per_request_id
+            .get(request_id)
+            .map(|range| (range.end().as_u64() - range.start().as_u64() + 1) as usize)
     }
 }

@@ -403,13 +403,10 @@ pub fn decode_sync_response(
 
     let response = match response {
         proto::sync_response::Response::ValueResponse(response) => {
-            // When the list of values is empty, the end height is smaller than
-            // the start height and the range is empty.
-            let end_height = Height::new(response.height + response.value.len() as u64 - 1);
             sync::Response::ValueResponse(sync::ValueResponse::new(
-                Height::new(response.height)..=end_height,
+                Height::new(response.start_height),
                 response
-                    .value
+                    .values
                     .into_iter()
                     .map(decode_synced_value)
                     .collect::<Result<Vec<_>, ProtoError>>()?,
@@ -427,8 +424,8 @@ pub fn encode_sync_response(
         sync::Response::ValueResponse(value_response) => proto::SyncResponse {
             response: Some({
                 proto::sync_response::Response::ValueResponse(proto::ValueResponse {
-                    height: value_response.range.start().as_u64(),
-                    value: value_response
+                    start_height: value_response.start_height.as_u64(),
+                    values: value_response
                         .values
                         .iter()
                         .map(encode_synced_value)

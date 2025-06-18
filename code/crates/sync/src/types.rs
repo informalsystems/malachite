@@ -91,13 +91,27 @@ impl<Ctx: Context> ValueRequest<Ctx> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueResponse<Ctx: Context> {
-    pub range: RangeInclusive<Ctx::Height>,
+    /// The height of the first value in the response.
+    pub start_height: Ctx::Height,
+
+    /// Values are sequentially ordered by height.
     pub values: Vec<RawDecidedValue<Ctx>>,
 }
 
 impl<Ctx: Context> ValueResponse<Ctx> {
-    pub fn new(range: RangeInclusive<Ctx::Height>, values: Vec<RawDecidedValue<Ctx>>) -> Self {
-        Self { range, values }
+    pub fn new(start_height: Ctx::Height, values: Vec<RawDecidedValue<Ctx>>) -> Self {
+        Self {
+            start_height,
+            values,
+        }
+    }
+
+    pub fn end_height(&self) -> Option<Ctx::Height> {
+        if self.values.is_empty() {
+            None
+        } else {
+            Some(self.start_height.increment_by(self.values.len() as u64 - 1))
+        }
     }
 }
 

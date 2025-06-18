@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
@@ -211,9 +212,9 @@ where
 {
     let start = request.range.start();
     let end = request.range.end();
-    let batch_size = end.as_u64() - start.as_u64() + 1;
-    debug!(from_height = %start, to_height = %end, peer = %peer, "Received request for {} values", batch_size);
+    debug!(from_height = %start, to_height = %end, peer = %peer, "Received request for values");
 
+    let batch_size = end.as_u64() - start.as_u64() + 1;
     metrics.value_request_received(start.as_u64(), batch_size);
 
     perform!(
@@ -228,25 +229,24 @@ pub async fn on_value_response<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    _request_id: OutboundRequestId,
+    request_id: OutboundRequestId,
     peer_id: PeerId,
     response: ValueResponse<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    let start = response.range.start();
-    let end = response.range.end();
-    let batch_size = end.as_u64() - start.as_u64() + 1;
-    debug!(from = %start, to = %end, peer = %peer_id, "Received batch response");
+    let start = response.start_height;
+    debug!(start_height = %start, peer = %peer_id, "Received batch response with {} values", response.values.len());
 
     // Remove pending requests for the values received
     if !response.values.is_empty() {
         let last_value_height = start.increment_by(response.values.len() as u64 - 1);
-        state.remove_pending_value_request_by_height_range(&(*start..=last_value_height));
+        state.remove_pending_value_request_by_height_range(&(start..=last_value_height));
     }
 
-    let response_time = metrics.value_response_received(start.as_u64(), batch_size);
+    let response_time =
+        metrics.value_response_received(start.as_u64(), response.values.len() as u64);
 
     // Update the peer score.
     // We do not update the score if we do not know the response time.
@@ -265,15 +265,14 @@ where
 
     // If we received an empty or incomplete response, request the missing or
     // remaining values in the batch from another peer.
-    if response.values.len() < batch_size as usize {
-        warn!(from = %start, to = %end, peer = %peer_id, "Received invalid response");
+    if let Some(requested_batch_size) = state.requested_batch_size(&request_id) {
+        if response.values.len() < requested_batch_size {
+            warn!(start_height = %start, peer = %peer_id, "Received empty or incomplete response with {} values", response.values.len());
 
-        let first_missing_height = if response.values.is_empty() {
-            *start
-        } else {
-            start.increment_by(response.values.len() as u64 - 1)
-        };
-        request_value_from_peer_except(co, state, metrics, first_missing_height, peer_id).await?;
+            let first_missing_height = response.end_height().map_or(start, |end| end.increment());
+            request_value_from_peer_except(co, state, metrics, first_missing_height, peer_id)
+                .await?;
+        }
     }
 
     Ok(())
@@ -291,11 +290,12 @@ where
 {
     debug!(%request_id, %peer, "Received invalid response");
 
-    if let Some(height) = state.remove_pending_value_request_by_id(&request_id) {
-        debug!(%height, %request_id, "Found which height this request was for");
+    if let Some(range) = state.remove_pending_value_request_by_id(&request_id) {
+        debug!(start=%range.start(), end=%range.end(), %request_id, "Found which height range this request was for");
 
-        // If we have an associated height for this request, we will try again and request it from another peer.
-        request_value_from_peer_except(co, state, metrics, height, peer).await?;
+        // If we have an associated height range for this request, we will try
+        // again and request it from another peer.
+        request_value_from_peer_except(co, state, metrics, *range.start(), peer).await?;
     }
 
     Ok(())
@@ -356,7 +356,7 @@ where
         co,
         Effect::SendValueResponse(
             request_id,
-            ValueResponse::new(*start..=*end, values),
+            ValueResponse::new(*start, values),
             Default::default()
         )
     );

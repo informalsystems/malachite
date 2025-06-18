@@ -457,12 +457,15 @@ where
                     NetworkEvent::SyncResponse(
                         request_id,
                         peer,
-                        Some(sync::Response::ValueResponse(ValueResponse { range, values })),
+                        Some(sync::Response::ValueResponse(ValueResponse {
+                            start_height,
+                            values,
+                        })),
                     ) => {
-                        debug!(from = %range.start(), to = %range.end(), %request_id, "Received sync response");
+                        debug!(%start_height, %request_id, "Received sync response with {} values", values.len());
 
                         // Process values sequentially starting from the lowest height
-                        let mut height = *range.start();
+                        let mut height = start_height;
                         for value in values.iter() {
                             self.process_sync_response(
                                 &myself,
