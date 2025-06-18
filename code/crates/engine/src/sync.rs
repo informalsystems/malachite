@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn, Instrument};
 
 use malachitebft_codec as codec;
-use malachitebft_core_consensus::PeerId;
+use malachitebft_core_consensus::{PeerId, ProposedValue};
 use malachitebft_core_types::{CertificateError, CommitCertificate, Context};
 use malachitebft_sync::scoring::ema::ExponentialMovingAverage;
 use malachitebft_sync::{
@@ -97,6 +97,9 @@ pub enum Msg<Ctx: Context> {
 
     /// We received an invalid [`CommitCertificate`] from a peer
     InvalidCommitCertificate(PeerId, CommitCertificate<Ctx>, CertificateError<Ctx>),
+
+    /// We received an invalid value from a peer
+    InvalidValue(PeerId, ProposedValue<Ctx>),
 }
 
 impl<Ctx: Context> From<NetworkEvent<Ctx>> for Msg<Ctx> {
@@ -386,6 +389,11 @@ where
                     sync::Input::InvalidCertificate(peer, certificate, error),
                 )
                 .await?
+            }
+
+            Msg::InvalidValue(peer, value) => {
+                self.process_input(&myself, state, sync::Input::InvalidValue(peer, value))
+                    .await?
             }
 
             Msg::TimeoutElapsed(elapsed) => {

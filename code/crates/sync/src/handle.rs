@@ -1,6 +1,7 @@
 use derive_where::derive_where;
 use tracing::{debug, error, info, trace, warn};
 
+use malachitebft_core_consensus::ProposedValue;
 use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Height};
 
 use crate::co::Co;
@@ -39,6 +40,9 @@ pub enum Input<Ctx: Context> {
 
     /// We received an invalid [`CommitCertificate`]
     InvalidCertificate(PeerId, CommitCertificate<Ctx>, CertificateError<Ctx>),
+
+    /// We received an invalid value
+    InvalidValue(PeerId, ProposedValue<Ctx>),
 }
 
 pub async fn handle<Ctx>(
@@ -84,6 +88,8 @@ where
         Input::InvalidCertificate(peer, certificate, error) => {
             on_invalid_certificate(co, state, metrics, peer, certificate, error).await
         }
+
+        Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
     }
 }
 
@@ -364,6 +370,25 @@ where
     state.remove_pending_value_request_by_height(&certificate.height);
 
     request_value_from_peer_except(co, state, metrics, certificate.height, from).await
+}
+
+async fn on_invalid_value<Ctx>(
+    co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    from: PeerId,
+    value: ProposedValue<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    error!(%from, %value.height, "Received invalid value");
+    trace!("Value: {value:#?}");
+
+    state.peer_scorer.update_score(from, SyncResult::Failure);
+    state.remove_pending_value_request_by_height(&value.height);
+
+    request_value_from_peer_except(co, state, metrics, value.height, from).await
 }
 
 /// If there are no pending requests for the sync height,

@@ -2225,6 +2225,7 @@ version = "0.3.0-pre"
 dependencies = [
  "bytes",
  "derive-where",
+ "informalsystems-malachitebft-peer",
  "serde",
  "thiserror 2.0.12",
 ]
@@ -2512,6 +2513,7 @@ dependencies = [
  "derive-where",
  "displaydoc",
  "genawaiter",
+ "informalsystems-malachitebft-core-consensus",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-peer",
