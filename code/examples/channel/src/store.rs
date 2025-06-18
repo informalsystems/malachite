@@ -373,17 +373,6 @@ impl Store {
             .flatten()
     }
 
-    /// Retrieves a decided value for the given height.
-    /// Called by the application when a syncing peer is asking for a decided value.
-    pub async fn get_decided_value(
-        &self,
-        height: Height,
-    ) -> Result<Option<DecidedValue>, StoreError> {
-        let db = Arc::clone(&self.db);
-
-        tokio::task::spawn_blocking(move || db.get_decided_value(height)).await?
-    }
-
     /// Retrieves decided values for a range of heights.
     /// Called by the application when a syncing peer is asking for a batch of decided values.
     pub async fn get_decided_values(

@@ -102,13 +102,7 @@ pub enum HostMsg<Ctx: Context> {
         consensus: ConsensusRef<Ctx>,
     },
 
-    // Retrieve decided value from the block store
-    GetDecidedValue {
-        height: Ctx::Height,
-        reply_to: RpcReplyPort<Option<RawDecidedValue<Ctx>>>,
-    },
-
-    // Retrieve decided values in a batch from the block store
+    // Retrieve decided values from the block store
     GetDecidedValues {
         range: RangeInclusive<Ctx::Height>,
         reply_to: RpcReplyPort<Vec<RawDecidedValue<Ctx>>>,

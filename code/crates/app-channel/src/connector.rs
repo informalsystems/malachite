@@ -252,16 +252,6 @@ where
                 consensus.cast(rx.await?.into())?;
             }
 
-            HostMsg::GetDecidedValue { height, reply_to } => {
-                let (reply, rx) = oneshot::channel();
-
-                self.sender
-                    .send(AppMsg::GetDecidedValue { height, reply })
-                    .await?;
-
-                reply_to.send(rx.await?)?;
-            }
-
             HostMsg::GetDecidedValues { range, reply_to } => {
                 let (reply, rx) = oneshot::channel();
 

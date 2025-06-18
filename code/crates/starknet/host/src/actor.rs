@@ -198,12 +198,8 @@ impl Host {
                 ..
             } => on_decided(state, &consensus, &self.mempool, certificate, &self.metrics).await,
 
-            HostMsg::GetDecidedValue { height, reply_to } => {
-                on_get_decided_value(height, state, reply_to).await
-            }
-
             HostMsg::GetDecidedValues { range, reply_to } => {
-                on_get_decided_blocks(range, state, reply_to).await
+                on_get_decided_values(range, state, reply_to).await
             }
 
             HostMsg::ProcessSyncedValue {
@@ -512,53 +508,26 @@ fn on_process_synced_value(
     Ok(())
 }
 
-async fn on_get_decided_value(
-    height: Height,
-    state: &mut HostState,
-    reply_to: RpcReplyPort<Option<RawDecidedValue<MockContext>>>,
-) -> Result<(), ActorProcessingErr> {
-    debug!(%height, "Received request for block");
-
-    match state.block_store.get(height).await {
-        Ok(None) => {
-            let min = state.block_store.first_height().await.unwrap_or_default();
-            let max = state.block_store.last_height().await.unwrap_or_default();
-
-            warn!(%height, "No block for this height, available blocks: {min}..={max}");
-
-            reply_to.send(None)?;
-        }
-
-        Ok(Some(block)) => {
-            let block = RawDecidedValue {
-                value_bytes: block.block.to_bytes().unwrap(),
-                certificate: block.certificate,
-            };
-
-            debug!(%height, "Found decided block in store");
-            reply_to.send(Some(block))?;
-        }
-        Err(e) => {
-            error!(%e, %height, "Failed to get decided block");
-            reply_to.send(None)?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn on_get_decided_blocks(
+async fn on_get_decided_values(
     range: RangeInclusive<Height>,
     state: &mut HostState,
     reply_to: RpcReplyPort<Vec<RawDecidedValue<MockContext>>>,
 ) -> Result<(), ActorProcessingErr> {
     debug!(from = %range.start(), to = %range.end(), "Received request for decided blocks");
 
+    // Collect all decided values in the range until one is not found
     let mut values = Vec::new();
-
     for h in range.start().as_u64()..=range.end().as_u64() {
         let height = Height::new(h, range.start().fork_id);
         match state.block_store.get(height).await {
+            Ok(None) => {
+                let min = state.block_store.first_height().await.unwrap_or_default();
+                let max = state.block_store.last_height().await.unwrap_or_default();
+
+                warn!(%height, "No block for this height, available blocks: {min}..={max}");
+
+                break;
+            }
             Ok(Some(block)) => {
                 let block = RawDecidedValue {
                     value_bytes: block.block.to_bytes().unwrap(),
@@ -567,7 +536,6 @@ async fn on_get_decided_blocks(
 
                 values.push(block);
             }
-            Ok(None) => break,
             Err(e) => {
                 error!(%e, %height, "Failed to get decided block");
                 break;

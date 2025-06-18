@@ -6,9 +6,7 @@ use thiserror::Error;
 use malachitebft_core_types::Context;
 use malachitebft_peer::PeerId;
 
-use crate::{
-    BatchRequest, BatchResponse, InboundRequestId, OutboundRequestId, ValueRequest, ValueResponse,
-};
+use crate::{InboundRequestId, OutboundRequestId, ValueRequest, ValueResponse};
 
 /// Provides a way to construct the appropriate [`Resume`] value to
 /// resume execution after handling an [`Effect`].
@@ -73,16 +71,7 @@ pub enum Effect<Ctx: Context> {
     /// Send a response to a ValueSync request
     SendValueResponse(InboundRequestId, ValueResponse<Ctx>, resume::Continue),
 
-    /// Send a BatchSync request to a peer
-    SendBatchRequest(PeerId, BatchRequest<Ctx>, resume::ValueRequestId),
-
-    /// Send a response to a BatchSync request
-    SendBatchResponse(InboundRequestId, BatchResponse<Ctx>, resume::Continue),
-
-    /// Retrieve a value from the application
-    GetDecidedValue(InboundRequestId, Ctx::Height, resume::Continue),
-
-    /// Retrieve a batch of values from the application
+    /// Retrieve a range of values (possibly one) from the application
     GetDecidedValues(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,

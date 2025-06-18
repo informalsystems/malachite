@@ -21,7 +21,7 @@ use malachitebft_core_types::{
     ValidatorSet, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
-use malachitebft_sync::{self as sync, BatchResponse, ValueResponse};
+use malachitebft_sync::{self as sync, ValueResponse};
 
 use crate::host::{HostMsg, HostRef, LocallyProposedValue, ProposedValue};
 use crate::network::{NetworkEvent, NetworkMsg, NetworkRef};
@@ -457,28 +457,9 @@ where
                     NetworkEvent::SyncResponse(
                         request_id,
                         peer,
-                        Some(sync::Response::ValueResponse(ValueResponse { height, value })),
+                        Some(sync::Response::ValueResponse(ValueResponse { range, values })),
                     ) => {
-                        debug!(%height, %request_id, "Received value sync response");
-
-                        let Some(value) = value else {
-                            error!(%height, %request_id, "Received empty value sync response");
-                            // TODO(SYNC): Decrease peer score
-                            return Ok(());
-                        };
-
-                        self.process_sync_response(
-                            &myself, state, request_id, peer, height, &value,
-                        )
-                        .await?;
-                    }
-
-                    NetworkEvent::SyncResponse(
-                        request_id,
-                        peer,
-                        Some(sync::Response::BatchResponse(BatchResponse { range, values })),
-                    ) => {
-                        debug!(from = %range.start(), to = %range.end(), %request_id, "Received batch sync response");
+                        debug!(from = %range.start(), to = %range.end(), %request_id, "Received sync response");
 
                         // Process values sequentially starting from the lowest height
                         let mut height = *range.start();
@@ -641,7 +622,6 @@ where
                 return Ok(());
             };
 
-            // TODO(SYNC): This error should stop processing the rest of the batch
             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
                 sync.cast(SyncMsg::InvalidCommitCertificate(peer, certificate, e))
                     .map_err(|e| eyre!("Error when notifying sync of invalid certificate: {e}"))?;

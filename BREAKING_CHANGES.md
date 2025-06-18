@@ -38,6 +38,9 @@
 - Removed the VoteSet synchronization protocol, as it is neither required nor sufficient for liveness.
   See ([#998](https://github.com/informalsystems/malachite/issues/998)) for more details.
 
+#### Enum Changes
+- Replaces existing enum `GetDecidedValue` by `GetDecidedValues` in `Effect`
+
 ### `informalsystems-malachitebft-app-channel`
 - The `start_engine` function now takes two `Codec`s: one for the WAL and one for the network.
 

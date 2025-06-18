@@ -1,5 +1,3 @@
-use std::ops::RangeInclusive;
-
 use bytes::Bytes;
 use ed25519_consensus::Signature;
 use serde::{Deserialize, Serialize};
@@ -13,8 +11,7 @@ use malachitebft_core_types::{
 use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::{
-    BatchRequest, BatchResponse, PeerId, RawDecidedValue, Request, Response, Status, ValueRequest,
-    ValueResponse,
+    PeerId, RawDecidedValue, Request, Response, Status, ValueRequest, ValueResponse,
 };
 
 use crate::{Address, Height, Proposal, ProposalPart, TestContext, ValueId, Vote};
@@ -143,29 +140,20 @@ impl From<RawStatus> for Status<TestContext> {
 #[derive(Serialize, Deserialize)]
 pub struct ValueRawRequest {
     pub height: Height,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BatchRawRequest {
-    pub from: Height,
-    pub to: Height,
+    pub end_height: Option<Height>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum RawRequest {
     SyncRequest(ValueRawRequest),
-    BatchSyncRequest(BatchRawRequest),
 }
 
 impl From<Request<TestContext>> for RawRequest {
     fn from(value: Request<TestContext>) -> Self {
         match value {
             Request::ValueRequest(block_request) => Self::SyncRequest(ValueRawRequest {
-                height: block_request.height,
-            }),
-            Request::BatchRequest(batch_request) => Self::BatchSyncRequest(BatchRawRequest {
-                from: *batch_request.range.start(),
-                to: *batch_request.range.end(),
+                height: *block_request.range.start(),
+                end_height: Some(*block_request.range.end()),
             }),
         }
     }
@@ -174,12 +162,13 @@ impl From<Request<TestContext>> for RawRequest {
 impl From<RawRequest> for Request<TestContext> {
     fn from(value: RawRequest) -> Self {
         match value {
-            RawRequest::SyncRequest(block_raw_request) => Self::ValueRequest(ValueRequest {
-                height: block_raw_request.height,
-            }),
-            RawRequest::BatchSyncRequest(batch_raw_request) => Self::BatchRequest(BatchRequest {
-                range: batch_raw_request.from..=batch_raw_request.to,
-            }),
+            RawRequest::SyncRequest(block_raw_request) => {
+                let range = match block_raw_request.end_height {
+                    Some(end_height) => block_raw_request.height..=end_height,
+                    None => block_raw_request.height..=block_raw_request.height,
+                };
+                Self::ValueRequest(ValueRequest { range })
+            }
         }
     }
 }
@@ -214,6 +203,45 @@ pub struct RawCommitCertificate {
     pub commit_signatures: RawCommitSignatures,
 }
 
+impl From<RawCommitCertificate> for CommitCertificate<TestContext> {
+    fn from(value: RawCommitCertificate) -> Self {
+        CommitCertificate {
+            height: value.height,
+            round: value.round,
+            value_id: value.value_id,
+            commit_signatures: value
+                .commit_signatures
+                .signatures
+                .iter()
+                .map(|sig| CommitSignature {
+                    address: sig.address,
+                    signature: sig.signature.into(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<CommitCertificate<TestContext>> for RawCommitCertificate {
+    fn from(value: CommitCertificate<TestContext>) -> Self {
+        Self {
+            height: value.height,
+            round: value.round,
+            value_id: value.value_id,
+            commit_signatures: RawCommitSignatures {
+                signatures: value
+                    .commit_signatures
+                    .iter()
+                    .map(|sig| RawCommitSignature {
+                        address: sig.address,
+                        signature: *sig.signature.inner(),
+                    })
+                    .collect(),
+            },
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct RawSyncedValue {
     pub value_bytes: Bytes,
@@ -227,54 +255,30 @@ pub struct ValueRawResponse {
 }
 
 impl From<ValueResponse<TestContext>> for ValueRawResponse {
-    fn from(value: ValueResponse<TestContext>) -> Self {
+    // We assume the response contains a single value
+    fn from(response: ValueResponse<TestContext>) -> Self {
         Self {
-            height: value.height,
-            block: value.value.map(|block| RawSyncedValue {
-                value_bytes: block.value_bytes,
-                certificate: RawCommitCertificate {
-                    height: block.certificate.height,
-                    round: block.certificate.round,
-                    value_id: block.certificate.value_id,
-                    commit_signatures: RawCommitSignatures {
-                        signatures: block
-                            .certificate
-                            .commit_signatures
-                            .iter()
-                            .map(|sig| RawCommitSignature {
-                                address: sig.address,
-                                signature: *sig.signature.inner(),
-                            })
-                            .collect(),
-                    },
-                },
+            height: *response.range.start(),
+            block: response.values.first().map(|block| RawSyncedValue {
+                value_bytes: block.value_bytes.clone(),
+                certificate: block.certificate.clone().into(),
             }),
         }
     }
 }
 
 impl From<ValueRawResponse> for ValueResponse<TestContext> {
-    fn from(value: ValueRawResponse) -> Self {
+    fn from(response: ValueRawResponse) -> Self {
         Self {
-            height: value.height,
-            value: value.block.map(|block| RawDecidedValue {
-                value_bytes: block.value_bytes,
-                certificate: CommitCertificate {
-                    height: block.certificate.height,
-                    round: block.certificate.round,
-                    value_id: block.certificate.value_id,
-                    commit_signatures: block
-                        .certificate
-                        .commit_signatures
-                        .signatures
-                        .iter()
-                        .map(|sig| CommitSignature {
-                            address: sig.address,
-                            signature: sig.signature.into(),
-                        })
-                        .collect(),
-                },
-            }),
+            range: response.height..=response.height,
+            values: response
+                .block
+                .map(|block| RawDecidedValue {
+                    value_bytes: block.value_bytes.clone(),
+                    certificate: block.certificate.into(),
+                })
+                .into_iter()
+                .collect(),
         }
     }
 }
@@ -285,8 +289,8 @@ pub struct BatchRawResponse {
     pub values: Vec<RawSyncedValue>,
 }
 
-impl From<BatchResponse<TestContext>> for BatchRawResponse {
-    fn from(response: BatchResponse<TestContext>) -> Self {
+impl From<ValueResponse<TestContext>> for BatchRawResponse {
+    fn from(response: ValueResponse<TestContext>) -> Self {
         Self {
             height: *response.range.start(),
             values: response
@@ -294,55 +298,26 @@ impl From<BatchResponse<TestContext>> for BatchRawResponse {
                 .into_iter()
                 .map(|value| RawSyncedValue {
                     value_bytes: value.value_bytes,
-                    certificate: RawCommitCertificate {
-                        height: value.certificate.height,
-                        round: value.certificate.round,
-                        value_id: value.certificate.value_id,
-                        commit_signatures: RawCommitSignatures {
-                            signatures: value
-                                .certificate
-                                .commit_signatures
-                                .iter()
-                                .map(|sig| RawCommitSignature {
-                                    address: sig.address,
-                                    signature: *sig.signature.inner(),
-                                })
-                                .collect(),
-                        },
-                    },
+                    certificate: value.certificate.into(),
                 })
                 .collect(),
         }
     }
 }
 
-impl From<BatchRawResponse> for BatchResponse<TestContext> {
+impl From<BatchRawResponse> for ValueResponse<TestContext> {
     fn from(response: BatchRawResponse) -> Self {
+        // If the list of values in the response is empty, then end height is
+        // one less than the start height and the range is empty.
+        let end_height = Height::new(response.height.as_u64() + response.values.len() as u64 - 1);
         Self {
-            range: RangeInclusive::new(
-                response.height,
-                Height::new(response.height.as_u64() + response.values.len() as u64 - 1),
-            ),
+            range: response.height..=end_height,
             values: response
                 .values
                 .into_iter()
                 .map(|value| RawDecidedValue {
                     value_bytes: value.value_bytes,
-                    certificate: CommitCertificate {
-                        height: value.certificate.height,
-                        round: value.certificate.round,
-                        value_id: value.certificate.value_id,
-                        commit_signatures: value
-                            .certificate
-                            .commit_signatures
-                            .signatures
-                            .iter()
-                            .map(|sig| CommitSignature {
-                                address: sig.address,
-                                signature: sig.signature.into(),
-                            })
-                            .collect(),
-                    },
+                    certificate: value.certificate.into(),
                 })
                 .collect(),
         }
@@ -358,8 +333,15 @@ pub enum RawResponse {
 impl From<Response<TestContext>> for RawResponse {
     fn from(value: Response<TestContext>) -> Self {
         match value {
-            Response::ValueResponse(block_response) => Self::ValueResponse(block_response.into()),
-            Response::BatchResponse(batch_response) => Self::BatchResponse(batch_response.into()),
+            Response::ValueResponse(response) => {
+                if response.range.start() == response.range.end() {
+                    assert_eq!(response.values.len(), 1);
+                    Self::ValueResponse(response.into())
+                } else {
+                    assert_ne!(response.values.len(), 1);
+                    Self::BatchResponse(response.into())
+                }
+            }
         }
     }
 }
@@ -371,7 +353,7 @@ impl From<RawResponse> for Response<TestContext> {
                 Self::ValueResponse(block_raw_response.into())
             }
             RawResponse::BatchResponse(batch_raw_response) => {
-                Self::BatchResponse(batch_raw_response.into())
+                Self::ValueResponse(batch_raw_response.into())
             }
         }
     }

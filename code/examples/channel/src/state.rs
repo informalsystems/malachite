@@ -181,11 +181,6 @@ impl State {
         Ok(Some(value))
     }
 
-    /// Retrieves a decided block at the given height
-    pub async fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
-        self.store.get_decided_value(height).await.ok().flatten()
-    }
-
     /// Retrieves decided values in the specified range.
     pub async fn get_decided_values(&self, range: RangeInclusive<Height>) -> Vec<DecidedValue> {
         self.store

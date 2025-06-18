@@ -178,10 +178,8 @@ pub fn decode_sync_request(
         .ok_or_else(|| ProtoError::missing_field::<proto::sync::SyncRequest>("messages"))?;
     let request = match messages {
         proto::sync::sync_request::Messages::ValueRequest(value_request) => {
-            sync::Request::ValueRequest(ValueRequest::new(Height::new(
-                value_request.block_number,
-                value_request.fork_id,
-            )))
+            let height = Height::new(value_request.block_number, value_request.fork_id);
+            sync::Request::ValueRequest(ValueRequest::new(height..=height))
         }
     };
 
@@ -192,16 +190,17 @@ pub fn encode_sync_request(
     request: &sync::Request<MockContext>,
 ) -> Result<proto::sync::SyncRequest, ProtoError> {
     let proto = match request {
-        sync::Request::ValueRequest(value_request) => proto::sync::SyncRequest {
-            messages: Some(proto::sync::sync_request::Messages::ValueRequest(
-                proto::sync::ValueRequest {
-                    fork_id: value_request.height.fork_id,
-                    block_number: value_request.height.block_number,
-                },
-            )),
-        },
-        sync::Request::BatchRequest(_) => {
-            panic!("TODO")
+        sync::Request::ValueRequest(value_request) => {
+            let height = value_request.range.start();
+            assert_eq!(height, value_request.range.end());
+            proto::sync::SyncRequest {
+                messages: Some(proto::sync::sync_request::Messages::ValueRequest(
+                    proto::sync::ValueRequest {
+                        fork_id: height.fork_id,
+                        block_number: height.block_number,
+                    },
+                )),
+            }
         }
     };
 
@@ -229,9 +228,15 @@ pub fn decode_sync_response(
 
     let response = match messages {
         proto::sync::sync_response::Messages::ValueResponse(value_response) => {
+            let height = Height::new(value_response.block_number, value_response.fork_id);
             sync::Response::ValueResponse(ValueResponse::new(
-                Height::new(value_response.block_number, value_response.fork_id),
-                value_response.value.map(decode_synced_value).transpose()?,
+                height..=height,
+                value_response
+                    .value
+                    .map(decode_synced_value)
+                    .transpose()?
+                    .into_iter()
+                    .collect(),
             ))
         }
     };
@@ -243,21 +248,23 @@ pub fn encode_sync_response(
     response: &sync::Response<MockContext>,
 ) -> Result<proto::sync::SyncResponse, ProtoError> {
     let proto = match response {
-        sync::Response::ValueResponse(value_response) => proto::sync::SyncResponse {
-            messages: Some(proto::sync::sync_response::Messages::ValueResponse(
-                proto::sync::ValueResponse {
-                    fork_id: value_response.height.fork_id,
-                    block_number: value_response.height.block_number,
-                    value: value_response
-                        .value
-                        .as_ref()
-                        .map(encode_synced_value)
-                        .transpose()?,
-                },
-            )),
-        },
-        sync::Response::BatchResponse(_) => {
-            panic!("TODO")
+        sync::Response::ValueResponse(value_response) => {
+            let height = value_response.range.start();
+            assert_eq!(height, value_response.range.end());
+            assert_eq!(value_response.values.len(), 1);
+            proto::sync::SyncResponse {
+                messages: Some(proto::sync::sync_response::Messages::ValueResponse(
+                    proto::sync::ValueResponse {
+                        fork_id: height.fork_id,
+                        block_number: height.block_number,
+                        value: value_response
+                            .values
+                            .first()
+                            .map(encode_synced_value)
+                            .transpose()?,
+                    },
+                )),
+            }
         }
     };
 
