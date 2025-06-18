@@ -240,10 +240,17 @@ where
     let batch_size = end.as_u64() - start.as_u64() + 1;
     debug!(from = %start, to = %end, peer = %peer_id, "Received batch response");
 
-    state.remove_pending_value_request_by_height_range(&response.range);
+    // Remove pending requests for the values received
+    if !response.values.is_empty() {
+        let last_value_height = start.increment_by(response.values.len() as u64 - 1);
+        state.remove_pending_value_request_by_height_range(&(*start..=last_value_height));
+    }
 
     let response_time = metrics.value_response_received(start.as_u64(), batch_size);
 
+    // Update the peer score.
+    // We do not update the score if we do not know the response time.
+    // This should never happen, but we need to handle it gracefully just in case.
     if let Some(response_time) = response_time {
         let sync_result = if response.values.is_empty() {
             SyncResult::Failure
@@ -256,14 +263,17 @@ where
             .update_score_with_metrics(peer_id, sync_result, &metrics.scoring);
     }
 
-    // We do not update the peer score if we do not know the response time.
-    // This should never happen, but we need to handle it gracefully just in case.
-
-    if response.values.is_empty() {
+    // If we received an empty or incomplete response, request the missing or
+    // remaining values in the batch from another peer.
+    if response.values.len() < batch_size as usize {
         warn!(from = %start, to = %end, peer = %peer_id, "Received invalid response");
 
-        // If we received an empty response, we will try to request the value from another peer.
-        request_value_from_peer_except(co, state, metrics, *start, peer_id).await?;
+        let first_missing_height = if response.values.is_empty() {
+            *start
+        } else {
+            start.increment_by(response.values.len() as u64 - 1)
+        };
+        request_value_from_peer_except(co, state, metrics, first_missing_height, peer_id).await?;
     }
 
     Ok(())
@@ -373,7 +383,9 @@ where
 
             metrics.value_request_timed_out(height.as_u64());
 
+            // Remove the whole batch from the list of pending requests
             state.remove_pending_value_request_by_height_range(&value_request.range);
+
             state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
         }
     };
@@ -401,7 +413,7 @@ where
     request_value_from_peer_except(co, state, metrics, certificate.height, from).await
 }
 
-/// If there are no pending requests for the sync height,
+/// If there are no pending requests for the sync height (including the whole batch),
 /// and there is peer at a higher height than our sync height,
 /// then sync from that peer.
 async fn request_value<Ctx>(
@@ -415,7 +427,7 @@ where
     let sync_height = state.sync_height;
 
     if state.has_pending_value_request(&sync_height) {
-        warn!(height.sync = %sync_height, "Already have a pending value request for this height");
+        warn!(height.sync = %sync_height, "Already have a pending value request for a batch starting at this height");
         return Ok(());
     }
 
@@ -441,21 +453,27 @@ where
     info!(height.sync = %height, %peer, "Requesting sync from peer");
 
     // Determine the batch size to use based on the peer's kind
-    let batch_size = state
+    let (batch_size, peer_tip_height) = state
         .peers
         .get(&peer)
-        .map(|peer_details| match peer_details.kind {
-            PeerKind::SyncV1 => 1,
-            PeerKind::SyncV2 => 100, // TODO(SYNC): make it configurable or a constant
+        .map(|peer_details| {
+            let batch_size = match peer_details.kind {
+                PeerKind::SyncV1 => 1,
+                PeerKind::SyncV2 => 100, // TODO(SYNC): make it configurable or a constant
+            };
+            let peer_tip_height = peer_details.status.tip_height;
+            (batch_size, peer_tip_height)
         })
-        .unwrap_or(1);
+        .unwrap_or((1, height));
 
-    // Send the request
+    // If the peer has less values than the batch size, we adjust the end height
     let mut end_height = height;
     if batch_size > 1 {
         end_height = height.increment_by(batch_size);
     };
+    end_height = min(end_height, peer_tip_height);
 
+    // Send the request
     let request_id = perform!(
         co,
         Effect::SendValueRequest(peer, ValueRequest::new(height..=end_height), Default::default()),
@@ -464,7 +482,7 @@ where
 
     metrics.value_request_sent(height.as_u64(), batch_size);
 
-    // Store the request ID in the state
+    // Store the request in the state
     if let Some(request_id) = request_id {
         debug!(%request_id, %peer, "Sent sync request to peer");
         state.store_pending_value_request(height, end_height, request_id);
@@ -489,7 +507,7 @@ where
 
     state.remove_pending_value_request_by_height(&height);
 
-    if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
+    if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, Some(except)) {
         request_value_from_peer(co, state, metrics, height, peer).await?;
     } else {
         error!(height.sync = %height, "No peer to request sync from");
