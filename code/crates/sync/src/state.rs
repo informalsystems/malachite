@@ -99,18 +99,29 @@ where
         }
     }
 
-    /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
-    /// In other words, `height` is in `status.history_min_height..=status.tip_height` range.
+    /// Same as [`Self::random_peer_with_tip_at_or_above_except`] without excluding any peer.
     pub fn random_peer_with_tip_at_or_above(&mut self, height: Ctx::Height) -> Option<PeerId>
     where
         Ctx: Context,
     {
+        self.random_peer_with_tip_at_or_above_except(height, None)
+    }
+
+    /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
+    /// In other words, `height` is in `status.history_min_height..=status.tip_height` range.
+    /// Exclude the given peer if provided.
+    pub fn random_peer_with_tip_at_or_above_except(
+        &mut self,
+        height: Ctx::Height,
+        except: Option<PeerId>,
+    ) -> Option<PeerId> {
         let peers_at_later_height = self
             .peers
             .iter()
             .filter(|(_, detail)| {
                 (detail.status.history_min_height..=detail.status.tip_height).contains(&height)
             })
+            .filter(|(&peer, _)| except.is_some_and(|x| x == peer))
             .collect::<Vec<_>>();
 
         let (v2_peers, v1_peers): (Vec<_>, Vec<_>) = peers_at_later_height
@@ -126,26 +137,6 @@ where
         let peer_ids = peers.iter().map(|(&peer, _)| peer).collect::<Vec<_>>();
 
         self.peer_scorer.select_peer(&peer_ids, &mut self.rng)
-    }
-
-    /// Same as [`Self::random_peer_with_tip_at_or_above`], but excludes the given peer.
-    pub fn random_peer_with_tip_at_or_above_except(
-        &mut self,
-        height: Ctx::Height,
-        except: PeerId,
-    ) -> Option<PeerId> {
-        let peers = self
-            .peers
-            .iter()
-            .filter_map(|(&peer, detail)| {
-                (detail.status.history_min_height..=detail.status.tip_height)
-                    .contains(&height)
-                    .then_some(peer)
-            })
-            .filter(|&peer| peer != except)
-            .collect::<Vec<_>>();
-
-        self.peer_scorer.select_peer(&peers, &mut self.rng)
     }
 
     pub fn store_pending_value_request(
