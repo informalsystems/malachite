@@ -3,9 +3,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use malachitebft_metrics::prometheus::metrics::counter::Counter;
-use malachitebft_metrics::prometheus::metrics::histogram::{exponential_buckets, Histogram};
 use malachitebft_metrics::SharedRegistry;
+use prometheus_client::encoding::EncodeLabelSet;
+use prometheus_client::metrics::counter::Counter;
+use prometheus_client::metrics::family::Family;
+use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 
 #[derive(Clone, Debug)]
 pub struct Metrics(Arc<Inner>);
@@ -18,12 +20,17 @@ impl Deref for Metrics {
     }
 }
 
+#[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+pub struct RequestLabels {
+    batch_size: u64,
+}
+
 #[derive(Debug)]
 pub struct Inner {
-    value_requests_sent: Counter,
-    value_requests_received: Counter,
-    value_responses_sent: Counter,
-    value_responses_received: Counter,
+    value_requests_sent: Family<RequestLabels, Counter>,
+    value_requests_received: Family<RequestLabels, Counter>,
+    value_responses_sent: Family<RequestLabels, Counter>,
+    value_responses_received: Family<RequestLabels, Counter>,
     value_client_latency: Histogram,
     value_server_latency: Histogram,
     value_request_timeouts: Counter,
@@ -37,10 +44,10 @@ pub struct Inner {
 impl Inner {
     pub fn new() -> Self {
         Self {
-            value_requests_sent: Counter::default(),
-            value_requests_received: Counter::default(),
-            value_responses_sent: Counter::default(),
-            value_responses_received: Counter::default(),
+            value_requests_sent: Family::default(),
+            value_requests_received: Family::default(),
+            value_responses_sent: Family::default(),
+            value_responses_received: Family::default(),
             value_client_latency: Histogram::new(exponential_buckets(0.1, 2.0, 20)),
             value_server_latency: Histogram::new(exponential_buckets(0.1, 2.0, 20)),
             value_request_timeouts: Counter::default(),
@@ -115,18 +122,24 @@ impl Metrics {
         metrics
     }
 
-    pub fn value_request_sent(&self, height: u64) {
-        self.value_requests_sent.inc();
+    pub fn value_request_sent(&self, height: u64, batch_size: u64) {
+        self.value_requests_sent
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
         self.instant_request_sent.insert(height, Instant::now());
     }
 
-    pub fn value_request_received(&self, height: u64) {
-        self.value_requests_received.inc();
+    pub fn value_request_received(&self, height: u64, batch_size: u64) {
+        self.value_requests_received
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
         self.instant_request_received.insert(height, Instant::now());
     }
 
-    pub fn value_response_sent(&self, height: u64) {
-        self.value_responses_sent.inc();
+    pub fn value_response_sent(&self, height: u64, batch_size: u64) {
+        self.value_responses_sent
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
 
         if let Some((_, instant)) = self.instant_request_received.remove(&height) {
             self.value_server_latency
@@ -134,8 +147,10 @@ impl Metrics {
         }
     }
 
-    pub fn value_response_received(&self, height: u64) -> Option<Duration> {
-        self.value_responses_received.inc();
+    pub fn value_response_received(&self, height: u64, batch_size: u64) -> Option<Duration> {
+        self.value_responses_received
+            .get_or_create(&RequestLabels { batch_size })
+            .inc();
 
         if let Some((_, instant_request_sent)) = self.instant_request_sent.remove(&height) {
             let latency = instant_request_sent.elapsed();

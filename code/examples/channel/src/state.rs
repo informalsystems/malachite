@@ -1,7 +1,8 @@
 //! Internal state of the application. This is a simplified abstract to keep it simple.
 //! A regular application would have mempool implemented, a proper database and input methods like RPC.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
@@ -183,6 +184,17 @@ impl State {
     /// Retrieves a decided block at the given height
     pub async fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
         self.store.get_decided_value(height).await.ok().flatten()
+    }
+
+    /// Retrieves decided values in the specified range.
+    pub async fn get_decided_values(
+        &self,
+        range: RangeInclusive<Height>,
+    ) -> BTreeMap<Height, DecidedValue> {
+        self.store
+            .get_decided_values(range)
+            .await
+            .unwrap_or_default()
     }
 
     /// Commits a value with the given certificate, updating internal state

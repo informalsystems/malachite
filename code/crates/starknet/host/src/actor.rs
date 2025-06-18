@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -199,6 +201,10 @@ impl Host {
 
             HostMsg::GetDecidedValue { height, reply_to } => {
                 on_get_decided_value(height, state, reply_to).await
+            }
+
+            HostMsg::GetDecidedValues { range, reply_to } => {
+                on_get_decided_blocks(range, state, reply_to).await
             }
 
             HostMsg::ProcessSyncedValue {
@@ -539,6 +545,42 @@ async fn on_get_decided_value(
         }
     }
 
+    Ok(())
+}
+
+async fn on_get_decided_blocks(
+    range: RangeInclusive<Height>,
+    state: &mut HostState,
+    reply_to: RpcReplyPort<BTreeMap<Height, Option<RawDecidedValue<MockContext>>>>,
+) -> Result<(), ActorProcessingErr> {
+    debug!(from = %range.start(), to = %range.end(), "Received request for decided blocks");
+
+    let mut values = BTreeMap::new();
+
+    let mut height = *range.start();
+    loop {
+        match state.block_store.get(height).await {
+            Ok(Some(block)) => {
+                let block = RawDecidedValue {
+                    value_bytes: block.block.to_bytes().unwrap(),
+                    certificate: block.certificate,
+                };
+                values.insert(height, Some(block));
+            }
+            Ok(None) => break,
+            Err(e) => {
+                error!(%e, %height, "Failed to get decided block");
+                break;
+            }
+        }
+
+        if height >= *range.end() {
+            break;
+        }
+        height = height.increment();
+    }
+
+    reply_to.send(values)?;
     Ok(())
 }
 

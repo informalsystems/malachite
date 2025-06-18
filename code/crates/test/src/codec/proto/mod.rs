@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::ops::RangeInclusive;
+
 use bytes::Bytes;
 use prost::Message;
 
@@ -358,6 +361,12 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
             proto::sync_request::Request::ValueRequest(req) => Ok(sync::Request::ValueRequest(
                 sync::ValueRequest::new(Height::new(req.height)),
             )),
+            proto::sync_request::Request::BatchRequest(req) => {
+                Ok(sync::Request::BatchRequest(sync::BatchRequest::new(
+                    RangeInclusive::new(Height::new(req.from_height), Height::new(req.to_height)),
+                    req.max_response_size as usize,
+                )))
+            }
         }
     }
 
@@ -367,6 +376,15 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
                 request: Some(proto::sync_request::Request::ValueRequest(
                     proto::ValueRequest {
                         height: req.height.as_u64(),
+                    },
+                )),
+            },
+            sync::Request::BatchRequest(req) => proto::SyncRequest {
+                request: Some(proto::sync_request::Request::BatchRequest(
+                    proto::BatchRequest {
+                        from_height: req.range.start().as_u64(),
+                        to_height: req.range.end().as_u64(),
+                        max_response_size: req.max_response_size as u64,
                     },
                 )),
             },
@@ -402,6 +420,21 @@ pub fn decode_sync_response(
                 value_response.value.map(decode_synced_value).transpose()?,
             ))
         }
+        proto::sync_response::Response::BatchResponse(batch_response) => {
+            let mut map = BTreeMap::new();
+            for v in batch_response.values {
+                let height = Height::new(v.height);
+                let value = v.value.map(decode_synced_value).transpose()?;
+                map.insert(height, value);
+            }
+            sync::Response::BatchResponse(sync::BatchResponse::new(
+                RangeInclusive::new(
+                    Height::new(batch_response.from_height),
+                    Height::new(batch_response.to_height),
+                ),
+                map,
+            ))
+        }
     };
 
     Ok(response)
@@ -420,6 +453,29 @@ pub fn encode_sync_response(
                         .as_ref()
                         .map(encode_synced_value)
                         .transpose()?,
+                },
+            )),
+        },
+        sync::Response::BatchResponse(batch_response) => proto::SyncResponse {
+            response: Some(proto::sync_response::Response::BatchResponse(
+                proto::BatchResponse {
+                    from_height: batch_response.range.start().as_u64(),
+                    to_height: batch_response.range.end().as_u64(),
+                    values: batch_response
+                        .values
+                        .iter()
+                        .map(
+                            |(height, value)| -> Result<proto::BatchSyncValue, ProtoError> {
+                                Ok(proto::BatchSyncValue {
+                                    height: height.as_u64(),
+                                    value: value
+                                        .clone()
+                                        .map(|v| encode_synced_value(&v))
+                                        .transpose()?,
+                                })
+                            },
+                        )
+                        .collect::<Result<Vec<_>, ProtoError>>()?,
                 },
             )),
         },
