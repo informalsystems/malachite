@@ -15,6 +15,7 @@ impl<I, T> BoundedQueue<I, T>
 where
     I: Ord,
 {
+    /// Creates a new `BoundedQueue` with the specified capacity.
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -22,9 +23,10 @@ where
         }
     }
 
+    /// Push a value into the queue associated with the given index.
     pub fn push(&mut self, index: I, value: T) -> bool
     where
-        I: Ord,
+        I: Clone + Ord,
     {
         // If the index already exists, append the value to the existing vector.
         if let Some(values) = self.queue.get_mut(&index) {
@@ -38,7 +40,22 @@ where
             return true;
         }
 
-        // If the queue is full, do not insert the new value.
+        // If the queue is full, evict the highest index and insert the new value.
+        if let Some((max_index, _)) = self.queue.last_key_value() {
+            // If the new index is less than the maximum index, we can evict the maximum index.
+            if &index < max_index {
+                let max_index = max_index.clone();
+
+                // Remove the highest index
+                self.queue.remove(&max_index);
+
+                // Insert the new index with its value
+                self.queue.insert(index, vec![value]);
+
+                return true;
+            }
+        }
+
         false
     }
 
@@ -59,6 +76,11 @@ where
             .remove(index)
             .into_iter()
             .flat_map(|values| values.into_iter())
+    }
+
+    /// Whether the queue is full
+    pub fn is_full(&self) -> bool {
+        self.queue.len() >= self.capacity
     }
 }
 
@@ -342,10 +364,15 @@ mod tests {
         let mut queue = BoundedQueue::new(1);
 
         assert!(queue.push(1, "value1"));
-        assert!(!queue.push(2, "value2"), "Should fail, capacity is 1");
+
         assert!(
             queue.push(1, "value1_again"),
             "Should succeed on existing index"
+        );
+
+        assert!(
+            !queue.push(2, "value2"),
+            "Should fail on new index when full"
         );
 
         let values: Vec<_> = queue.take(&1).collect();
@@ -382,11 +409,37 @@ mod tests {
         assert!(queue.push(7, "g"));
         assert_eq!(queue.queue.len(), 4);
 
-        // This should fail - at capacity
+        // This should fail - at capacity and 8 is greater than 7
         assert!(!queue.push(8, "h"));
 
         // Final verification
         let keys: Vec<_> = queue.queue.keys().cloned().collect();
         assert_eq!(keys, vec![4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn push_out_of_order_to_full_queue() {
+        let mut queue = BoundedQueue::new(2);
+        queue.push(10, "a");
+        queue.push(30, "b");
+
+        // Assert queue is full
+        assert_eq!(queue.queue.len(), queue.capacity);
+
+        // Try to push a new index to a full queue
+        let result = queue.push(20, "c");
+
+        assert!(result, "Push should succeed");
+        assert_eq!(queue.queue.len(), 2, "Queue length should not change");
+
+        assert!(
+            queue.queue.contains_key(&20),
+            "The new element should be added"
+        );
+
+        assert!(
+            !queue.queue.contains_key(&30),
+            "The high value element should be remmoved"
+        );
     }
 }
