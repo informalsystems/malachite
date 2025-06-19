@@ -18,7 +18,7 @@ use malachitebft_core_consensus::{
 };
 use malachitebft_core_types::{
     Context, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
-    ValidatorSet, ValueId, ValueOrigin, Vote,
+    ValidatorSet, Validity, Value, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{self as sync, ValueResponse};
@@ -141,9 +141,9 @@ impl<Ctx: Context> fmt::Display for Msg<Ctx> {
                 "ProposeValue(height={} round={})",
                 value.height, value.round
             ),
-            Msg::ReceivedProposedValue(value, _) => write!(
+            Msg::ReceivedProposedValue(value, origin) => write!(
                 f,
-                "ReceivedProposedValue(height={} round={})",
+                "ReceivedProposedValue(height={} round={} origin={origin:?})",
                 value.height, value.round
             ),
             Msg::RestartHeight(height, _) => write!(f, "RestartHeight(height={})", height),
@@ -461,6 +461,11 @@ where
                     ) => {
                         debug!(%height, %request_id, "Received sync response");
 
+                        let Some(sync) = self.sync.clone() else {
+                            warn!("Received sync response but sync actor is not available");
+                            return Ok(());
+                        };
+
                         let Some(value) = value else {
                             error!(%height, %request_id, "Received empty value sync response");
                             return Ok(());
@@ -468,6 +473,7 @@ where
 
                         let certificate_height = value.certificate.height;
                         let certificate_round = value.certificate.round;
+                        let certificate_value_id = value.certificate.value_id.clone();
 
                         if let Err(e) = self
                             .process_input(
@@ -479,13 +485,15 @@ where
                         {
                             error!(%height, %request_id, "Error when processing received synced block: {e}");
 
-                            let Some(sync) = self.sync.as_ref() else {
-                                warn!("Received sync response but sync actor is not available");
-                                return Ok(());
-                            };
-
                             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
-                                sync.cast(SyncMsg::InvalidCommitCertificate(peer, certificate, e))
+                                error!(
+                                    %peer,
+                                    %certificate.height,
+                                    %certificate.round,
+                                    "Invalid certificate received: {e}"
+                                );
+
+                                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
                                     .map_err(|e| {
                                         eyre!(
                                             "Error when notifying sync of invalid certificate: {e}"
@@ -503,8 +511,14 @@ where
                                 reply_to,
                             },
                             &myself,
-                            |proposed| {
-                                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync)
+                            move |proposed| {
+                                if proposed.validity == Validity::Invalid || proposed.value.id() != certificate_value_id {
+                                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                                        error!("Error when notifying sync of received proposed value: {e}");
+                                    }
+                                }
+
+                                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync(peer))
                             },
                             None,
                         )?;
@@ -580,7 +594,9 @@ where
                                     reply_to,
                                 },
                                 &myself,
-                                |value| Msg::ReceivedProposedValue(value, ValueOrigin::Consensus),
+                                move |value| {
+                                    Msg::ReceivedProposedValue(value, ValueOrigin::Consensus)
+                                },
                                 None,
                             )
                             .map_err(|e| {
