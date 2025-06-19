@@ -5,6 +5,7 @@ use malachitebft_core_types::{CertificateError, CommitCertificate, Context, Heig
 
 use crate::co::Co;
 use crate::scoring::SyncResult;
+use crate::state::DEFAULT_PARALLEL_REQUESTS;
 use crate::{
     perform, Effect, Error, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue,
     Request, Resume, State, Status, ValueRequest, ValueResponse,
@@ -144,7 +145,7 @@ where
 
         // We are lagging behind one of our peer at least,
         // request sync from any peer already at or above that peer's height.
-        request_value(co, state, metrics).await?;
+        request_values(co, state, metrics).await?;
     }
 
     Ok(())
@@ -160,7 +161,7 @@ pub async fn on_started_height<Ctx>(
 where
     Ctx: Context,
 {
-    let tip_height = height.decrement().unwrap_or(height);
+    let tip_height = height.decrement().unwrap_or(Height::ZERO);
 
     debug!(height.tip = %tip_height, height.sync = %height, %restart, "Starting new height");
 
@@ -168,9 +169,8 @@ where
     state.sync_height = height;
     state.tip_height = tip_height;
 
-    // Check if there is any peer already at or above the height we just started,
-    // and request sync from that peer in order to catch up.
-    request_value(co, state, metrics).await?;
+    // Trigger potential requests if possible.
+    request_values(co, state, metrics).await?;
 
     Ok(())
 }
@@ -185,6 +185,8 @@ where
     Ctx: Context,
 {
     debug!(height.tip = %height, "Updating tip height");
+
+    state.remove_pending_value_validation(&height);
 
     state.tip_height = height;
     state.remove_pending_value_request_by_height(&height);
@@ -251,6 +253,9 @@ where
 
         // If we received an empty response, we will try to request the value from another peer.
         request_value_from_peer_except(co, state, metrics, response.height, peer_id).await?;
+    } else {
+        // TODO: handle the case where this event is received after the corresponding value decision event.
+        state.store_pending_value_validation(response.height);
     }
 
     Ok(())
@@ -360,16 +365,17 @@ where
     error!(%error, %certificate.height, %certificate.round, "Received invalid certificate");
     trace!("Certificate: {certificate:#?}");
 
+    state.remove_pending_value_validation(&certificate.height);
+
     state.peer_scorer.update_score(from, SyncResult::Failure);
     state.remove_pending_value_request_by_height(&certificate.height);
 
     request_value_from_peer_except(co, state, metrics, certificate.height, from).await
 }
 
-/// If there are no pending requests for the sync height,
-/// and there is peer at a higher height than our sync height,
-/// then sync from that peer.
-async fn request_value<Ctx>(
+/// Requests values from heights in the current sync window. A request is sent for
+/// a given height if there is no pending request or validation for that height.
+async fn request_values<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -377,24 +383,34 @@ async fn request_value<Ctx>(
 where
     Ctx: Context,
 {
-    let sync_height = state.sync_height;
+    let mut height = state.sync_height;
+    let limit = state.sync_height.increment_by(DEFAULT_PARALLEL_REQUESTS);
+    loop {
+        // Request sync from a peer if we do not have any pending request or validation for this height.
+        if !state.has_pending_value_request(&height) && !state.has_pending_value_validation(&height)
+        {
+            if let Some(peer) = state.random_peer_with_tip_at_or_above(height) {
+                request_value_from_peer(&co, state, metrics, height, peer).await?;
+            } else {
+                debug!(height.sync = %height, "No peer to request sync from");
+                // No peer reached this height yet, we can stop here.
+                break;
+            }
+        } else {
+            debug!(height.sync = %height, "Already have a pending request or validation for this height");
+        }
 
-    if state.has_pending_value_request(&sync_height) {
-        warn!(height.sync = %sync_height, "Already have a pending value request for this height");
-        return Ok(());
-    }
-
-    if let Some(peer) = state.random_peer_with_tip_at_or_above(sync_height) {
-        request_value_from_peer(co, state, metrics, sync_height, peer).await?;
-    } else {
-        debug!(height.sync = %sync_height, "No peer to request sync from");
+        height = height.increment();
+        if height >= limit {
+            break;
+        }
     }
 
     Ok(())
 }
 
 async fn request_value_from_peer<Ctx>(
-    co: Co<Ctx>,
+    co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
     height: Ctx::Height,
@@ -438,7 +454,7 @@ where
     state.remove_pending_value_request_by_height(&height);
 
     if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
-        request_value_from_peer(co, state, metrics, height, peer).await?;
+        request_value_from_peer(&co, state, metrics, height, peer).await?;
     } else {
         error!(height.sync = %height, "No peer to request sync from");
     }

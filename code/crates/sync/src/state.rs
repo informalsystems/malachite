@@ -7,6 +7,8 @@ use malachitebft_peer::PeerId;
 use crate::scoring::{PeerScorer, ScoringStrategy};
 use crate::{OutboundRequestId, Status};
 
+pub(crate) const DEFAULT_PARALLEL_REQUESTS: u64 = 5;
+
 pub struct State<Ctx>
 where
     Ctx: Context,
@@ -27,6 +29,9 @@ where
 
     /// Maps request ID to height for pending decided value requests.
     pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
+
+    /// Set of heights for which we are waiting for value validation from the consensus.
+    pub pending_value_validation: BTreeSet<Ctx::Height>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
     pub peers: BTreeMap<PeerId, Status<Ctx>>,
@@ -57,6 +62,7 @@ where
             sync_height: Ctx::Height::ZERO,
             pending_value_requests: BTreeMap::new(),
             height_per_request_id: BTreeMap::new(),
+            pending_value_validation: BTreeSet::new(),
             peers: BTreeMap::new(),
             peer_scorer: PeerScorer::new(scoring_strategy),
             inactive_threshold,
@@ -106,6 +112,7 @@ where
         self.peer_scorer.select_peer(&peers, &mut self.rng)
     }
 
+    /// Store a pending decided value request for a given height and request ID.
     pub fn store_pending_value_request(
         &mut self,
         height: Ctx::Height,
@@ -153,5 +160,20 @@ where
         self.pending_value_requests
             .get(height)
             .is_some_and(|ids| !ids.is_empty())
+    }
+
+    /// Store a height for which we are waiting for value validation from the consensus.
+    pub fn store_pending_value_validation(&mut self, height: Ctx::Height) {
+        self.pending_value_validation.insert(height);
+    }
+
+    /// Remove a height from the set of pending value validations.
+    pub fn remove_pending_value_validation(&mut self, height: &Ctx::Height) {
+        self.pending_value_validation.remove(height);
+    }
+
+    /// Check if we are waiting for value validation for a given height.
+    pub fn has_pending_value_validation(&self, height: &Ctx::Height) -> bool {
+        self.pending_value_validation.contains(height)
     }
 }
