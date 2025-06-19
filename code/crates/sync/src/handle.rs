@@ -361,7 +361,7 @@ where
 {
     error!(%from, %height, "Received invalid value");
 
-    state.remove_pending_value_validation(&certificate.height);
+    state.remove_pending_value_validation(&height);
 
     state.peer_scorer.update_score(from, SyncResult::Failure);
     state.remove_pending_value_request_by_height(&height);
