@@ -2513,7 +2513,6 @@ dependencies = [
  "derive-where",
  "displaydoc",
  "genawaiter",
- "informalsystems-malachitebft-core-consensus",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-peer",

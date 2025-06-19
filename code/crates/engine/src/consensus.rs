@@ -485,7 +485,14 @@ where
                             };
 
                             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
-                                sync.cast(SyncMsg::InvalidCommitCertificate(peer, certificate, e))
+                                error!(
+                                    %peer,
+                                    %certificate.height,
+                                    %certificate.round,
+                                    "Invalid certificate received: {e}"
+                                );
+
+                                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
                                     .map_err(|e| {
                                         eyre!(
                                             "Error when notifying sync of invalid certificate: {e}"
@@ -616,7 +623,7 @@ where
                 if let (Some(sync), ValueOrigin::Sync(from), Validity::Invalid) =
                     (self.sync.as_ref(), origin, value.validity)
                 {
-                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(from, value.clone())) {
+                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(from, value.height)) {
                         error!("Error when notifying sync of received proposed value: {e}");
                     }
                 }
