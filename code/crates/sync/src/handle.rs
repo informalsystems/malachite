@@ -39,6 +39,9 @@ pub enum Input<Ctx: Context> {
 
     /// We received an invalid value (either certificate or value)
     InvalidValue(PeerId, Ctx::Height),
+
+    /// An error occurred while processing a value
+    ValueProcessingError(Ctx::Height),
 }
 
 pub async fn handle<Ctx>(
@@ -82,6 +85,10 @@ where
         }
 
         Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
+
+        Input::ValueProcessingError(height) => {
+            on_value_processing_error(co, state, metrics, height).await
+        }
     }
 }
 
@@ -366,6 +373,24 @@ where
     state.remove_pending_value_request_by_height(&height);
 
     request_value_from_peer_except(co, state, metrics, height, from).await
+}
+
+async fn on_value_processing_error<Ctx>(
+    co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    height: Ctx::Height,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    error!(height.sync = %height, "Error while processing value");
+
+    state.remove_pending_value_validation(&height);
+
+    state.remove_pending_value_request_by_height(&height);
+
+    request_values(co, state, metrics).await
 }
 
 /// Requests values from heights in the current sync window. A request is sent for

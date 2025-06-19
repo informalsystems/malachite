@@ -499,6 +499,13 @@ where
                                             "Error when notifying sync of invalid certificate: {e}"
                                         )
                                     })?;
+                            } else {
+                                sync.cast(SyncMsg::ValueProcessingError(height))
+                                    .map_err(|e| {
+                                        eyre!(
+                                            "Error when notifying sync of value processing error: {e}"
+                                        )
+                                    })?;
                             }
                         }
 
