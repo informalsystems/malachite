@@ -5,7 +5,6 @@ use malachitebft_core_types::{Context, Height};
 
 use crate::co::Co;
 use crate::scoring::SyncResult;
-use crate::state::DEFAULT_PARALLEL_REQUESTS;
 use crate::{
     perform, Effect, Error, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue,
     Request, Resume, State, Status, ValueRequest, ValueResponse,
@@ -101,7 +100,7 @@ where
         Effect::BroadcastStatus(state.tip_height, Default::default())
     );
 
-    if let Some(inactive_threshold) = state.inactive_threshold {
+    if let Some(inactive_threshold) = state.config.inactive_threshold {
         // If we are at or above the inactive threshold, we can prune inactive peers.
         state
             .peer_scorer
@@ -380,7 +379,9 @@ where
     Ctx: Context,
 {
     let mut height = state.sync_height;
-    let limit = state.sync_height.increment_by(DEFAULT_PARALLEL_REQUESTS);
+    let limit = state
+        .sync_height
+        .increment_by(state.config.parallel_requests);
     loop {
         // Request sync from a peer if we do not have any pending request or validation for this height.
         if !state.has_pending_value_request(&height) && !state.has_pending_value_validation(&height)

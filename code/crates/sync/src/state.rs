@@ -1,19 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
 
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
 
-use crate::scoring::{PeerScorer, ScoringStrategy};
-use crate::{OutboundRequestId, Status};
-
-pub(crate) const DEFAULT_PARALLEL_REQUESTS: u64 = 5;
+use crate::scoring::{ema, PeerScorer, Strategy};
+use crate::{Config, OutboundRequestId, Status};
 
 pub struct State<Ctx>
 where
     Ctx: Context,
 {
     rng: Box<dyn rand::RngCore + Send>,
+
+    /// Configuration for the sync state and behaviour.
+    pub config: Config,
 
     /// Consensus has started
     pub started: bool,
@@ -38,9 +38,6 @@ where
 
     /// Peer scorer for scoring peers based on their performance.
     pub peer_scorer: PeerScorer,
-
-    /// Threshold for considering a peer inactive, and their score reset to the initial value.
-    pub inactive_threshold: Option<Duration>,
 }
 
 impl<Ctx> State<Ctx>
@@ -50,13 +47,16 @@ where
     pub fn new(
         // Random number generator for selecting peers
         rng: Box<dyn rand::RngCore + Send>,
-        // Strategy for scoring peers based on their performance
-        scoring_strategy: impl ScoringStrategy + 'static,
-        // Threshold for considering a peer inactive, and their score reset to the initial value
-        inactive_threshold: Option<Duration>,
+        // Sync configuration
+        config: Config,
     ) -> Self {
+        let peer_scorer = match config.scoring_strategy {
+            Strategy::Ema => PeerScorer::new(ema::ExponentialMovingAverage::default()),
+        };
+
         Self {
             rng,
+            config,
             started: false,
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
@@ -64,8 +64,7 @@ where
             height_per_request_id: BTreeMap::new(),
             pending_value_validation: BTreeSet::new(),
             peers: BTreeMap::new(),
-            peer_scorer: PeerScorer::new(scoring_strategy),
-            inactive_threshold,
+            peer_scorer,
         }
     }
 
