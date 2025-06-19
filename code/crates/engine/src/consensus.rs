@@ -18,7 +18,7 @@ use malachitebft_core_consensus::{
 };
 use malachitebft_core_types::{
     Context, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
-    ValidatorSet, Validity, ValueId, ValueOrigin, Vote,
+    ValidatorSet, Validity, Value, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{self as sync, ValueResponse};
@@ -461,6 +461,11 @@ where
                     ) => {
                         debug!(%height, %request_id, "Received sync response");
 
+                        let Some(sync) = self.sync.clone() else {
+                            warn!("Received sync response but sync actor is not available");
+                            return Ok(());
+                        };
+
                         let Some(value) = value else {
                             error!(%height, %request_id, "Received empty value sync response");
                             return Ok(());
@@ -468,6 +473,7 @@ where
 
                         let certificate_height = value.certificate.height;
                         let certificate_round = value.certificate.round;
+                        let certificate_value_id = value.certificate.value_id.clone();
 
                         if let Err(e) = self
                             .process_input(
@@ -478,11 +484,6 @@ where
                             .await
                         {
                             error!(%height, %request_id, "Error when processing received synced block: {e}");
-
-                            let Some(sync) = self.sync.as_ref() else {
-                                warn!("Received sync response but sync actor is not available");
-                                return Ok(());
-                            };
 
                             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
                                 error!(
@@ -511,6 +512,12 @@ where
                             },
                             &myself,
                             move |proposed| {
+                                if proposed.validity == Validity::Invalid || proposed.value.id() != certificate_value_id {
+                                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                                        error!("Error when notifying sync of received proposed value: {e}");
+                                    }
+                                }
+
                                 Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync(peer))
                             },
                             None,
@@ -619,14 +626,6 @@ where
             Msg::ReceivedProposedValue(value, origin) => {
                 self.tx_event
                     .send(|| Event::ReceivedProposedValue(value.clone(), origin));
-
-                if let (Some(sync), ValueOrigin::Sync(from), Validity::Invalid) =
-                    (self.sync.as_ref(), origin, value.validity)
-                {
-                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(from, value.height)) {
-                        error!("Error when notifying sync of received proposed value: {e}");
-                    }
-                }
 
                 let result = self
                     .process_input(&myself, state, ConsensusInput::ProposedValue(value, origin))
