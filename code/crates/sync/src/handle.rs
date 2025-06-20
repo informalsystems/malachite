@@ -39,6 +39,9 @@ pub enum Input<Ctx: Context> {
 
     /// We received an invalid value (either certificate or value)
     InvalidValue(PeerId, Ctx::Height),
+
+    /// An error occurred while processing a value
+    ValueProcessingError(PeerId, Ctx::Height),
 }
 
 pub async fn handle<Ctx>(
@@ -82,6 +85,10 @@ where
         }
 
         Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
+
+        Input::ValueProcessingError(peer, height) => {
+            on_value_processing_error(co, state, metrics, peer, height).await
+        }
     }
 }
 
@@ -100,7 +107,7 @@ where
         Effect::BroadcastStatus(state.tip_height, Default::default())
     );
 
-    if let Some(inactive_threshold) = state.inactive_threshold {
+    if let Some(inactive_threshold) = state.config.inactive_threshold {
         // If we are at or above the inactive threshold, we can prune inactive peers.
         state
             .peer_scorer
@@ -142,7 +149,7 @@ where
 
         // We are lagging behind one of our peer at least,
         // request sync from any peer already at or above that peer's height.
-        request_value(co, state, metrics).await?;
+        request_values(co, state, metrics).await?;
     }
 
     Ok(())
@@ -158,7 +165,12 @@ pub async fn on_started_height<Ctx>(
 where
     Ctx: Context,
 {
-    let tip_height = height.decrement().unwrap_or(height);
+    if state.tip_height >= height && !restart {
+        // We received a decided height event before the corresponding started height event.
+        return Ok(());
+    }
+
+    let tip_height = height.decrement().unwrap_or_default();
 
     debug!(height.tip = %tip_height, height.sync = %height, %restart, "Starting new height");
 
@@ -166,17 +178,16 @@ where
     state.sync_height = height;
     state.tip_height = tip_height;
 
-    // Check if there is any peer already at or above the height we just started,
-    // and request sync from that peer in order to catch up.
-    request_value(co, state, metrics).await?;
+    // Trigger potential requests if possible.
+    request_values(co, state, metrics).await?;
 
     Ok(())
 }
 
 pub async fn on_decided<Ctx>(
-    _co: Co<Ctx>,
+    co: Co<Ctx>,
     state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
 where
@@ -184,8 +195,14 @@ where
 {
     debug!(height.tip = %height, "Updating tip height");
 
+    state.sync_height = height.increment();
     state.tip_height = height;
+
+    state.remove_pending_value_validation(&height);
     state.remove_pending_value_request_by_height(&height);
+
+    // Trigger potential requests if possible.
+    request_values(co, state, metrics).await?;
 
     Ok(())
 }
@@ -249,6 +266,9 @@ where
 
         // If we received an empty response, we will try to request the value from another peer.
         request_value_from_peer_except(co, state, metrics, response.height, peer_id).await?;
+    } else {
+        // TODO: handle the case where this event is received after the corresponding value decision event.
+        state.store_pending_value_validation(response.height);
     }
 
     Ok(())
@@ -357,15 +377,37 @@ where
     error!(%from, %height, "Received invalid value");
 
     state.peer_scorer.update_score(from, SyncResult::Failure);
+
+    state.remove_pending_value_validation(&height);
     state.remove_pending_value_request_by_height(&height);
 
     request_value_from_peer_except(co, state, metrics, height, from).await
 }
 
-/// If there are no pending requests for the sync height,
-/// and there is peer at a higher height than our sync height,
-/// then sync from that peer.
-async fn request_value<Ctx>(
+async fn on_value_processing_error<Ctx>(
+    co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    peer: PeerId,
+    height: Ctx::Height,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    error!(%peer, height.sync = %height, "Error while processing value");
+
+    state.remove_pending_value_validation(&height);
+    state.remove_pending_value_request_by_height(&height);
+
+    // NOTE: We do not update the peer score here, as this is an internal error
+    //       and not a failure from the peer's side.
+
+    request_values(co, state, metrics).await
+}
+
+/// Requests values from heights in the current sync window. A request is sent for
+/// a given height if there is no pending request or validation for that height.
+async fn request_values<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -373,24 +415,48 @@ async fn request_value<Ctx>(
 where
     Ctx: Context,
 {
-    let sync_height = state.sync_height;
+    let mut height = state.sync_height;
 
-    if state.has_pending_value_request(&sync_height) {
-        warn!(height.sync = %sync_height, "Already have a pending value request for this height");
-        return Ok(());
+    let limit = state
+        .sync_height
+        .increment_by(state.config.parallel_requests);
+
+    // Find out the first height for which we do not have a pending request or validation.
+    while state.has_pending_value_request(&height) || state.has_pending_value_validation(&height) {
+        height = height.increment();
+        if height >= limit {
+            break;
+        }
     }
 
-    if let Some(peer) = state.random_peer_with_tip_at_or_above(sync_height) {
-        request_value_from_peer(co, state, metrics, sync_height, peer).await?;
-    } else {
-        debug!(height.sync = %sync_height, "No peer to request sync from");
+    // If the height we are trying to request is already above the sync height,
+    // it means we already have a pending request or validation for the heights below.
+    if height > state.sync_height {
+        debug!(height.sync = %DisplayRange(state.sync_height, height.decrement().unwrap_or_default()), "Already have a pending request or validation for these heights");
+    }
+
+    // Start requesting values from the first height that does not have a pending request or validation.
+    loop {
+        if height >= limit {
+            break;
+        }
+
+        let Some(peer) = state.random_peer_with_tip_at_or_above(height) else {
+            debug!(height.sync = %height, "No peer to request sync from");
+            // No peer reached this height yet, we can stop here.
+            break;
+        };
+
+        request_value_from_peer(&co, state, metrics, height, peer).await?;
+
+        height = height.increment();
     }
 
     Ok(())
 }
 
 async fn request_value_from_peer<Ctx>(
-    co: Co<Ctx>,
+    co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
     height: Ctx::Height,
@@ -434,10 +500,18 @@ where
     state.remove_pending_value_request_by_height(&height);
 
     if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
-        request_value_from_peer(co, state, metrics, height, peer).await?;
+        request_value_from_peer(&co, state, metrics, height, peer).await?;
     } else {
         error!(height.sync = %height, "No peer to request sync from");
     }
 
     Ok(())
+}
+
+struct DisplayRange<A>(A, A);
+
+impl<A: core::fmt::Display> core::fmt::Display for DisplayRange<A> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}..{}", self.0, self.1)
+    }
 }

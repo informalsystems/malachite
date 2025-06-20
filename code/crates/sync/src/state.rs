@@ -1,17 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
 
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
 
-use crate::scoring::{PeerScorer, ScoringStrategy};
-use crate::{OutboundRequestId, Status};
+use crate::scoring::{ema, PeerScorer, Strategy};
+use crate::{Config, OutboundRequestId, Status};
 
 pub struct State<Ctx>
 where
     Ctx: Context,
 {
     rng: Box<dyn rand::RngCore + Send>,
+
+    /// Configuration for the sync state and behaviour.
+    pub config: Config,
 
     /// Consensus has started
     pub started: bool,
@@ -28,14 +30,14 @@ where
     /// Maps request ID to height for pending decided value requests.
     pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
 
+    /// Set of heights for which we are waiting for value validation from the consensus.
+    pub pending_value_validation: BTreeSet<Ctx::Height>,
+
     /// The set of peers we are connected to in order to get values, certificates and votes.
     pub peers: BTreeMap<PeerId, Status<Ctx>>,
 
     /// Peer scorer for scoring peers based on their performance.
     pub peer_scorer: PeerScorer,
-
-    /// Threshold for considering a peer inactive, and their score reset to the initial value.
-    pub inactive_threshold: Option<Duration>,
 }
 
 impl<Ctx> State<Ctx>
@@ -45,21 +47,24 @@ where
     pub fn new(
         // Random number generator for selecting peers
         rng: Box<dyn rand::RngCore + Send>,
-        // Strategy for scoring peers based on their performance
-        scoring_strategy: impl ScoringStrategy + 'static,
-        // Threshold for considering a peer inactive, and their score reset to the initial value
-        inactive_threshold: Option<Duration>,
+        // Sync configuration
+        config: Config,
     ) -> Self {
+        let peer_scorer = match config.scoring_strategy {
+            Strategy::Ema => PeerScorer::new(ema::ExponentialMovingAverage::default()),
+        };
+
         Self {
             rng,
+            config,
             started: false,
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
             pending_value_requests: BTreeMap::new(),
             height_per_request_id: BTreeMap::new(),
+            pending_value_validation: BTreeSet::new(),
             peers: BTreeMap::new(),
-            peer_scorer: PeerScorer::new(scoring_strategy),
-            inactive_threshold,
+            peer_scorer,
         }
     }
 
@@ -106,6 +111,7 @@ where
         self.peer_scorer.select_peer(&peers, &mut self.rng)
     }
 
+    /// Store a pending decided value request for a given height and request ID.
     pub fn store_pending_value_request(
         &mut self,
         height: Ctx::Height,
@@ -153,5 +159,20 @@ where
         self.pending_value_requests
             .get(height)
             .is_some_and(|ids| !ids.is_empty())
+    }
+
+    /// Store a height for which we are waiting for value validation from the consensus.
+    pub fn store_pending_value_validation(&mut self, height: Ctx::Height) {
+        self.pending_value_validation.insert(height);
+    }
+
+    /// Remove a height from the set of pending value validations.
+    pub fn remove_pending_value_validation(&mut self, height: &Ctx::Height) {
+        self.pending_value_validation.remove(height);
+    }
+
+    /// Check if we are waiting for value validation for a given height.
+    pub fn has_pending_value_validation(&self, height: &Ctx::Height) -> bool {
+        self.pending_value_validation.contains(height)
     }
 }
