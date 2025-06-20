@@ -407,25 +407,28 @@ where
     Ctx: Context,
 {
     let mut height = state.sync_height;
+
     let limit = state
         .sync_height
         .increment_by(state.config.parallel_requests);
+
     loop {
-        // Request sync from a peer if we do not have any pending request or validation for this height.
-        if !state.has_pending_value_request(&height) && !state.has_pending_value_validation(&height)
-        {
-            if let Some(peer) = state.random_peer_with_tip_at_or_above(height) {
-                request_value_from_peer(&co, state, metrics, height, peer).await?;
-            } else {
-                debug!(height.sync = %height, "No peer to request sync from");
-                // No peer reached this height yet, we can stop here.
-                break;
-            }
-        } else {
+        // Check if already have a pending request or validation for this height.
+        if state.has_pending_value_request(&height) || state.has_pending_value_validation(&height) {
             debug!(height.sync = %height, "Already have a pending request or validation for this height");
+            continue;
         }
 
+        let Some(peer) = state.random_peer_with_tip_at_or_above(height) else {
+            debug!(height.sync = %height, "No peer to request sync from");
+            // No peer reached this height yet, we can stop here.
+            break;
+        };
+
+        request_value_from_peer(&co, state, metrics, height, peer).await?;
+
         height = height.increment();
+
         if height >= limit {
             break;
         }
