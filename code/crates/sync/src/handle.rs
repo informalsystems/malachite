@@ -41,7 +41,7 @@ pub enum Input<Ctx: Context> {
     InvalidValue(PeerId, Ctx::Height),
 
     /// An error occurred while processing a value
-    ValueProcessingError(Ctx::Height),
+    ValueProcessingError(PeerId, Ctx::Height),
 }
 
 pub async fn handle<Ctx>(
@@ -86,8 +86,8 @@ where
 
         Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
 
-        Input::ValueProcessingError(height) => {
-            on_value_processing_error(co, state, metrics, height).await
+        Input::ValueProcessingError(peer, height) => {
+            on_value_processing_error(co, state, metrics, peer, height).await
         }
     }
 }
@@ -379,16 +379,19 @@ async fn on_value_processing_error<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
+    peer: PeerId,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    error!(height.sync = %height, "Error while processing value");
+    error!(%peer, height.sync = %height, "Error while processing value");
 
     state.remove_pending_value_validation(&height);
-
     state.remove_pending_value_request_by_height(&height);
+
+    // NOTE: We do not update the peer score here, as this is an internal error
+    //       and not a failure from the peer's side.
 
     request_values(co, state, metrics).await
 }

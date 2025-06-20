@@ -98,7 +98,7 @@ pub enum Msg<Ctx: Context> {
     InvalidValue(PeerId, Ctx::Height),
 
     /// An error occurred while processing a value
-    ValueProcessingError(Ctx::Height),
+    ValueProcessingError(PeerId, Ctx::Height),
 }
 
 impl<Ctx: Context> From<NetworkEvent<Ctx>> for Msg<Ctx> {
@@ -390,9 +390,13 @@ where
                     .await?
             }
 
-            Msg::ValueProcessingError(height) => {
-                self.process_input(&myself, state, sync::Input::ValueProcessingError(height))
-                    .await?
+            Msg::ValueProcessingError(peer, height) => {
+                self.process_input(
+                    &myself,
+                    state,
+                    sync::Input::ValueProcessingError(peer, height),
+                )
+                .await?
             }
 
             Msg::TimeoutElapsed(elapsed) => {

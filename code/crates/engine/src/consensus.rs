@@ -500,7 +500,7 @@ where
                                         )
                                     })?;
                             } else {
-                                sync.cast(SyncMsg::ValueProcessingError(height))
+                                sync.cast(SyncMsg::ValueProcessingError(peer, height))
                                     .map_err(|e| {
                                         eyre!(
                                             "Error when notifying sync of value processing error: {e}"
