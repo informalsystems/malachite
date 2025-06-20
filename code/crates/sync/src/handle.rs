@@ -165,7 +165,12 @@ pub async fn on_started_height<Ctx>(
 where
     Ctx: Context,
 {
-    let tip_height = height.decrement().unwrap_or(Height::ZERO);
+    if state.tip_height >= height {
+        // We received a decided height event before the corresponding started height event.
+        return Ok(());
+    }
+
+    let tip_height = height.decrement().unwrap_or_default();
 
     debug!(height.tip = %tip_height, height.sync = %height, %restart, "Starting new height");
 
@@ -180,9 +185,9 @@ where
 }
 
 pub async fn on_decided<Ctx>(
-    _co: Co<Ctx>,
+    co: Co<Ctx>,
     state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
 where
@@ -190,10 +195,14 @@ where
 {
     debug!(height.tip = %height, "Updating tip height");
 
+    state.sync_height = height.increment();
     state.tip_height = height;
 
     state.remove_pending_value_validation(&height);
     state.remove_pending_value_request_by_height(&height);
+
+    // Trigger potential requests if possible.
+    request_values(co, state, metrics).await?;
 
     Ok(())
 }
@@ -423,7 +432,7 @@ where
     // If the height we are trying to request is already above the sync height,
     // it means we already have a pending request or validation for the heights below.
     if height > state.sync_height {
-        debug!(height.sync = %DisplayRange(state.sync_height, height), "Already have a pending request or validation for these heights");
+        debug!(height.sync = %DisplayRange(state.sync_height, height.decrement().unwrap_or_default()), "Already have a pending request or validation for these heights");
     }
 
     // Start requesting values from the first height that does not have a pending request or validation.
