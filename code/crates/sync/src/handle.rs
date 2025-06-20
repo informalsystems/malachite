@@ -165,7 +165,7 @@ pub async fn on_started_height<Ctx>(
 where
     Ctx: Context,
 {
-    if state.tip_height >= height {
+    if state.tip_height >= height && !restart {
         // We received a decided height event before the corresponding started height event.
         return Ok(());
     }
