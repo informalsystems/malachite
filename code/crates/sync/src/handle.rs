@@ -190,9 +190,9 @@ where
 {
     debug!(height.tip = %height, "Updating tip height");
 
-    state.remove_pending_value_validation(&height);
-
     state.tip_height = height;
+
+    state.remove_pending_value_validation(&height);
     state.remove_pending_value_request_by_height(&height);
 
     Ok(())
@@ -367,9 +367,9 @@ where
 {
     error!(%from, %height, "Received invalid value");
 
-    state.remove_pending_value_validation(&height);
-
     state.peer_scorer.update_score(from, SyncResult::Failure);
+
+    state.remove_pending_value_validation(&height);
     state.remove_pending_value_request_by_height(&height);
 
     request_value_from_peer_except(co, state, metrics, height, from).await
