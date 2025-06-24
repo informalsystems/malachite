@@ -14,8 +14,7 @@ use tracing::{debug, error, info, warn, Instrument};
 
 use malachitebft_codec as codec;
 use malachitebft_core_consensus::PeerId;
-use malachitebft_core_types::{CertificateError, CommitCertificate, Context};
-use malachitebft_sync::scoring::ema::ExponentialMovingAverage;
+use malachitebft_core_types::{CommitCertificate, Context};
 use malachitebft_sync::{
     self as sync, InboundRequestId, OutboundRequestId, RawDecidedValue, Request, Response,
     Resumable,
@@ -103,8 +102,11 @@ pub enum Msg<Ctx: Context> {
     /// A timeout has elapsed
     TimeoutElapsed(TimeoutElapsed<Timeout>),
 
-    /// We received an invalid [`CommitCertificate`] from a peer
-    InvalidCommitCertificate(PeerId, CommitCertificate<Ctx>, CertificateError<Ctx>),
+    /// We received an invalid value (either certificate or value) from a peer
+    InvalidValue(PeerId, Ctx::Height),
+
+    /// An error occurred while processing a value
+    ValueProcessingError(PeerId, Ctx::Height),
 }
 
 impl<Ctx: Context> From<NetworkEvent<Ctx>> for Msg<Ctx> {
@@ -154,6 +156,7 @@ pub struct Sync<Ctx: Context> {
     gossip: NetworkRef<Ctx>,
     host: HostRef<Ctx>,
     params: Params,
+    sync_config: sync::Config,
     metrics: sync::Metrics,
     span: tracing::Span,
 }
@@ -167,6 +170,7 @@ where
         gossip: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
         params: Params,
+        sync_config: sync::Config,
         metrics: sync::Metrics,
         span: tracing::Span,
     ) -> Self {
@@ -175,6 +179,7 @@ where
             gossip,
             host,
             params,
+            sync_config,
             metrics,
             span,
         }
@@ -185,10 +190,11 @@ where
         gossip: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
         params: Params,
+        sync_config: sync::Config,
         metrics: sync::Metrics,
         span: tracing::Span,
     ) -> Result<SyncRef<Ctx>, ractor::SpawnErr> {
-        let actor = Self::new(ctx, gossip, host, params, metrics, span);
+        let actor = Self::new(ctx, gossip, host, params, sync_config, metrics, span);
         let (actor_ref, _) = Actor::spawn(None, actor, ()).await?;
         Ok(actor_ref)
     }
@@ -475,11 +481,16 @@ where
                 .await?;
             }
 
-            Msg::InvalidCommitCertificate(peer, certificate, error) => {
+            Msg::InvalidValue(peer, height) => {
+                self.process_input(&myself, state, sync::Input::InvalidValue(peer, height))
+                    .await?
+            }
+
+            Msg::ValueProcessingError(peer, height) => {
                 self.process_input(
                     &myself,
                     state,
-                    sync::Input::InvalidCertificate(peer, certificate, error),
+                    sync::Input::ValueProcessingError(peer, height),
                 )
                 .await?
             }
@@ -541,10 +552,9 @@ where
         );
 
         let rng = Box::new(rand::rngs::StdRng::from_entropy());
-        let scoring_strategy = ExponentialMovingAverage::default();
 
         Ok(State {
-            sync: sync::State::new(rng, scoring_strategy, None),
+            sync: sync::State::new(rng, self.sync_config),
             timers: Timers::new(Box::new(myself.clone())),
             inflight: HashMap::new(),
             ticker,

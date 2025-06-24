@@ -251,6 +251,7 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
         moniker: format!("starknet-{}", index),
         consensus: ConsensusConfig {
             value_payload: ValuePayload::PartsOnly,
+            queue_capacity: 100,
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
                 protocol: PubSubProtocol::default(),
@@ -333,7 +334,6 @@ fn make_distributed_config(
 ) -> Config {
     use itertools::Itertools;
     use malachitebft_config::*;
-    use std::time::Duration;
 
     const CONSENSUS_BASE_PORT: usize = 27000;
     const MEMPOOL_BASE_PORT: usize = 28000;
@@ -347,6 +347,7 @@ fn make_distributed_config(
     Config {
         moniker: format!("starknet-{}", index),
         consensus: ConsensusConfig {
+            queue_capacity: 100,
             value_payload: ValuePayload::PartsOnly,
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
@@ -402,8 +403,7 @@ fn make_distributed_config(
         },
         value_sync: ValueSyncConfig {
             enabled: false,
-            status_update_interval: Duration::from_secs(0),
-            request_timeout: Duration::from_secs(0),
+            ..settings.value_sync
         },
         metrics: MetricsConfig {
             enabled: true,
@@ -416,7 +416,7 @@ fn make_distributed_config(
 }
 
 fn default_config() -> Config {
-    use malachitebft_config::{DiscoveryConfig, RuntimeConfig, TransportProtocol};
+    use malachitebft_config::{DiscoveryConfig, RuntimeConfig, TransportProtocol, ValueSyncConfig};
 
     make_config(
         1,
@@ -425,6 +425,7 @@ fn default_config() -> Config {
             runtime: RuntimeConfig::single_threaded(),
             transport: TransportProtocol::Tcp,
             discovery: DiscoveryConfig::default(),
+            value_sync: ValueSyncConfig::default(),
         },
     )
 }

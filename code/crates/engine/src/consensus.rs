@@ -12,13 +12,13 @@ use tokio::time::Instant;
 use tracing::{debug, error, error_span, info, warn};
 
 use malachitebft_codec as codec;
-use malachitebft_config::TimeoutConfig;
+use malachitebft_config::{ConsensusConfig, TimeoutConfig};
 use malachitebft_core_consensus::{
     Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
 };
 use malachitebft_core_types::{
     Context, Height, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
-    ValidatorSet, ValueId, ValueOrigin, Vote,
+    ValidatorSet, Validity, Value, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{self as sync, BatchResponse, ValueResponse};
@@ -72,7 +72,7 @@ where
 {
     ctx: Ctx,
     params: ConsensusParams<Ctx>,
-    timeout_config: TimeoutConfig,
+    consensus_config: ConsensusConfig,
     signing_provider: Box<dyn SigningProvider<Ctx>>,
     network: NetworkRef<Ctx>,
     host: HostRef<Ctx>,
@@ -141,9 +141,9 @@ impl<Ctx: Context> fmt::Display for Msg<Ctx> {
                 "ProposeValue(height={} round={})",
                 value.height, value.round
             ),
-            Msg::ReceivedProposedValue(value, _) => write!(
+            Msg::ReceivedProposedValue(value, origin) => write!(
                 f,
-                "ReceivedProposedValue(height={} round={})",
+                "ReceivedProposedValue(height={} round={} origin={origin:?})",
                 value.height, value.round
             ),
             Msg::RestartHeight(height, _) => write!(f, "RestartHeight(height={})", height),
@@ -271,7 +271,7 @@ where
     pub async fn spawn(
         ctx: Ctx,
         params: ConsensusParams<Ctx>,
-        timeout_config: TimeoutConfig,
+        consensus_config: ConsensusConfig,
         signing_provider: Box<dyn SigningProvider<Ctx>>,
         network: NetworkRef<Ctx>,
         host: HostRef<Ctx>,
@@ -284,7 +284,7 @@ where
         let node = Self {
             ctx,
             params,
-            timeout_config,
+            consensus_config,
             signing_provider,
             network,
             host,
@@ -367,6 +367,13 @@ where
                     state.set_phase(Phase::Recovering);
                 }
 
+                // Notify the sync actor that we have started a new height
+                if let Some(sync) = &self.sync {
+                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height, is_restart)) {
+                        error!(%height, "Error when notifying sync of started height: {e}")
+                    }
+                }
+
                 // Start consensus for the given height
                 let result = self
                     .process_input(
@@ -389,13 +396,6 @@ where
 
                 // Process any buffered messages, now that we are in the `Running` phase
                 self.process_buffered_msgs(&myself, state).await;
-
-                // Notify the sync actor that we have started a new height
-                if let Some(sync) = &self.sync {
-                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height, is_restart)) {
-                        error!(%height, "Error when notifying sync of started height: {e}")
-                    }
-                }
 
                 Ok(())
             }
@@ -567,7 +567,9 @@ where
                                     reply_to,
                                 },
                                 &myself,
-                                |value| Msg::ReceivedProposedValue(value, ValueOrigin::Consensus),
+                                move |value| {
+                                    Msg::ReceivedProposedValue(value, ValueOrigin::Consensus)
+                                },
                                 None,
                             )
                             .map_err(|e| {
@@ -623,8 +625,14 @@ where
     where
         Ctx: Context,
     {
+        let Some(sync) = self.sync.clone() else {
+            warn!("Received sync response but sync actor is not available");
+            return Ok(());
+        };
+
         let certificate_height = value.certificate.height;
         let certificate_round = value.certificate.round;
+        let certificate_value_id = value.certificate.value_id.clone();
 
         if let Err(e) = self
             .process_input(
@@ -641,10 +649,21 @@ where
                 return Ok(());
             };
 
-            // TODO(SYNC): This error should stop processing the rest of the batch
             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
-                sync.cast(SyncMsg::InvalidCommitCertificate(peer, certificate, e))
+                error!(
+                    %peer,
+                    %certificate.height,
+                    %certificate.round,
+                    "Invalid certificate received: {e}"
+                );
+
+                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
                     .map_err(|e| eyre!("Error when notifying sync of invalid certificate: {e}"))?;
+            } else {
+                sync.cast(SyncMsg::ValueProcessingError(peer, height))
+                    .map_err(|e| {
+                        eyre!("Error when notifying sync of value processing error: {e}")
+                    })?;
             }
         }
 
@@ -656,10 +675,21 @@ where
                 value_bytes: value.value_bytes.clone(),
                 reply_to,
             },
-            myself,
-            |proposed| Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync),
+            &myself,
+            move |proposed| {
+                if proposed.validity == Validity::Invalid
+                    || proposed.value.id() != certificate_value_id
+                {
+                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                        error!("Error when notifying sync of received proposed value: {e}");
+                    }
+                }
+
+                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync(peer))
+            },
             None,
         )?;
+
         Ok(())
     }
 
@@ -948,7 +978,7 @@ where
     ) -> Result<Resume<Ctx>, ActorProcessingErr> {
         match effect {
             Effect::ResetTimeouts(r) => {
-                state.timeouts.reset(self.timeout_config);
+                state.timeouts.reset(self.consensus_config.timeouts);
                 Ok(r.resume_with(()))
             }
 
@@ -1252,8 +1282,12 @@ where
 
         Ok(State {
             timers: Timers::new(Box::new(myself)),
-            timeouts: Timeouts::new(self.timeout_config),
-            consensus: ConsensusState::new(self.ctx.clone(), self.params.clone()),
+            timeouts: Timeouts::new(self.consensus_config.timeouts),
+            consensus: ConsensusState::new(
+                self.ctx.clone(),
+                self.params.clone(),
+                self.consensus_config.queue_capacity,
+            ),
             connected_peers: BTreeSet::new(),
             phase: Phase::Unstarted,
             msg_buffer: MessageBuffer::new(MAX_BUFFER_SIZE),
