@@ -461,8 +461,16 @@ where
                     ) => {
                         debug!(%height, %request_id, "Received value sync response");
 
-                        self.process_sync_response(&myself, state, request_id, peer, height, value)
-                            .await?;
+                        let Some(value) = value else {
+                            error!(%height, %request_id, "Received empty value sync response");
+                            // TODO(SYNC): Decrease peer score
+                            return Ok(());
+                        };
+
+                        self.process_sync_response(
+                            &myself, state, request_id, peer, height, &value,
+                        )
+                        .await?;
                     }
 
                     NetworkEvent::SyncResponse(
@@ -472,23 +480,20 @@ where
                     ) => {
                         debug!(from = %range.start(), to = %range.end(), %request_id, "Received batch sync response");
 
-                        // Process the values in the range in order
-                        for (i, (height, value)) in values.iter().enumerate() {
-                            assert!(range.contains(height));
-                            assert_eq!(
-                                height.as_u64(),
-                                range.start().increment_by(i as u64).as_u64()
-                            );
-
+                        // Process values sequentially starting from the lowest height
+                        let mut height = *range.start();
+                        for value in values.iter() {
                             self.process_sync_response(
                                 &myself,
                                 state,
                                 request_id.clone(),
                                 peer,
-                                height.clone(),
-                                value.clone(),
+                                height,
+                                value,
                             )
                             .await?;
+
+                            height = height.increment();
                         }
                     }
 
@@ -613,17 +618,11 @@ where
         request_id: malachitebft_sync::OutboundRequestId,
         peer: PeerId,
         height: <Ctx as Context>::Height,
-        value: Option<malachitebft_sync::RawDecidedValue<Ctx>>,
+        value: &malachitebft_sync::RawDecidedValue<Ctx>,
     ) -> Result<(), ActorProcessingErr>
     where
         Ctx: Context,
     {
-        let Some(value) = value else {
-            error!(%height, %request_id, "Received empty value sync response");
-            // TODO(SYNC): Decrease peer score
-            return Ok(());
-        };
-
         let certificate_height = value.certificate.height;
         let certificate_round = value.certificate.round;
 
@@ -631,7 +630,7 @@ where
             .process_input(
                 myself,
                 state,
-                ConsensusInput::CommitCertificate(value.certificate),
+                ConsensusInput::CommitCertificate(value.certificate.clone()),
             )
             .await
         {
@@ -654,7 +653,7 @@ where
                 height: certificate_height,
                 round: certificate_round,
                 validator_address: state.consensus.address().clone(),
-                value_bytes: value.value_bytes,
+                value_bytes: value.value_bytes.clone(),
                 reply_to,
             },
             myself,

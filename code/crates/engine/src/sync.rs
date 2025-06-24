@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
@@ -97,7 +97,7 @@ pub enum Msg<Ctx: Context> {
     GotDecidedBlocks(
         InboundRequestId,
         RangeInclusive<Ctx::Height>,
-        BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>,
+        Vec<RawDecidedValue<Ctx>>,
     ),
 
     /// A timeout has elapsed

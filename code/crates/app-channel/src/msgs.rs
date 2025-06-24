@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 use std::time::Duration;
 
@@ -181,7 +180,7 @@ pub enum AppMsg<Ctx: Context> {
         /// Range of heights for which to retrieve decided values
         range: RangeInclusive<Ctx::Height>,
         /// Channel for sending back the decided values
-        reply: Reply<BTreeMap<Ctx::Height, Option<RawDecidedValue<Ctx>>>>,
+        reply: Reply<Vec<RawDecidedValue<Ctx>>>,
     },
 
     /// Notifies the application that a value has been synced from the network.
