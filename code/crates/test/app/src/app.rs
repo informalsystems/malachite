@@ -305,6 +305,27 @@ pub async fn run(
                 }
             }
 
+            AppMsg::GetDecidedValues { range, reply } => {
+                info!(from = %range.start(), to = %range.end(), "Received sync request for decided values");
+
+                let decided_values = state.get_decided_values(range.clone()).await;
+                info!(from = %range.start(), to = %range.end(), "Found decided values: {decided_values:?}");
+
+                let raw_decided_values: Vec<RawDecidedValue<TestContext>> = decided_values
+                    .into_iter()
+                    .map(|decided_value| {
+                        RawDecidedValue {
+                            value_bytes: JsonCodec.encode(&decided_value.value).unwrap(), // FIXME: unwrap
+                            certificate: decided_value.certificate,
+                        }
+                    })
+                    .collect();
+
+                if reply.send(raw_decided_values).is_err() {
+                    error!("Failed to send GetDecidedValues reply");
+                }
+            }
+
             // In order to figure out if we can help a peer that is lagging behind,
             // the engine may ask us for the height of the earliest available value in our store.
             AppMsg::GetHistoryMinHeight { reply } => {

@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use derive_where::derive_where;
 use tracing::{debug, error, info, warn};
 
@@ -6,8 +8,9 @@ use malachitebft_core_types::{Context, Height};
 use crate::co::Co;
 use crate::scoring::SyncResult;
 use crate::{
-    perform, Effect, Error, InboundRequestId, Metrics, OutboundRequestId, PeerId, RawDecidedValue,
-    Request, Resume, State, Status, ValueRequest, ValueResponse,
+    perform, BatchRequest, BatchResponse, Effect, Error, InboundRequestId, Metrics,
+    OutboundRequestId, PeerId, PeerKind, RawDecidedValue, Request, Resume, State, Status,
+    ValueRequest, ValueResponse,
 };
 
 #[derive_where(Debug)]
@@ -31,8 +34,21 @@ pub enum Input<Ctx: Context> {
     /// A (possibly empty or invalid) ValueSync response has been received
     ValueResponse(OutboundRequestId, PeerId, Option<ValueResponse<Ctx>>),
 
+    /// A BatchSync request has been received from a peer
+    BatchRequest(InboundRequestId, PeerId, BatchRequest<Ctx>),
+
+    /// A BatchSync response has been received
+    BatchResponse(OutboundRequestId, PeerId, BatchResponse<Ctx>),
+
     /// Got a response from the application to our `GetValue` request
     GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+
+    /// Got a response from the application to our `GetValues` request
+    GotDecidedValues(
+        InboundRequestId,
+        RangeInclusive<Ctx::Height>,
+        Vec<RawDecidedValue<Ctx>>,
+    ),
 
     /// A request for a value timed out
     SyncRequestTimedOut(PeerId, Request<Ctx>),
@@ -76,8 +92,20 @@ where
             on_invalid_value_response(co, state, metrics, request_id, peer_id).await
         }
 
+        Input::BatchRequest(request_id, peer_id, request) => {
+            on_batch_request(co, state, metrics, request_id, peer_id, request).await
+        }
+
+        Input::BatchResponse(request_id, peer_id, response) => {
+            on_batch_response(co, state, metrics, request_id, peer_id, response).await
+        }
+
         Input::GotDecidedValue(request_id, height, value) => {
             on_got_decided_value(co, state, metrics, request_id, height, value).await
+        }
+
+        Input::GotDecidedValues(request_id, range, values) => {
+            on_got_decided_values(co, state, metrics, request_id, range, values).await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -144,11 +172,11 @@ where
             height.tip = %state.tip_height,
             height.sync = %state.sync_height,
             height.peer = %peer_height,
-            "SYNC REQUIRED: Falling behind"
+            "SYNC REQUIRED: Falling behind",
         );
 
-        // We are lagging behind one of our peer at least,
-        // request sync from any peer already at or above that peer's height.
+        // We are lagging behind on one of our peers at least.
+        // Request value(s) from any peer already at later height.
         request_values(co, state, metrics).await?;
     }
 
@@ -175,7 +203,8 @@ where
 
     state.remove_pending_request_by_height(&tip_height);
 
-    // Trigger potential requests if possible.
+    // Check if there is any peer already at or above the height we just started,
+    // and request value(s) from any of those peers in order to catch up.
     request_values(co, state, metrics).await?;
 
     Ok(())
@@ -209,11 +238,37 @@ where
 {
     debug!(%request.height, %peer, "Received request for value");
 
-    metrics.value_request_received(request.height.as_u64());
+    metrics.value_request_received(request.height.as_u64(), 1);
 
     perform!(
         co,
         Effect::GetDecidedValue(request_id, request.height, Default::default())
+    );
+
+    Ok(())
+}
+
+pub async fn on_batch_request<Ctx>(
+    co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    metrics: &Metrics,
+    request_id: InboundRequestId,
+    peer: PeerId,
+    request: BatchRequest<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    let start = request.range.start();
+    let end = request.range.end();
+    debug!(from_height = %start, to_height = %end, peer = %peer, "Received batch request");
+
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    metrics.value_request_received(start.as_u64(), batch_size);
+
+    perform!(
+        co,
+        Effect::GetDecidedValues(request_id, request.range, Default::default())
     );
 
     Ok(())
@@ -253,7 +308,7 @@ where
             return Ok(());
         }
 
-        let response_time = metrics.value_response_received(height.as_u64());
+        let response_time = metrics.value_response_received(height.as_u64(), 1);
 
         if response.value.is_none() {
             warn!(%height, %request_id, "Received invalid value response");
@@ -284,6 +339,42 @@ where
         }
     } else {
         warn!(%request_id, %peer_id, "Received response for unknown request ID");
+    }
+
+    Ok(())
+}
+
+pub async fn on_batch_response<Ctx>(
+    _co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    _request_id: OutboundRequestId,
+    peer: PeerId,
+    response: BatchResponse<Ctx>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    let start = response.range.start().as_u64();
+    let end = response.range.end().as_u64();
+    let batch_size = end - start + 1;
+    debug!(from = %start, to = %end, peer = %peer, "Received batch response");
+
+    state.remove_pending_value_request_by_height_range(&response.range);
+
+    let response_time = metrics.value_response_received(start, batch_size);
+
+    if let Some(_response_time) = response_time {
+        // TODO(SYNC): update peer score
+    }
+
+    // We do not update the peer score if we do not know the response time.
+    // This should never happen, but we need to handle it gracefully just in case.
+
+    if response.values.is_empty() {
+        warn!(from = %start, to = %end, peer = %peer, "Received invalid response");
+
+        // TODO(SYNC): request invalid values from another peer.
     }
 
     Ok(())
@@ -350,7 +441,54 @@ where
         )
     );
 
-    metrics.value_response_sent(height.as_u64());
+    metrics.value_response_sent(height.as_u64(), 1);
+
+    Ok(())
+}
+
+pub async fn on_got_decided_values<Ctx>(
+    co: Co<Ctx>,
+    _state: &mut State<Ctx>,
+    metrics: &Metrics,
+    request_id: InboundRequestId,
+    range: RangeInclusive<Ctx::Height>,
+    values: Vec<RawDecidedValue<Ctx>>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    let start = range.start();
+    let end = range.end();
+
+    info!(
+        from_height = %start,
+        to_height = %end,
+        "Received batch response from host with {} values",
+        values.len()
+    );
+
+    // Validate response from host
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    if batch_size != values.len() as u64 {
+        error!(
+            from_height = %start,
+            to_height = %end,
+            "Received batch response from host with {} values, expected {}",
+            values.len(),
+            batch_size
+        )
+    }
+
+    perform!(
+        co,
+        Effect::SendBatchResponse(
+            request_id,
+            BatchResponse::new(RangeInclusive::new(*start, *end), values),
+            Default::default()
+        )
+    );
+
+    metrics.value_response_sent(start.as_u64(), batch_size);
 
     Ok(())
 }
@@ -372,8 +510,6 @@ where
 
             metrics.value_request_timed_out(height.as_u64());
 
-            state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
-
             // It is possible that this height has been already validated via consensus messages.
             // Therefore, we ignore the timeout.
             if !state.is_pending_value_request_validated_by_height(&height) {
@@ -382,7 +518,24 @@ where
                 request_value_from_peer_except(_co, state, metrics, height, peer_id).await?;
             }
         }
+        Request::BatchRequest(batch_request) => {
+            let mut height = *batch_request.range.start();
+            warn!(%peer_id, from_height = %height, to_height = %batch_request.range.end(), "Batch request timed out");
+
+            metrics.value_request_timed_out(batch_request.range.start().as_u64());
+
+            // TODO: check if these heights have been already validated via consensus messages.
+            loop {
+                state.remove_pending_request_by_height(&height);
+                if height >= *batch_request.range.end() {
+                    break;
+                }
+                height = height.increment();
+            }
+        }
     };
+
+    state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
 
     Ok(())
 }
@@ -468,7 +621,7 @@ where
             break;
         };
 
-        request_value_from_peer(&co, state, metrics, height, peer).await?;
+        request_values_from_peer(&co, state, metrics, height, peer).await?;
 
         height = height.increment();
     }
@@ -476,7 +629,7 @@ where
     Ok(())
 }
 
-async fn request_value_from_peer<Ctx>(
+async fn request_values_from_peer<Ctx>(
     co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
@@ -488,19 +641,41 @@ where
 {
     info!(height.sync = %height, %peer, "Requesting sync from peer");
 
-    let request_id = perform!(
-        co,
-        Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
-        Resume::ValueRequestId(id) => id,
-    );
+    // Determine the batch size to use based on the peer's kind
+    let batch_size = state
+        .peers
+        .get(&peer)
+        .map(|peer_details| match peer_details.kind {
+            PeerKind::SyncV1 => 1,
+            PeerKind::SyncV2 => 100,
+        })
+        .unwrap_or(1);
 
-    metrics.value_request_sent(height.as_u64());
-
-    if let Some(request_id) = request_id {
-        debug!(%request_id, %peer, "Sent value request to peer");
-        state.store_pending_value_request(height, request_id);
+    // Send the request
+    let mut end_height = height;
+    let request_id = if batch_size > 1 {
+        end_height = end_height.increment_by(batch_size);
+        perform!(
+            co,
+            Effect::SendBatchRequest(peer, BatchRequest::new(RangeInclusive::new(height, end_height)), Default::default()),
+            Resume::ValueRequestId(id) => id,
+        )
     } else {
-        warn!(height.sync = %height, %peer, "Failed to send value request to peer");
+        perform!(
+            co,
+            Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
+            Resume::ValueRequestId(id) => id,
+        )
+    };
+
+    metrics.value_request_sent(height.as_u64(), batch_size);
+
+    // Store the request ID in the state
+    if let Some(request_id) = request_id {
+        debug!(%request_id, %peer, "Sent sync request to peer");
+        state.store_pending_value_request(height, end_height, request_id);
+    } else {
+        warn!(height.sync = %height, %peer, "Failed to send sync request to peer");
     }
 
     Ok(())
@@ -519,7 +694,7 @@ where
     info!(height.sync = %height, "Requesting sync from another peer");
 
     if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
-        request_value_from_peer(&co, state, metrics, height, peer).await?;
+        request_values_from_peer(&co, state, metrics, height, peer).await?;
     } else {
         error!(height.sync = %height, "No peer to request sync from");
     }

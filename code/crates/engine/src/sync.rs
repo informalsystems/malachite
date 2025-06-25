@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -90,6 +91,13 @@ pub enum Msg<Ctx: Context> {
 
     /// Host has a response for the blocks request
     GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+
+    /// Host has a response for the batch blocks request
+    GotDecidedBlocks(
+        InboundRequestId,
+        RangeInclusive<Ctx::Height>,
+        Vec<RawDecidedValue<Ctx>>,
+    ),
 
     /// A timeout has elapsed
     TimeoutElapsed(TimeoutElapsed<Timeout>),
@@ -276,12 +284,68 @@ where
                 Ok(r.resume_with(()))
             }
 
+            Effect::SendBatchRequest(peer_id, batch_request, r) => {
+                let request = Request::BatchRequest(batch_request);
+                let result = ractor::call!(self.gossip, |reply_to| {
+                    NetworkMsg::OutgoingRequest(peer_id, request.clone(), reply_to)
+                });
+
+                match result {
+                    Ok(request_id) => {
+                        let request_id = OutboundRequestId::new(request_id);
+
+                        timers.start_timer(
+                            Timeout::Request(request_id.clone()),
+                            self.params.request_timeout,
+                        );
+
+                        inflight.insert(
+                            request_id.clone(),
+                            InflightRequest {
+                                peer_id,
+                                request_id: request_id.clone(),
+                                request,
+                            },
+                        );
+
+                        Ok(r.resume_with(Some(request_id)))
+                    }
+                    Err(e) => {
+                        error!("Failed to send batch request to network layer: {e}");
+
+                        Ok(r.resume_with(None))
+                    }
+                }
+            }
+
+            Effect::SendBatchResponse(request_id, batch_response, r) => {
+                let response = Response::BatchResponse(batch_response);
+                self.gossip
+                    .cast(NetworkMsg::OutgoingResponse(request_id, response))?;
+
+                Ok(r.resume_with(()))
+            }
+
             Effect::GetDecidedValue(request_id, height, r) => {
                 self.host.call_and_forward(
                     |reply_to| HostMsg::GetDecidedValue { height, reply_to },
                     myself,
                     move |synced_value| {
                         Msg::<Ctx>::GotDecidedValue(request_id, height, synced_value)
+                    },
+                    None,
+                )?;
+
+                Ok(r.resume_with(()))
+            }
+
+            Effect::GetDecidedValues(request_id, range, r) => {
+                let range_cloned = range.clone();
+                self.host.call_and_forward(
+                    |reply_to| HostMsg::GetDecidedValues { range, reply_to },
+                    myself,
+                    move |synced_values| {
+                        Msg::<Ctx>::GotDecidedBlocks(request_id, range_cloned, synced_values)
                     },
                     None,
                 )?;
@@ -301,6 +365,12 @@ where
             Msg::Tick => {
                 self.process_input(&myself, state, sync::Input::Tick)
                     .await?;
+            }
+
+            Msg::NetworkEvent(NetworkEvent::PeerConnected(peer_id, protocols)) => {
+                info!(%peer_id, "Connected to peer");
+
+                state.sync.add_peer(peer_id, protocols);
             }
 
             Msg::NetworkEvent(NetworkEvent::PeerDisconnected(peer_id)) => {
@@ -332,6 +402,14 @@ where
                         )
                         .await?;
                     }
+                    Request::BatchRequest(batch_request) => {
+                        self.process_input(
+                            &myself,
+                            state,
+                            sync::Input::BatchRequest(request_id, from, batch_request),
+                        )
+                        .await?;
+                    }
                 };
             }
 
@@ -345,6 +423,15 @@ where
                             &myself,
                             state,
                             sync::Input::ValueResponse(request_id, peer, Some(value_response)),
+                        )
+                        .await?;
+                    }
+
+                    Some(Response::BatchResponse(batch_response)) => {
+                        self.process_input(
+                            &myself,
+                            state,
+                            sync::Input::BatchResponse(request_id, peer, batch_response),
                         )
                         .await?;
                     }
@@ -381,6 +468,15 @@ where
                     &myself,
                     state,
                     sync::Input::GotDecidedValue(request_id, height, block),
+                )
+                .await?;
+            }
+
+            Msg::GotDecidedBlocks(request_id, range, blocks) => {
+                self.process_input(
+                    &myself,
+                    state,
+                    sync::Input::GotDecidedValues(request_id, range, blocks),
                 )
                 .await?;
             }

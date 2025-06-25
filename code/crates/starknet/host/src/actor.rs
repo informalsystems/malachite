@@ -1,3 +1,4 @@
+use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -199,6 +200,10 @@ impl Host {
 
             HostMsg::GetDecidedValue { height, reply_to } => {
                 on_get_decided_value(height, state, reply_to).await
+            }
+
+            HostMsg::GetDecidedValues { range, reply_to } => {
+                on_get_decided_blocks(range, state, reply_to).await
             }
 
             HostMsg::ProcessSyncedValue {
@@ -539,6 +544,38 @@ async fn on_get_decided_value(
         }
     }
 
+    Ok(())
+}
+
+async fn on_get_decided_blocks(
+    range: RangeInclusive<Height>,
+    state: &mut HostState,
+    reply_to: RpcReplyPort<Vec<RawDecidedValue<MockContext>>>,
+) -> Result<(), ActorProcessingErr> {
+    debug!(from = %range.start(), to = %range.end(), "Received request for decided blocks");
+
+    let mut values = Vec::new();
+
+    for h in range.start().as_u64()..=range.end().as_u64() {
+        let height = Height::new(h, range.start().fork_id);
+        match state.block_store.get(height).await {
+            Ok(Some(block)) => {
+                let block = RawDecidedValue {
+                    value_bytes: block.block.to_bytes().unwrap(),
+                    certificate: block.certificate,
+                };
+
+                values.push(block);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                error!(%e, %height, "Failed to get decided block");
+                break;
+            }
+        }
+    }
+
+    reply_to.send(values)?;
     Ok(())
 }
 

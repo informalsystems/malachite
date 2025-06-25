@@ -16,6 +16,7 @@
 - Take minimum available height into account when requesting values from peers ([#1074](https://github.com/informalsystems/malachite/issues/1074))
 - Add peer scoring system to the sync module with customizable scoring strategy ([#1072](https://github.com/informalsystems/malachite/issues/1072))
   [See the corresponding PR](https://github.com/informalsystems/malachite/pull/1071) for more details.
+- Add batching mechanism to sync module ([#1082](https://github.com/informalsystems/malachite/issues/1082)). See the corresponding issue ([#1070](https://github.com/informalsystems/malachite/issues/1070)) for more details.
 
 ## 0.2.0
 
