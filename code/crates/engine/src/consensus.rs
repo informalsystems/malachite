@@ -1262,9 +1262,13 @@ where
             return Ok(());
         }
 
-        if let Err(e) = self.handle_msg(myself.clone(), state, msg).await {
-            error!("Error when handling message: {e:?}");
-        }
+        info!("Handling message: {msg:?}");
+
+        self.handle_msg(myself.clone(), state, msg).await.unwrap();
+
+        // if let Err(e) = self.handle_msg(myself.clone(), state, msg).await {
+        //     error!("Error when handling message: {e:?}");
+        // }
 
         Ok(())
     }
