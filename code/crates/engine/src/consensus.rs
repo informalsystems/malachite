@@ -358,10 +358,10 @@ where
 
                 // Fetch entries from the WAL or reset the WAL if this is a restart
                 let wal_entries = if is_restart {
-                    self.wal_reset(height).await?;
+                    self.wal_reset(height).await.unwrap();
                     vec![]
                 } else {
-                    self.wal_fetch(height).await?
+                    self.wal_fetch(height).await.unwrap()
                 };
 
                 if !wal_entries.is_empty() {
