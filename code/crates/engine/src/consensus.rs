@@ -347,6 +347,8 @@ where
         state: &mut State<Ctx>,
         msg: Msg<Ctx>,
     ) -> Result<(), ActorProcessingErr> {
+        info!("Handling message: {msg:?}");
+
         let is_restart = matches!(msg, Msg::RestartHeight(_, _));
 
         match msg {
@@ -1261,8 +1263,6 @@ where
             state.msg_buffer.buffer(msg);
             return Ok(());
         }
-
-        info!("Handling message: {msg:?}");
 
         self.handle_msg(myself.clone(), state, msg).await.unwrap();
 
