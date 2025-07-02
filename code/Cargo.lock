@@ -2343,7 +2343,7 @@ dependencies = [
  "informalsystems-malachitebft-peer",
  "informalsystems-malachitebft-sync",
  "libp2p",
- "libp2p-scatter",
+ "libp2p-broadcast",
  "seahash",
  "serde",
  "tokio",
@@ -2875,6 +2875,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-broadcast"
+version = "0.1.0"
+source = "git+https://github.com/informalsystems/libp2p-broadcast#375f71be24f1a87e69c71003e30153835e3bdc59"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "fnv",
+ "futures",
+ "libp2p",
+ "prometheus-client",
+ "tracing",
+ "unsigned-varint 0.8.0",
+]
+
+[[package]]
 name = "libp2p-connection-limits"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3146,21 +3161,6 @@ dependencies = [
  "serde",
  "smallvec",
  "tracing",
-]
-
-[[package]]
-name = "libp2p-scatter"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b7c553a4d46a0559528486d4f22a79276d84c6f69216b861cc7a1aa7cf2415b"
-dependencies = [
- "bytes",
- "fnv",
- "futures",
- "libp2p",
- "prometheus-client",
- "tracing",
- "unsigned-varint 0.8.0",
 ]
 
 [[package]]
