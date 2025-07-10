@@ -44,7 +44,7 @@ impl Metrics {
     pub fn register(registry: &SharedRegistry) -> Self {
         let metrics = Self::new();
 
-        registry.with_prefix("starknet_app", |registry| {
+        registry.with_prefix("app_actor_proposal", |registry| {
             registry.register(
                 "finalized_blocks",
                 "Number of blocks finalized",
