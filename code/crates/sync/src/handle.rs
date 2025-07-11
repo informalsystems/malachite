@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
@@ -41,7 +42,7 @@ pub enum Input<Ctx: Context> {
     ),
 
     /// A request for a value timed out
-    SyncRequestTimedOut(PeerId, Request<Ctx>),
+    SyncRequestTimedOut(OutboundRequestId, PeerId, Request<Ctx>),
 
     /// We received an invalid value (either certificate or value)
     InvalidValue(PeerId, Ctx::Height),
@@ -75,7 +76,32 @@ where
         }
 
         Input::ValueResponse(request_id, peer_id, Some(response)) => {
-            on_value_response(co, state, metrics, request_id, peer_id, response).await
+            let start = response.start_height;
+            let end = response.end_height().unwrap_or(start);
+
+            // Check if the values in the response match the requested range of heights.
+            // Only responses that match exactly the requested range are considered valid.
+            if let Some(requested_range) = state
+                .pending_requests
+                .get_requested_range_by_id(&request_id)
+            {
+                if requested_range.start().as_u64() == start.as_u64()
+                    && requested_range.end().as_u64() == end.as_u64()
+                    && response.values.len() as u64
+                        == requested_range.end().as_u64() - requested_range.start().as_u64() + 1
+                {
+                    return on_value_response(co, state, metrics, request_id, peer_id, response)
+                        .await;
+                } else {
+                    warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {:?}, got {:?}", requested_range, (start..=end));
+                    return on_invalid_value_response(co, state, metrics, request_id, peer_id)
+                        .await;
+                }
+            } else {
+                warn!(%request_id, %peer_id, "Received response for unknown request ID");
+            }
+
+            Ok(())
         }
 
         Input::ValueResponse(request_id, peer_id, None) => {
@@ -83,19 +109,11 @@ where
         }
 
         Input::GotDecidedValues(request_id, range, values) => {
-            on_got_decided_value(
-                co,
-                state,
-                metrics,
-                request_id,
-                *range.start(),
-                values.first().cloned(),
-            )
-            .await
+            on_got_decided_values(co, state, metrics, request_id, range, values).await
         }
 
-        Input::SyncRequestTimedOut(peer_id, request) => {
-            on_sync_request_timed_out(co, state, metrics, peer_id, request).await
+        Input::SyncRequestTimedOut(request_id, peer_id, request) => {
+            on_sync_request_timed_out(co, state, metrics, request_id, peer_id, request).await
         }
 
         Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
@@ -142,9 +160,10 @@ pub async fn on_status<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%status.peer_id, %status.tip_height, "Received peer status");
-
+    let peer_id = status.peer_id;
     let peer_height = status.tip_height;
+
+    debug!(peer.id = %peer_id, peer.height = %peer_height, "Received peer status");
 
     state.update_status(status);
 
@@ -153,16 +172,11 @@ where
         return Ok(());
     }
 
-    if peer_height > state.tip_height {
-        warn!(
-            height.tip = %state.tip_height,
-            height.sync = %state.sync_height,
-            height.peer = %peer_height,
-            "SYNC REQUIRED: Falling behind"
-        );
+    if peer_height > state.tip_height && peer_height > state.sync_height {
+        warn!(peer.id = %peer_id, peer.height = %peer_height, "SYNC REQUIRED: Falling behind peer");
 
-        // We are lagging behind one of our peer at least,
-        // request sync from any peer already at or above that peer's height.
+        // We are lagging behind this peer, and we have not yet requested values for its tip height (from this or any other peer).
+        // Request values from any peer already at later height.
         request_values(co, state, metrics).await?;
     }
 
@@ -179,15 +193,15 @@ pub async fn on_started_height<Ctx>(
 where
     Ctx: Context,
 {
-    let tip_height = height.decrement().unwrap_or_default();
-
-    debug!(height.tip = %tip_height, height.sync = %height, %restart, "Starting new height");
+    debug!(%height, %restart, "Consensus started new height");
 
     state.started = true;
-    state.sync_height = height;
-    state.tip_height = tip_height;
 
-    state.remove_pending_request_by_height(&tip_height);
+    // The tip is the last decided value.
+    state.tip_height = height.decrement().unwrap_or_default();
+
+    // It is possible that consensus is voting on a height that is currently being requested from another peer.
+    state.update_sync_height_to(height);
 
     // Trigger potential requests if possible.
     request_values(co, state, metrics).await?;
@@ -203,9 +217,17 @@ pub async fn on_decided<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(height.tip = %height, "Updating request state");
+    debug!(%height, "Consensus decided on new value");
 
-    state.validate_response(height);
+    state.tip_height = height;
+
+    // The next height to sync should always be higher than the tip.
+    if state.sync_height == state.tip_height {
+        state.sync_height = state.sync_height.increment();
+    }
+
+    // If there was a request that included this height, mark the height as validated.
+    state.pending_requests.mark_value_as_validated(height);
 
     Ok(())
 }
@@ -215,13 +237,13 @@ pub async fn on_value_request<Ctx>(
     _state: &mut State<Ctx>,
     metrics: &Metrics,
     request_id: InboundRequestId,
-    peer: PeerId,
+    peer_id: PeerId,
     request: ValueRequest<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    debug!(range = %DisplayRange::<Ctx>(&request.range), %peer, "Received request for value");
+    debug!(range = %DisplayRange::<Ctx>(&request.range), %peer_id, "Received request for values");
 
     metrics.value_request_received(request.range.start().as_u64());
 
@@ -235,7 +257,7 @@ where
 
 /// Assumes that the range of values in the response matches the requested range.
 pub async fn on_value_response<Ctx>(
-    co: Co<Ctx>,
+    _co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
     request_id: OutboundRequestId,
@@ -245,61 +267,25 @@ pub async fn on_value_response<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%response.start_height, %request_id, %peer_id, "Received response");
+    let start = response.start_height;
+    debug!(start = %start, num_values = %response.values.len(), %peer_id, "Received response from peer");
 
-    if let Some(height) = state.get_height_for_request_id(&request_id) {
-        if height != response.start_height {
-            warn!(%request_id, "Received response for wrong height, expected {}, got {}", height, response.start_height);
+    let response_time = metrics.value_response_received(start.as_u64());
 
-            state.peer_scorer.update_score_with_metrics(
-                peer_id,
-                SyncResult::Failure,
-                &metrics.scoring,
-            );
-
-            // It is possible that this height has been already validated via consensus messages.
-            // Therefore, we ignore the response.
-            if !state.is_pending_value_request_validated_by_height(&height) {
-                state.remove_pending_value_request_by_id(&request_id);
-
-                request_value_from_peer_except(co, state, metrics, height, peer_id).await?;
-            }
-
-            return Ok(());
-        }
-
-        let response_time = metrics.value_response_received(height.as_u64());
-
-        if response.values.is_empty() {
-            warn!(%height, %request_id, "Received invalid value response");
-
-            state.peer_scorer.update_score_with_metrics(
-                peer_id,
-                SyncResult::Failure,
-                &metrics.scoring,
-            );
-
-            // It is possible that this height has been already validated via consensus messages.
-            // Therefore, we ignore the response.
-            if !state.is_pending_value_request_validated_by_height(&height) {
-                state.remove_pending_value_request_by_id(&request_id);
-
-                request_value_from_peer_except(co, state, metrics, height, peer_id).await?;
-            }
-        } else {
-            if let Some(response_time) = response_time {
-                state.peer_scorer.update_score_with_metrics(
-                    peer_id,
-                    SyncResult::Success(response_time),
-                    &metrics.scoring,
-                );
-            }
-
-            state.response_received(request_id, height);
-        }
-    } else {
-        warn!(%request_id, %peer_id, "Received response for unknown request ID");
+    if let Some(response_time) = response_time {
+        state.peer_scorer.update_score_with_metrics(
+            peer_id,
+            SyncResult::Success(response_time),
+            &metrics.scoring,
+        );
     }
+
+    // Set heights in response to received and waiting for validation.
+    // The pending request will be removed once all heights have been validated.
+    let end = response.end_height().unwrap_or(start);
+    state
+        .pending_requests
+        .mark_values_as_received(&request_id, start..=end);
 
     Ok(())
 }
@@ -309,71 +295,79 @@ pub async fn on_invalid_value_response<Ctx>(
     state: &mut State<Ctx>,
     metrics: &Metrics,
     request_id: OutboundRequestId,
-    peer: PeerId,
+    peer_id: PeerId,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    debug!(%request_id, %peer, "Received invalid response");
+    debug!(%request_id, %peer_id, "Received invalid response");
 
-    // It is possible that this height has been already validated via consensus messages.
-    // Therefore, we ignore the response status.
-    if !state.is_pending_value_request_validated_by_id(&request_id) {
-        if let Some(height) = state.remove_pending_value_request_by_id(&request_id) {
-            request_value_from_peer_except(co, state, metrics, height, peer).await?;
-        }
-    }
+    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+    // We do not trust the response, so we remove the pending request and re-request
+    // the whole range from another peer.
+    re_request_values_from_peer(co, state, metrics, request_id, Some(peer_id)).await?;
 
     Ok(())
 }
 
-pub async fn on_got_decided_value<Ctx>(
+pub async fn on_got_decided_values<Ctx>(
     co: Co<Ctx>,
     _state: &mut State<Ctx>,
     metrics: &Metrics,
     request_id: InboundRequestId,
-    height: Ctx::Height,
-    value: Option<RawDecidedValue<Ctx>>,
+    range: RangeInclusive<Ctx::Height>,
+    values: Vec<RawDecidedValue<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    let response = match value {
-        None => {
-            error!(%height, "Received empty value response from host");
-            None
-        }
-        Some(value) if value.certificate.height != height => {
-            error!(
-                %height, value.height = %value.certificate.height,
-                "Received value response for wrong height from host"
-            );
-            None
-        }
-        Some(value) => {
-            info!(%height, "Received value response from host, sending it out");
-            Some(value)
-        }
-    };
+    info!(range = %DisplayRange::<Ctx>(&range), "Received {} values from host", values.len());
 
+    let start = range.start();
+    let end = range.end();
+
+    // Validate response from host
+    let batch_size = end.as_u64() - start.as_u64() + 1;
+    if batch_size != values.len() as u64 {
+        error!(
+            "Received {} values from host, expected {batch_size}",
+            values.len()
+        )
+    }
+
+    // Validate the height of each received value
+    let mut height = *start;
+    for value in values.clone() {
+        if value.certificate.height != height {
+            error!(
+                "Received from host value for height {}, expected for height {height}",
+                value.certificate.height
+            );
+        }
+        height = height.increment();
+    }
+
+    debug!(%request_id, range = %DisplayRange::<Ctx>(&range), "Sending response to peer");
     perform!(
         co,
         Effect::SendValueResponse(
             request_id,
-            ValueResponse::new(height, response.into_iter().collect()),
+            ValueResponse::new(*start, values),
             Default::default()
         )
     );
 
-    metrics.value_response_sent(height.as_u64());
+    metrics.value_response_sent(start.as_u64());
 
     Ok(())
 }
 
 pub async fn on_sync_request_timed_out<Ctx>(
-    _co: Co<Ctx>,
+    co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
+    request_id: OutboundRequestId,
     peer_id: PeerId,
     request: Request<Ctx>,
 ) -> Result<(), Error<Ctx>>
@@ -382,67 +376,68 @@ where
 {
     match request {
         Request::ValueRequest(value_request) => {
-            let height = *value_request.range.start();
-            warn!(%peer_id, %height, "Value request timed out");
-
-            metrics.value_request_timed_out(height.as_u64());
+            warn!(%peer_id, range = %DisplayRange::<Ctx>(&value_request.range), "Sync request timed out");
 
             state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
 
-            // It is possible that this height has been already validated via consensus messages.
-            // Therefore, we ignore the timeout.
-            if !state.is_pending_value_request_validated_by_height(&height) {
-                state.remove_pending_request_by_height(&height);
+            metrics.value_request_timed_out(value_request.range.start().as_u64());
 
-                request_value_from_peer_except(_co, state, metrics, height, peer_id).await?;
-            }
+            re_request_values_from_peer(co, state, metrics, request_id, Some(peer_id)).await?;
         }
     };
 
     Ok(())
 }
 
+// When receiving an invalid value, re-request the whole batch from another peer.
 async fn on_invalid_value<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    from: PeerId,
+    peer_id: PeerId,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    error!(%from, %height, "Received invalid value");
+    error!(%peer_id, %height, "Received invalid value");
 
-    state.peer_scorer.update_score(from, SyncResult::Failure);
+    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
 
-    state.remove_pending_request_by_height(&height);
+    if let Some(request_id) = state.pending_requests.get_id_by_height(&height) {
+        re_request_values_from_peer(co, state, metrics, request_id, Some(peer_id)).await?;
+    } else {
+        warn!(%peer_id, %height, "Height of invalid value does not have an associated request ID");
+    }
 
-    request_value_from_peer_except(co, state, metrics, height, from).await
+    Ok(())
 }
 
 async fn on_value_processing_error<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    peer: PeerId,
+    peer_id: PeerId,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    error!(%peer, height.sync = %height, "Error while processing value");
-
-    state.remove_pending_request_by_height(&height);
+    error!(%peer_id, %height, "Error while processing value");
 
     // NOTE: We do not update the peer score here, as this is an internal error
     //       and not a failure from the peer's side.
 
-    request_values(co, state, metrics).await
+    if let Some(request_id) = state.pending_requests.get_id_by_height(&height) {
+        re_request_values_from_peer(co, state, metrics, request_id, None).await?;
+    } else {
+        warn!(%peer_id, %height, "Received invalid value for unknown height");
+    }
+
+    Ok(())
 }
 
-/// Requests values from heights in the current sync window. A request is sent for
-/// a given height if there is no pending request or validation for that height.
+/// Request multiple batches of values in parallel.
 async fn request_values<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
@@ -451,92 +446,129 @@ async fn request_values<Ctx>(
 where
     Ctx: Context,
 {
-    let mut height = state.sync_height;
+    let max_parallel_requests = max(1, state.config.parallel_requests);
+    while state.pending_requests.len() < max_parallel_requests {
+        // Build the next range of heights to request from a peer.
+        let start_height = state.sync_height;
+        let batch_size = max(1, state.config.batch_size as u64);
+        let end_height = start_height.increment_by(batch_size - 1);
+        let range = start_height..=end_height;
 
-    let limit = state
-        .sync_height
-        .increment_by(state.config.parallel_requests);
-
-    // Find out the first height for which we do not have a pending request or validation.
-    while state.has_pending_value_request(&height) {
-        height = height.increment();
-        if height >= limit {
-            break;
-        }
-    }
-
-    // If the height we are trying to request is already above the sync height,
-    // it means we already have a pending request or validation for the heights below.
-    if height > state.sync_height {
-        debug!(height.sync = %DisplayRange::<Ctx>(&(state.sync_height..=height.decrement().unwrap_or_default())), "Already have a pending request or validation for these heights");
-    }
-
-    // Start requesting values from the first height that does not have a pending request or validation.
-    loop {
-        if height >= limit {
-            break;
-        }
-
-        let Some(peer) = state.random_peer_with_tip_at_or_above(height) else {
-            debug!(height.sync = %height, "No peer to request sync from");
-            // No peer reached this height yet, we can stop here.
+        // Get a random peer that can provide the values in the range.
+        let Some((peer, range)) = state.random_peer_with(&range) else {
+            debug!("No peer to request sync");
+            // No connected peer reached this height yet, we can stop syncing here.
             break;
         };
 
-        request_value_from_peer(&co, state, metrics, height, peer).await?;
-
-        height = height.increment();
+        request_values_from_peer(&co, state, metrics, range, peer).await?;
     }
 
     Ok(())
 }
 
-async fn request_value_from_peer<Ctx>(
+async fn request_values_from_peer<Ctx>(
     co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    height: Ctx::Height,
+    range: RangeInclusive<Ctx::Height>,
     peer: PeerId,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    info!(height.sync = %height, %peer, "Requesting sync from peer");
+    info!(range = %DisplayRange::<Ctx>(&range), peer.id = %peer, "Requesting sync from peer");
 
-    let request_id = perform!(
-        co,
-        Effect::SendValueRequest(peer, ValueRequest::new(height..=height), Default::default()),
-        Resume::ValueRequestId(id) => id,
-    );
-
-    metrics.value_request_sent(height.as_u64());
-
-    if let Some(request_id) = request_id {
-        debug!(%request_id, %peer, "Sent value request to peer");
-        state.store_pending_value_request(height, request_id);
-    } else {
-        warn!(height.sync = %height, %peer, "Failed to send value request to peer");
+    if range.is_empty() {
+        warn!(range.sync = %DisplayRange::<Ctx>(&range), %peer, "Range is empty, skipping request");
+        return Ok(());
     }
+
+    // Skip over any heights in the range that are not waiting for a response
+    // (meaning that they have been validated by consensus or a peer).
+    let new_range = state.trim_validated_heights(&range);
+    if new_range.is_empty() {
+        warn!(%peer, "All values in range {} have been validated, skipping request", DisplayRange::<Ctx>(&range));
+        return Ok(());
+    }
+
+    // Send request to peer
+    let Some(request_id) = perform!(
+        co,
+        Effect::SendValueRequest(peer, ValueRequest::new(new_range.clone()), Default::default()),
+        Resume::ValueRequestId(id) => id,
+    ) else {
+        warn!(range = %DisplayRange::<Ctx>(&new_range), %peer, "Failed to send sync request to peer");
+        return Ok(());
+    };
+
+    metrics.value_request_sent(new_range.start().as_u64());
+
+    // Store pending request
+    debug!(%request_id, range = %DisplayRange::<Ctx>(&new_range), %peer, "Sent sync request to peer");
+    state
+        .pending_requests
+        .store_request(&new_range, &request_id);
+    state.update_sync_height_to(*new_range.end());
 
     Ok(())
 }
 
-async fn request_value_from_peer_except<Ctx>(
+async fn request_values_from_peer_except<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    height: Ctx::Height,
+    range: RangeInclusive<Ctx::Height>,
     except: PeerId,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    info!(height.sync = %height, "Requesting sync from another peer");
+    info!(range.sync = %DisplayRange::<Ctx>(&range), "Requesting sync from another peer");
 
-    if let Some(peer) = state.random_peer_with_tip_at_or_above_except(height, except) {
-        request_value_from_peer(&co, state, metrics, height, peer).await?;
+    if let Some((peer, range)) = state.random_peer_with_except(&range, Some(except)) {
+        request_values_from_peer(&co, state, metrics, range, peer).await?;
     } else {
-        error!(height.sync = %height, "No peer to request sync from");
+        error!(range.sync = %DisplayRange::<Ctx>(&range), "No peer to request sync from");
+    }
+
+    Ok(())
+}
+
+/// Remove the pending request and re-request the batch from another peer.
+async fn re_request_values_from_peer<Ctx>(
+    co: Co<Ctx>,
+    state: &mut State<Ctx>,
+    metrics: &Metrics,
+    request_id: OutboundRequestId,
+    except: Option<PeerId>,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    debug!(%request_id, ?except, "Re-requesting values from peer");
+
+    if let Some(range) = state.pending_requests.remove(&request_id) {
+        // It is possible that a prefix or the whole range of values has been validated via consensus.
+        // Then, request only the missing values.
+        let new_range = state.trim_validated_heights(&range);
+        if new_range.is_empty() {
+            warn!(%request_id, "All values in range {} have been validated, skipping re-request", DisplayRange::<Ctx>(&range));
+            return Ok(());
+        }
+
+        debug!(%request_id, range = %DisplayRange::<Ctx>(&range), new_range = %DisplayRange::<Ctx>(&new_range), 
+            "New range after trimming validated heights");
+
+        if let Some(peer_id) = except {
+            request_values_from_peer_except(co, state, metrics, new_range, peer_id).await?;
+        } else if let Some((peer, range)) = state.random_peer_with(&new_range) {
+            request_values_from_peer(&co, state, metrics, range, peer).await?;
+        } else {
+            warn!("No peer to request sync");
+        }
+    } else {
+        warn!(%request_id, "Unknown request ID when re-requesting values");
     }
 
     Ok(())

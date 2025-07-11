@@ -424,6 +424,7 @@ where
                                 &myself,
                                 state,
                                 sync::Input::SyncRequestTimedOut(
+                                    request_id,
                                     inflight.peer_id,
                                     inflight.request,
                                 ),

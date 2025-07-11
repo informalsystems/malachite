@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Rename `Effect::RebroadcastVote` to `Effect::RepublishVote` ([#1011](https://github.com/informalsystems/malachite/issues/1011))
+- Add value batching to sync messages ([#1070](https://github.com/informalsystems/malachite/issues/1070))
 - Add `batch_size` field to the `value_sync` config ([#1070](https://github.com/informalsystems/malachite/issues/1070))
 
 ## 0.4.0

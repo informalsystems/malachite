@@ -24,7 +24,7 @@
 - Renamed `GotDecidedValue` to `GotDecidedValues` in `Msg` and `Input`. 
   - Now it has as parameter a range of heights instead of one, and a list of decided values instead
     of one or zero.
-
+- Added new parameter to `SyncRequestTimedOut` in `Input`.
 
 ## 0.4.0
 
