@@ -169,6 +169,7 @@ where
         scoring_strategy,
         inactive_threshold: (!config.inactive_threshold.is_zero())
             .then_some(config.inactive_threshold),
+        batch_size: config.batch_size,
     };
 
     let metrics = sync::Metrics::register(registry);
