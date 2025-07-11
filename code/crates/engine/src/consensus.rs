@@ -17,7 +17,7 @@ use malachitebft_core_consensus::{
     Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
 };
 use malachitebft_core_types::{
-    Context, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
+    Context, Height, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
     ValidatorSet, Validity, Value, ValueId, ValueOrigin, Vote,
 };
 use malachitebft_metrics::Metrics;
@@ -462,80 +462,33 @@ where
                     NetworkEvent::SyncResponse(
                         request_id,
                         peer,
-                        Some(sync::Response::ValueResponse(ValueResponse { height, value })),
+                        Some(sync::Response::ValueResponse(ValueResponse {
+                            start_height,
+                            values,
+                        })),
                     ) => {
-                        debug!(%height, %request_id, "Received sync response");
+                        debug!(%start_height, %request_id, "Received sync response with {} values", values.len());
 
-                        let Some(sync) = self.sync.clone() else {
-                            warn!("Received sync response but sync actor is not available");
+                        if values.is_empty() {
+                            error!(%start_height, %request_id, "Received empty value sync response");
                             return Ok(());
                         };
 
-                        let Some(value) = value else {
-                            error!(%height, %request_id, "Received empty value sync response");
-                            return Ok(());
-                        };
-
-                        let certificate_height = value.certificate.height;
-                        let certificate_round = value.certificate.round;
-                        let certificate_value_id = value.certificate.value_id.clone();
-
-                        if let Err(e) = self
-                            .process_input(
+                        // Process values sequentially starting from the lowest height
+                        let mut height = start_height;
+                        for value in values.iter() {
+                            self.process_sync_response(
                                 &myself,
                                 state,
-                                ConsensusInput::CommitCertificate(value.certificate),
+                                request_id.clone(),
+                                peer,
+                                height,
+                                value,
                             )
-                            .await
-                        {
-                            error!(%height, %request_id, "Error when processing received synced block: {e}");
+                            .await?;
 
-                            if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
-                                error!(
-                                    %peer,
-                                    %certificate.height,
-                                    %certificate.round,
-                                    "Invalid certificate received: {e}"
-                                );
-
-                                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
-                                    .map_err(|e| {
-                                        eyre!(
-                                            "Error when notifying sync of invalid certificate: {e}"
-                                        )
-                                    })?;
-                            } else {
-                                sync.cast(SyncMsg::ValueProcessingError(peer, height))
-                                    .map_err(|e| {
-                                        eyre!(
-                                            "Error when notifying sync of value processing error: {e}"
-                                        )
-                                    })?;
-                            }
-
-                            return Ok(());
+                            height = height.increment();
                         }
-
-                        self.host.call_and_forward(
-                            |reply_to| HostMsg::ProcessSyncedValue {
-                                height: certificate_height,
-                                round: certificate_round,
-                                validator_address: state.consensus.address().clone(),
-                                value_bytes: value.value_bytes,
-                                reply_to,
-                            },
-                            &myself,
-                            move |proposed| {
-                                if proposed.validity == Validity::Invalid || proposed.value.id() != certificate_value_id {
-                                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
-                                        error!("Error when notifying sync of received proposed value: {e}");
-                                    }
-                                }
-
-                                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync(peer))
-                            },
-                            None,
-                        )?;
                     }
 
                     NetworkEvent::Vote(from, vote) => {
@@ -652,6 +605,81 @@ where
                 Ok(())
             }
         }
+    }
+
+    async fn process_sync_response(
+        &self,
+        myself: &ActorRef<Msg<Ctx>>,
+        state: &mut State<Ctx>,
+        request_id: malachitebft_sync::OutboundRequestId,
+        peer: PeerId,
+        height: <Ctx as Context>::Height,
+        value: &malachitebft_sync::RawDecidedValue<Ctx>,
+    ) -> Result<(), ActorProcessingErr>
+    where
+        Ctx: Context,
+    {
+        let Some(sync) = self.sync.clone() else {
+            warn!("Received sync response but sync actor is not available");
+            return Ok(());
+        };
+
+        let certificate_height = value.certificate.height;
+        let certificate_round = value.certificate.round;
+        let certificate_value_id = value.certificate.value_id.clone();
+
+        if let Err(e) = self
+            .process_input(
+                myself,
+                state,
+                ConsensusInput::CommitCertificate(value.certificate.clone()),
+            )
+            .await
+        {
+            error!(%height, %request_id, "Error when processing received synced block: {e}");
+
+            if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
+                error!(
+                    %peer,
+                    %certificate.height,
+                    %certificate.round,
+                    "Invalid certificate received: {e}"
+                );
+
+                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
+                    .map_err(|e| eyre!("Error when notifying sync of invalid certificate: {e}"))?;
+            } else {
+                sync.cast(SyncMsg::ValueProcessingError(peer, height))
+                    .map_err(|e| {
+                        eyre!("Error when notifying sync of value processing error: {e}")
+                    })?;
+            }
+        }
+
+        self.host.call_and_forward(
+            |reply_to| HostMsg::ProcessSyncedValue {
+                height: certificate_height,
+                round: certificate_round,
+                validator_address: state.consensus.address().clone(),
+                value_bytes: value.value_bytes.clone(),
+                reply_to,
+            },
+            &myself,
+            move |proposed| {
+                if proposed.validity == Validity::Invalid
+                    || proposed.value.id() != certificate_value_id
+                {
+                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                        error!("Error when notifying sync of received proposed value: {e}");
+                    }
+                }
+
+                Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync(peer))
+            },
+            None,
+        )?;
+
+        Ok(())
     }
 
     async fn timeout_elapsed(

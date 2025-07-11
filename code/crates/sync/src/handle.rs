@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use derive_where::derive_where;
 use tracing::{debug, error, info, warn};
 
@@ -207,18 +209,19 @@ pub async fn on_value_request<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%request.height, %peer, "Received request for value");
+    debug!(range = %DisplayRange::<Ctx>(&request.range), %peer, "Received request for value");
 
-    metrics.value_request_received(request.height.as_u64());
+    metrics.value_request_received(request.range.start().as_u64());
 
     perform!(
         co,
-        Effect::GetDecidedValue(request_id, request.height, Default::default())
+        Effect::GetDecidedValue(request_id, *request.range.start(), Default::default())
     );
 
     Ok(())
 }
 
+/// Assumes that the range of values in the response matches the requested range.
 pub async fn on_value_response<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
@@ -230,11 +233,11 @@ pub async fn on_value_response<Ctx>(
 where
     Ctx: Context,
 {
-    debug!(%response.height, %request_id, %peer_id, "Received response");
+    debug!(%response.start_height, %request_id, %peer_id, "Received response");
 
     if let Some(height) = state.get_height_for_request_id(&request_id) {
-        if height != response.height {
-            warn!(%request_id, "Received response for wrong height, expected {}, got {}", height, response.height);
+        if height != response.start_height {
+            warn!(%request_id, "Received response for wrong height, expected {}, got {}", height, response.start_height);
 
             state.peer_scorer.update_score_with_metrics(
                 peer_id,
@@ -255,7 +258,7 @@ where
 
         let response_time = metrics.value_response_received(height.as_u64());
 
-        if response.value.is_none() {
+        if response.values.is_empty() {
             warn!(%height, %request_id, "Received invalid value response");
 
             state.peer_scorer.update_score_with_metrics(
@@ -345,7 +348,7 @@ where
         co,
         Effect::SendValueResponse(
             request_id,
-            ValueResponse::new(height, response),
+            ValueResponse::new(height, response.into_iter().collect()),
             Default::default()
         )
     );
@@ -367,7 +370,7 @@ where
 {
     match request {
         Request::ValueRequest(value_request) => {
-            let height = value_request.height;
+            let height = *value_request.range.start();
             warn!(%peer_id, %height, "Value request timed out");
 
             metrics.value_request_timed_out(height.as_u64());
@@ -453,7 +456,7 @@ where
     // If the height we are trying to request is already above the sync height,
     // it means we already have a pending request or validation for the heights below.
     if height > state.sync_height {
-        debug!(height.sync = %DisplayRange(state.sync_height, height.decrement().unwrap_or_default()), "Already have a pending request or validation for these heights");
+        debug!(height.sync = %DisplayRange::<Ctx>(&(state.sync_height..=height.decrement().unwrap_or_default())), "Already have a pending request or validation for these heights");
     }
 
     // Start requesting values from the first height that does not have a pending request or validation.
@@ -490,7 +493,7 @@ where
 
     let request_id = perform!(
         co,
-        Effect::SendValueRequest(peer, ValueRequest::new(height), Default::default()),
+        Effect::SendValueRequest(peer, ValueRequest::new(height..=height), Default::default()),
         Resume::ValueRequestId(id) => id,
     );
 
@@ -527,10 +530,10 @@ where
     Ok(())
 }
 
-struct DisplayRange<A>(A, A);
+struct DisplayRange<'a, Ctx: Context>(&'a RangeInclusive<Ctx::Height>);
 
-impl<A: core::fmt::Display> core::fmt::Display for DisplayRange<A> {
+impl<'a, Ctx: Context> core::fmt::Display for DisplayRange<'a, Ctx> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}..{}", self.0, self.1)
+        write!(f, "{}..={}", self.0.start(), self.0.end())
     }
 }

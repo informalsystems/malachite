@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use bytes::Bytes;
 use derive_where::derive_where;
@@ -6,7 +6,7 @@ use displaydoc::Display;
 use libp2p::request_response;
 use serde::{Deserialize, Serialize};
 
-use malachitebft_core_types::{CommitCertificate, Context};
+use malachitebft_core_types::{CommitCertificate, Context, Height};
 pub use malachitebft_peer::PeerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
@@ -50,24 +50,38 @@ pub enum Response<Ctx: Context> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueRequest<Ctx: Context> {
-    pub height: Ctx::Height,
+    pub range: RangeInclusive<Ctx::Height>,
 }
 
 impl<Ctx: Context> ValueRequest<Ctx> {
-    pub fn new(height: Ctx::Height) -> Self {
-        Self { height }
+    pub fn new(range: RangeInclusive<Ctx::Height>) -> Self {
+        Self { range }
     }
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueResponse<Ctx: Context> {
-    pub height: Ctx::Height,
-    pub value: Option<RawDecidedValue<Ctx>>,
+    /// The height of the first value in the response.
+    pub start_height: Ctx::Height,
+
+    /// Values are sequentially ordered by height.
+    pub values: Vec<RawDecidedValue<Ctx>>,
 }
 
 impl<Ctx: Context> ValueResponse<Ctx> {
-    pub fn new(height: Ctx::Height, value: Option<RawDecidedValue<Ctx>>) -> Self {
-        Self { height, value }
+    pub fn new(start_height: Ctx::Height, values: Vec<RawDecidedValue<Ctx>>) -> Self {
+        Self {
+            start_height,
+            values,
+        }
+    }
+
+    pub fn end_height(&self) -> Option<Ctx::Height> {
+        if self.values.is_empty() {
+            None
+        } else {
+            Some(self.start_height.increment_by(self.values.len() as u64 - 1))
+        }
     }
 }
 
