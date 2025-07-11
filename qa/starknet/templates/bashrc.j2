@@ -1,5 +1,5 @@
-export CARGO_HOME=/shared/build/{{ node_type }}
-export CARGO_TARGET_DIR=/shared/build/{{ node_type }}
+# export CARGO_HOME=/shared/build/{{ node_type }}
+# export CARGO_TARGET_DIR=/shared/build/{{ node_type }}
 export PATH=/usr/local/cargo/bin:$PATH
 
 alias build="cargo build --locked --release --manifest-path /{{ node_type }}/Cargo.toml --bin {{ node_bin }}"
