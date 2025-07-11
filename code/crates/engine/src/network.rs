@@ -1,11 +1,11 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use derive_where::derive_where;
 use eyre::eyre;
 use libp2p::identity::Keypair;
-use libp2p::request_response;
+use libp2p::{request_response, StreamProtocol};
 use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use tokio::task::JoinHandle;
 use tracing::{error, trace};
@@ -100,7 +100,7 @@ pub struct Args {
 pub enum NetworkEvent<Ctx: Context> {
     Listening(Multiaddr),
 
-    PeerConnected(PeerId),
+    PeerConnected(PeerId, Vec<StreamProtocol>),
     PeerDisconnected(PeerId),
 
     Vote(PeerId, SignedVote<Ctx>),
@@ -122,7 +122,7 @@ pub enum State<Ctx: Context> {
     Stopped,
     Running {
         listen_addrs: Vec<Multiaddr>,
-        peers: BTreeSet<PeerId>,
+        peers: BTreeMap<PeerId, Vec<StreamProtocol>>,
         output_port: OutputPort<NetworkEvent<Ctx>>,
         ctrl_handle: Box<CtrlHandle>,
         recv_task: JoinHandle<()>,
@@ -212,7 +212,7 @@ where
 
         Ok(State::Running {
             listen_addrs: Vec::new(),
-            peers: BTreeSet::new(),
+            peers: BTreeMap::new(),
             output_port: OutputPort::with_capacity(128),
             ctrl_handle: Box::new(ctrl_handle),
             recv_task,
@@ -253,8 +253,8 @@ where
                     subscriber.send(NetworkEvent::Listening(addr.clone()));
                 }
 
-                for peer in peers.iter() {
-                    subscriber.send(NetworkEvent::PeerConnected(*peer));
+                for (peer_id, protocols) in peers.iter() {
+                    subscriber.send(NetworkEvent::PeerConnected(*peer_id, protocols.clone()));
                 }
 
                 subscriber.subscribe_to_port(output_port);
@@ -333,9 +333,9 @@ where
                 output_port.send(NetworkEvent::Listening(addr));
             }
 
-            Msg::NewEvent(Event::PeerConnected(peer_id)) => {
-                peers.insert(peer_id);
-                output_port.send(NetworkEvent::PeerConnected(peer_id));
+            Msg::NewEvent(Event::PeerConnected(peer_id, protocols)) => {
+                peers.insert(peer_id, protocols.clone());
+                output_port.send(NetworkEvent::PeerConnected(peer_id, protocols));
             }
 
             Msg::NewEvent(Event::PeerDisconnected(peer_id)) => {

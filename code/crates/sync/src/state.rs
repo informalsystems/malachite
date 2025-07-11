@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
 
+use libp2p::StreamProtocol;
+
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
+use tracing::warn;
 
 use crate::scoring::{ema, PeerScorer, Strategy};
-use crate::{Config, OutboundRequestId, Status};
+use crate::{Behaviour, Config, OutboundRequestId, PeerInfo, PeerKind, Status};
 
 /// State of a decided value request.
 ///
@@ -45,7 +48,7 @@ where
     pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
-    pub peers: BTreeMap<PeerId, Status<Ctx>>,
+    pub peers: BTreeMap<PeerId, PeerInfo<Ctx>>,
 
     /// Peer scorer for scoring peers based on their performance.
     pub peer_scorer: PeerScorer,
@@ -78,8 +81,35 @@ where
         }
     }
 
+    pub fn add_peer(&mut self, peer_id: PeerId, protocols: Vec<StreamProtocol>) {
+        if self.peers.contains_key(&peer_id) {
+            warn!("Peer {} already exists in the state", peer_id);
+            return;
+        }
+
+        let kind = if protocols.contains(&Behaviour::SYNC_V2_PROTOCOL.0) {
+            PeerKind::SyncV2
+        } else if protocols.contains(&Behaviour::SYNC_V1_PROTOCOL.0) {
+            PeerKind::SyncV1
+        } else {
+            warn!("Peer {} does not support any known sync protocol", peer_id);
+            return;
+        };
+
+        self.peers.insert(
+            peer_id,
+            PeerInfo {
+                kind,
+                status: Status::default(peer_id),
+            },
+        );
+    }
+
     pub fn update_status(&mut self, status: Status<Ctx>) {
-        self.peers.insert(status.peer_id, status);
+        // TODO: should we consider status messages from non connected peers?
+        if let Some(peer_details) = self.peers.get_mut(&status.peer_id) {
+            peer_details.update_status(status);
+        }
     }
 
     /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
@@ -91,8 +121,8 @@ where
         let peers = self
             .peers
             .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
+            .filter_map(|(&peer, details)| {
+                (details.status.history_min_height..=details.status.tip_height)
                     .contains(&height)
                     .then_some(peer)
             })
@@ -110,8 +140,8 @@ where
         let peers = self
             .peers
             .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
+            .filter_map(|(&peer, details)| {
+                (details.status.history_min_height..=details.status.tip_height)
                     .contains(&height)
                     .then_some(peer)
             })
