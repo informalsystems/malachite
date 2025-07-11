@@ -272,6 +272,10 @@ scoring_strategy = "ema"
 # Override with MALACHITE__VALUE_SYNC__INACTIVE_THRESHOLD env variable
 inactive_threshold = "60s"
 
+# The number of values to request in a single batch.
+# Override with MALACHITE__VALUE_SYNC__BATCH_SIZE env variable
+batch_size = 1000
+
 #######################################################
 ###          Metrics Configuration Options          ###
 #######################################################
