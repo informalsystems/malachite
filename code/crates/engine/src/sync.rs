@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -89,7 +90,11 @@ pub enum Msg<Ctx: Context> {
     StartedHeight(Ctx::Height, bool),
 
     /// Host has a response for the blocks request
-    GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+    GotDecidedValues(
+        InboundRequestId,
+        RangeInclusive<Ctx::Height>,
+        Vec<RawDecidedValue<Ctx>>,
+    ),
 
     /// A timeout has elapsed
     TimeoutElapsed(TimeoutElapsed<Timeout>),
@@ -276,13 +281,12 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::GetDecidedValue(request_id, height, r) => {
+            Effect::GetDecidedValues(request_id, range, r) => {
+                let range_cloned = range.clone();
                 self.host.call_and_forward(
-                    |reply_to| HostMsg::GetDecidedValue { height, reply_to },
+                    |reply_to| HostMsg::GetDecidedValues { range, reply_to },
                     myself,
-                    move |synced_value| {
-                        Msg::<Ctx>::GotDecidedValue(request_id, height, synced_value)
-                    },
+                    move |values| Msg::<Ctx>::GotDecidedValues(request_id, range_cloned, values),
                     None,
                 )?;
 
@@ -382,11 +386,11 @@ where
                     .await?;
             }
 
-            Msg::GotDecidedValue(request_id, height, block) => {
+            Msg::GotDecidedValues(request_id, range, block) => {
                 self.process_input(
                     &myself,
                     state,
-                    sync::Input::GotDecidedValue(request_id, height, block),
+                    sync::Input::GotDecidedValues(request_id, range, block),
                 )
                 .await?;
             }

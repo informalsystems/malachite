@@ -33,8 +33,12 @@ pub enum Input<Ctx: Context> {
     /// A (possibly empty or invalid) ValueSync response has been received
     ValueResponse(OutboundRequestId, PeerId, Option<ValueResponse<Ctx>>),
 
-    /// Got a response from the application to our `GetValue` request
-    GotDecidedValue(InboundRequestId, Ctx::Height, Option<RawDecidedValue<Ctx>>),
+    /// Got a response from the application to our `GetDecidedValues` request
+    GotDecidedValues(
+        InboundRequestId,
+        RangeInclusive<Ctx::Height>,
+        Vec<RawDecidedValue<Ctx>>,
+    ),
 
     /// A request for a value timed out
     SyncRequestTimedOut(PeerId, Request<Ctx>),
@@ -78,8 +82,16 @@ where
             on_invalid_value_response(co, state, metrics, request_id, peer_id).await
         }
 
-        Input::GotDecidedValue(request_id, height, value) => {
-            on_got_decided_value(co, state, metrics, request_id, height, value).await
+        Input::GotDecidedValues(request_id, range, values) => {
+            on_got_decided_value(
+                co,
+                state,
+                metrics,
+                request_id,
+                *range.start(),
+                values.first().cloned(),
+            )
+            .await
         }
 
         Input::SyncRequestTimedOut(peer_id, request) => {
@@ -215,7 +227,7 @@ where
 
     perform!(
         co,
-        Effect::GetDecidedValue(request_id, *request.range.start(), Default::default())
+        Effect::GetDecidedValues(request_id, request.range, Default::default())
     );
 
     Ok(())

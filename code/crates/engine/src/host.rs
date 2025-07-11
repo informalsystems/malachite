@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use std::time::Duration;
+use std::{ops::RangeInclusive, time::Duration};
 
 use derive_where::derive_where;
 use ractor::{ActorRef, RpcReplyPort};
@@ -102,10 +102,10 @@ pub enum HostMsg<Ctx: Context> {
         consensus: ConsensusRef<Ctx>,
     },
 
-    // Retrieve decided value from the block store
-    GetDecidedValue {
-        height: Ctx::Height,
-        reply_to: RpcReplyPort<Option<RawDecidedValue<Ctx>>>,
+    // Retrieve decided values from the block store
+    GetDecidedValues {
+        range: RangeInclusive<Ctx::Height>,
+        reply_to: RpcReplyPort<Vec<RawDecidedValue<Ctx>>>,
     },
 
     // Process a value synced from another node via the ValueSync protocol.

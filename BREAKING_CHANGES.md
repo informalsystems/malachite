@@ -6,6 +6,26 @@
 
 - Rename `Effect::RebroadcastVote` to `Effect::RepublishVote` ([#1011](https://github.com/informalsystems/malachite/issues/1011))
 
+### `informalsystems-malachitebft-engine`
+
+#### Trait Changes
+
+- Renamed `GetDecidedValue` to `GetDecidedValues` in `HostMsg`. 
+  - Now it takes a range of heights instead of one, and the reply is a list (possibly empty) of
+    decided values instead of one or zero.
+
+### `malachitebft-sync`
+
+#### Enum Changes
+
+- Renamed `GetDecidedValue` to `GetDecidedValues` in `Effect`. 
+  - Now it takes a range of heights instead of one, and the reply is a list (possibly empty) of
+    decided values instead of one or zero.
+- Renamed `GotDecidedValue` to `GotDecidedValues` in `Msg` and `Input`. 
+  - Now it has as parameter a range of heights instead of one, and a list of decided values instead
+    of one or zero.
+
+
 ## 0.4.0
 
 *July 8th, 2025*
