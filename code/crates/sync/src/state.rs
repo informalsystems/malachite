@@ -111,7 +111,7 @@ where
         let v2_peers = self
             .peers
             .iter()
-            .filter(|(&peer, _)| except.is_none() || except.is_some_and(|p| p != peer))
+            .filter(|(&peer, _)| except.is_none_or(|p| p != peer))
             .filter(|(_, detail)| detail.kind == PeerKind::SyncV2);
 
         // Peers that support batching and can provide the whole range of values.
@@ -143,8 +143,9 @@ where
             // Fallback to v1 peers that have a tip at or above the start of the range.
             self.peers
                 .iter()
-                .filter(|(&peer, _)| except.is_none() || except.is_some_and(|p| p != peer))
-                .filter(|(_, detail)| detail.kind == PeerKind::SyncV1)
+                .filter(|(&peer, detail)| {
+                    except.is_none_or(|p| p != peer) && detail.kind == PeerKind::SyncV1
+                })
                 .map(|(peer, _)| (peer.clone(), *range.start()..=*range.start()))
                 .collect::<HashMap<_, _>>()
         };
