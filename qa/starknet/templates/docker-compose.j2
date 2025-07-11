@@ -61,7 +61,7 @@ services:
     volumes:
       - sequencer:/sequencer
       - shared:/shared
-      - ../../../shared/networks/{{ network_name }}/sequencer-node-{{ i }}/.bashrc:/root/.bashrc
+      - ../../../shared/networks/{{ network_name }}/sequencer-node-{{ i }}/.bashrc:/home/sequencer/.bashrc
     networks:
       - test-network
     cap_add:
