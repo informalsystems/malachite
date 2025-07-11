@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::scoring::Strategy;
 
 const DEFAULT_PARALLEL_REQUESTS: u64 = 5;
+const DEFAULT_BATCH_SIZE: usize = 1000;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Config {
@@ -13,6 +14,7 @@ pub struct Config {
     pub parallel_requests: u64,
     pub scoring_strategy: Strategy,
     pub inactive_threshold: Option<Duration>,
+    pub batch_size: usize,
 }
 
 impl Config {
@@ -52,6 +54,11 @@ impl Config {
         self.inactive_threshold = inactive_threshold;
         self
     }
+
+    pub fn with_batch_size(mut self, batch_size: usize) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
 }
 
 impl Default for Config {
@@ -64,6 +71,7 @@ impl Default for Config {
             parallel_requests: DEFAULT_PARALLEL_REQUESTS,
             scoring_strategy: Strategy::default(),
             inactive_threshold: None,
+            batch_size: DEFAULT_BATCH_SIZE,
         }
     }
 }
