@@ -201,7 +201,7 @@ where
     state.tip_height = height.decrement().unwrap_or_default();
 
     // It is possible that consensus is voting on a height that is currently being requested from another peer.
-    state.update_sync_height_to(height);
+    state.sync_height = max(state.sync_height, height);
 
     // Trigger potential requests if possible.
     request_values(co, state, metrics).await?;
@@ -509,7 +509,7 @@ where
     state
         .pending_requests
         .store_request(&new_range, &request_id);
-    state.update_sync_height_to(*new_range.end());
+    state.sync_height = max(state.sync_height, new_range.end().increment());
 
     Ok(())
 }

@@ -185,11 +185,6 @@ where
         }
         start..=*range.end()
     }
-
-    /// Update the next height to sync to the given height.
-    pub fn update_sync_height_to(&mut self, height: Ctx::Height) {
-        self.sync_height = max(self.sync_height, height.increment());
-    }
 }
 
 /// State of a single requested value.
