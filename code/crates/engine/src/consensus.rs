@@ -638,6 +638,7 @@ where
         {
             error!(%height, %request_id, "Error when processing received synced block: {e}");
 
+            let request_id = request_id.clone();
             if let ConsensusError::InvalidCommitCertificate(certificate, e) = e {
                 error!(
                     %peer,
@@ -646,10 +647,10 @@ where
                     "Invalid certificate received: {e}"
                 );
 
-                sync.cast(SyncMsg::InvalidValue(peer, certificate.height))
+                sync.cast(SyncMsg::InvalidValue(request_id, peer, certificate.height))
                     .map_err(|e| eyre!("Error when notifying sync of invalid certificate: {e}"))?;
             } else {
-                sync.cast(SyncMsg::ValueProcessingError(peer, height))
+                sync.cast(SyncMsg::ValueProcessingError(request_id, peer, height))
                     .map_err(|e| {
                         eyre!("Error when notifying sync of value processing error: {e}")
                     })?;
@@ -669,7 +670,9 @@ where
                 if proposed.validity == Validity::Invalid
                     || proposed.value.id() != certificate_value_id
                 {
-                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                    if let Err(e) =
+                        sync.cast(SyncMsg::InvalidValue(request_id, peer, certificate_height))
+                    {
                         error!("Error when notifying sync of received proposed value: {e}");
                     }
                 }

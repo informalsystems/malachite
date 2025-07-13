@@ -343,12 +343,7 @@ where
         }
     }
 
-    pub fn get_id_by_height(&self, height: &Ctx::Height) -> Option<OutboundRequestId> {
-        self.height_states
-            .get(height)
-            .map(|(request_id, _)| request_id.clone())
-    }
-
+    /// For validating that the requested range of heights matches the response.
     pub fn get_requested_range_by_id(
         &self,
         request_id: &OutboundRequestId,

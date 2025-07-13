@@ -45,10 +45,10 @@ pub enum Input<Ctx: Context> {
     SyncRequestTimedOut(OutboundRequestId, PeerId, Request<Ctx>),
 
     /// We received an invalid value (either certificate or value)
-    InvalidValue(PeerId, Ctx::Height),
+    InvalidValue(OutboundRequestId, PeerId, Ctx::Height),
 
     /// An error occurred while processing a value
-    ValueProcessingError(PeerId, Ctx::Height),
+    ValueProcessingError(OutboundRequestId, PeerId, Ctx::Height),
 }
 
 pub async fn handle<Ctx>(
@@ -116,10 +116,10 @@ where
             on_sync_request_timed_out(co, state, metrics, request_id, peer_id, request).await
         }
 
-        Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
+        Input::InvalidValue(request_id, peer, value) => on_invalid_value(co, state, metrics, request_id, peer, value).await,
 
-        Input::ValueProcessingError(peer, height) => {
-            on_value_processing_error(co, state, metrics, peer, height).await
+        Input::ValueProcessingError(request_id, peer, height) => {
+            on_value_processing_error(co, state, metrics, request_id, peer, height).await
         }
     }
 }
@@ -394,6 +394,7 @@ async fn on_invalid_value<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
+    request_id: OutboundRequestId,
     peer_id: PeerId,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
@@ -404,11 +405,7 @@ where
 
     state.peer_scorer.update_score(peer_id, SyncResult::Failure);
 
-    if let Some(request_id) = state.pending_requests.get_id_by_height(&height) {
-        re_request_values_from_peer(co, state, metrics, request_id, Some(peer_id)).await?;
-    } else {
-        warn!(%peer_id, %height, "Height of invalid value does not have an associated request ID");
-    }
+    re_request_values_from_peer(co, state, metrics, request_id, Some(peer_id)).await?;
 
     Ok(())
 }
@@ -417,6 +414,7 @@ async fn on_value_processing_error<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
+    request_id: OutboundRequestId,
     peer_id: PeerId,
     height: Ctx::Height,
 ) -> Result<(), Error<Ctx>>
@@ -428,11 +426,7 @@ where
     // NOTE: We do not update the peer score here, as this is an internal error
     //       and not a failure from the peer's side.
 
-    if let Some(request_id) = state.pending_requests.get_id_by_height(&height) {
-        re_request_values_from_peer(co, state, metrics, request_id, None).await?;
-    } else {
-        warn!(%peer_id, %height, "Received invalid value for unknown height");
-    }
+    re_request_values_from_peer(co, state, metrics, request_id, None).await?;
 
     Ok(())
 }
