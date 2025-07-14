@@ -81,15 +81,12 @@ where
 
             // Check if the values in the response match the requested range of heights.
             // Only responses that match exactly the requested range are considered valid.
-            if let Some(requested_range) = state
-                .pending_requests
-                .get_requested_range_by_id(&request_id)
-            {
-                if requested_range.start().as_u64() == start.as_u64()
+            if let Some(requested_range) = state.pending_requests.get(&request_id) {
+                let valid = requested_range.start().as_u64() == start.as_u64()
                     && requested_range.end().as_u64() == end.as_u64()
                     && response.values.len() as u64
-                        == requested_range.end().as_u64() - requested_range.start().as_u64() + 1
-                {
+                        == requested_range.end().as_u64() - requested_range.start().as_u64() + 1;
+                if valid {
                     return on_value_response(co, state, metrics, request_id, peer_id, response)
                         .await;
                 } else {
@@ -116,7 +113,9 @@ where
             on_sync_request_timed_out(co, state, metrics, request_id, peer_id, request).await
         }
 
-        Input::InvalidValue(request_id, peer, value) => on_invalid_value(co, state, metrics, request_id, peer, value).await,
+        Input::InvalidValue(request_id, peer, value) => {
+            on_invalid_value(co, state, metrics, request_id, peer, value).await
+        }
 
         Input::ValueProcessingError(request_id, peer, height) => {
             on_value_processing_error(co, state, metrics, request_id, peer, height).await
@@ -200,6 +199,9 @@ where
     // The tip is the last decided value.
     state.tip_height = height.decrement().unwrap_or_default();
 
+    // Garbage collect fully-validated requests.
+    state.remove_fully_validated_requests();
+
     // It is possible that consensus is voting on a height that is currently being requested from another peer.
     state.sync_height = max(state.sync_height, height);
 
@@ -221,13 +223,13 @@ where
 
     state.tip_height = height;
 
+    // Garbage collect fully-validated requests.
+    state.remove_fully_validated_requests();
+
     // The next height to sync should always be higher than the tip.
     if state.sync_height == state.tip_height {
         state.sync_height = state.sync_height.increment();
     }
-
-    // If there was a request that included this height, mark the height as validated.
-    state.pending_requests.mark_value_as_validated(height);
 
     Ok(())
 }
@@ -260,7 +262,7 @@ pub async fn on_value_response<Ctx>(
     _co: Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    request_id: OutboundRequestId,
+    _request_id: OutboundRequestId,
     peer_id: PeerId,
     response: ValueResponse<Ctx>,
 ) -> Result<(), Error<Ctx>>
@@ -279,13 +281,6 @@ where
             &metrics.scoring,
         );
     }
-
-    // Set heights in response to received and waiting for validation.
-    // The pending request will be removed once all heights have been validated.
-    let end = response.end_height().unwrap_or(start);
-    state
-        .pending_requests
-        .mark_values_as_received(&request_id, start..=end);
 
     Ok(())
 }
@@ -441,7 +436,7 @@ where
     Ctx: Context,
 {
     let max_parallel_requests = max(1, state.config.parallel_requests);
-    while state.pending_requests.len() < max_parallel_requests {
+    while (state.pending_requests.len() as u64) < max_parallel_requests {
         // Build the next range of heights to request from a peer.
         let start_height = state.sync_height;
         let batch_size = max(1, state.config.batch_size as u64);
@@ -480,8 +475,8 @@ where
 
     // Skip over any heights in the range that are not waiting for a response
     // (meaning that they have been validated by consensus or a peer).
-    let new_range = state.trim_validated_heights(&range);
-    if new_range.is_empty() {
+    let range = state.trim_validated_heights(&range);
+    if range.is_empty() {
         warn!(%peer, "All values in range {} have been validated, skipping request", DisplayRange::<Ctx>(&range));
         return Ok(());
     }
@@ -489,21 +484,19 @@ where
     // Send request to peer
     let Some(request_id) = perform!(
         co,
-        Effect::SendValueRequest(peer, ValueRequest::new(new_range.clone()), Default::default()),
+        Effect::SendValueRequest(peer, ValueRequest::new(range.clone()), Default::default()),
         Resume::ValueRequestId(id) => id,
     ) else {
-        warn!(range = %DisplayRange::<Ctx>(&new_range), %peer, "Failed to send sync request to peer");
+        warn!(range = %DisplayRange::<Ctx>(&range), %peer, "Failed to send sync request to peer");
         return Ok(());
     };
 
-    metrics.value_request_sent(new_range.start().as_u64());
+    metrics.value_request_sent(range.start().as_u64());
 
-    // Store pending request
-    debug!(%request_id, range = %DisplayRange::<Ctx>(&new_range), %peer, "Sent sync request to peer");
-    state
-        .pending_requests
-        .store_request(&new_range, &request_id);
-    state.sync_height = max(state.sync_height, new_range.end().increment());
+    // Store pending request and move the sync height.
+    debug!(%request_id, range = %DisplayRange::<Ctx>(&range), %peer, "Sent sync request to peer");
+    state.sync_height = max(state.sync_height, range.end().increment());
+    state.pending_requests.insert(request_id, range);
 
     Ok(())
 }
@@ -545,18 +538,15 @@ where
     if let Some(range) = state.pending_requests.remove(&request_id) {
         // It is possible that a prefix or the whole range of values has been validated via consensus.
         // Then, request only the missing values.
-        let new_range = state.trim_validated_heights(&range);
-        if new_range.is_empty() {
+        let range = state.trim_validated_heights(&range);
+        if range.is_empty() {
             warn!(%request_id, "All values in range {} have been validated, skipping re-request", DisplayRange::<Ctx>(&range));
             return Ok(());
         }
 
-        debug!(%request_id, range = %DisplayRange::<Ctx>(&range), new_range = %DisplayRange::<Ctx>(&new_range), 
-            "New range after trimming validated heights");
-
         if let Some(peer_id) = except {
-            request_values_from_peer_except(co, state, metrics, new_range, peer_id).await?;
-        } else if let Some((peer, range)) = state.random_peer_with(&new_range) {
+            request_values_from_peer_except(co, state, metrics, range, peer_id).await?;
+        } else if let Some((peer, range)) = state.random_peer_with(&range) {
             request_values_from_peer(&co, state, metrics, range, peer).await?;
         } else {
             warn!("No peer to request sync");
