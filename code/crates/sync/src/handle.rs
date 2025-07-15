@@ -171,11 +171,16 @@ where
         return Ok(());
     }
 
-    if peer_height > state.tip_height && peer_height > state.sync_height {
-        warn!(peer.id = %peer_id, peer.height = %peer_height, "SYNC REQUIRED: Falling behind peer");
+    if peer_height >= state.sync_height {
+        warn!(
+            height.tip = %state.tip_height,
+            height.sync = %state.sync_height,
+            height.peer = %peer_height,
+            "SYNC REQUIRED: Falling behind"
+        );
 
-        // We are lagging behind this peer, and we have not yet requested values for its tip height (from this or any other peer).
-        // Request values from any peer already at later height.
+        // We are lagging behind on one of our peers at least.
+        // Request values from any peer already at or above that peer's height.
         request_values(co, state, metrics).await?;
     }
 
@@ -202,8 +207,13 @@ where
     // Garbage collect fully-validated requests.
     state.remove_fully_validated_requests();
 
-    // It is possible that consensus is voting on a height that is currently being requested from another peer.
-    state.sync_height = max(state.sync_height, height);
+    if restart {
+        // Consensus is retrying the height, so we should sync starting from it.
+        state.sync_height = height;
+    } else {
+        // If consensus is voting on a height that is currently being synced from a peer, do not update the sync height.
+        state.sync_height = max(state.sync_height, height);
+    }
 
     // Trigger potential requests if possible.
     request_values(co, state, metrics).await?;
