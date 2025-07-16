@@ -107,20 +107,17 @@ where
         range: &RangeInclusive<Ctx::Height>,
         except: Option<PeerId>,
     ) -> Option<(PeerId, RangeInclusive<Ctx::Height>)> {
-        // Peers that support batching (v2 sync protocol).
-        let v2_peers = self
-            .peers
-            .iter()
-            .filter(|(&peer, _)| except.is_none_or(|p| p != peer))
-            .filter(|(_, detail)| detail.kind == PeerKind::SyncV2);
+        // Peers that support batching (v2 sync protocol) and can provide at least the first value in the range.
+        let v2_peers = self.peers.iter().filter(|(&peer, detail)| {
+            detail.kind == PeerKind::SyncV2
+                && detail.status.history_min_height <= *range.start()
+                && except.is_none_or(|p| p != peer)
+        });
 
         // Peers that support batching and can provide the whole range of values.
         let v2_peers_with_whole_range = v2_peers
             .clone()
-            .filter(|(_, detail)| {
-                detail.status.history_min_height <= *range.start()
-                    && *range.end() <= detail.status.tip_height
-            })
+            .filter(|(_, detail)| *range.end() <= detail.status.tip_height)
             .map(|(peer, _)| (peer.clone(), range.clone()))
             .collect::<HashMap<_, _>>();
 
@@ -128,9 +125,8 @@ where
         let v2_peers_with_range = if !v2_peers_with_whole_range.is_empty() {
             v2_peers_with_whole_range
         } else {
-            // Otherwise, find peers that have a tip at or above the start of the range.
+            // Otherwise, just get the peers that can provide a prefix of the range.
             v2_peers
-                .filter(|(_, detail)| detail.status.history_min_height <= *range.start())
                 .map(|(peer, detail)| (peer.clone(), *range.start()..=detail.status.tip_height))
                 .filter(|(_, range)| !range.is_empty())
                 .collect::<HashMap<_, _>>()
@@ -140,11 +136,13 @@ where
         let peers_with_range = if !v2_peers_with_range.is_empty() {
             v2_peers_with_range
         } else {
-            // Fallback to v1 peers that have a tip at or above the start of the range.
+            // Fallback to v1 peers that can provide the first value in the range.
             self.peers
                 .iter()
                 .filter(|(&peer, detail)| {
-                    except.is_none_or(|p| p != peer) && detail.kind == PeerKind::SyncV1
+                    detail.kind == PeerKind::SyncV1
+                        && detail.status.history_min_height <= *range.start()
+                        && except.is_none_or(|p| p != peer)
                 })
                 .map(|(peer, _)| (peer.clone(), *range.start()..=*range.start()))
                 .collect::<HashMap<_, _>>()
