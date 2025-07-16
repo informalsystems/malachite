@@ -82,15 +82,18 @@ where
             // Check if the values in the response match the requested range of heights.
             // Only responses that match exactly the requested range are considered valid.
             if let Some(requested_range) = state.pending_requests.get(&request_id) {
+                let expected_num_values =
+                    requested_range.end().as_u64() - requested_range.start().as_u64() + 1;
                 let valid = requested_range.start().as_u64() == start.as_u64()
                     && requested_range.end().as_u64() == end.as_u64()
-                    && response.values.len() as u64
-                        == requested_range.end().as_u64() - requested_range.start().as_u64() + 1;
+                    && response.values.len() as u64 == expected_num_values;
                 if valid {
                     return on_value_response(co, state, metrics, request_id, peer_id, response)
                         .await;
                 } else {
-                    warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {:?}, got {:?}", requested_range, (start..=end));
+                    warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)", 
+                        requested_range.start().as_u64(), requested_range.end().as_u64(), expected_num_values,
+                        start.as_u64(), end.as_u64(), response.values.len() as u64);
                     return on_invalid_value_response(co, state, metrics, request_id, peer_id)
                         .await;
                 }
