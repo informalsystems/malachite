@@ -97,32 +97,35 @@ where
         }
     }
 
-    /// Select at random a peer that can provide the given range of values, while excluding the given peer if provided.
+    /// Filter peers to only include those that can provide the given range of values, or at least a prefix of the range.
     ///
     /// If there is no peer with all requested values, select a peer that has a tip at or above the start of the range.
     /// Prefer peers that support batching (v2 sync protocol).
     /// Return the peer ID and the range of heights that the peer can provide.
-    pub fn random_peer_with_except(
-        &mut self,
+    pub fn filter_peers_by_range(
+        peers: &BTreeMap<PeerId, PeerInfo<Ctx>>,
         range: &RangeInclusive<Ctx::Height>,
         except: Option<PeerId>,
-    ) -> Option<(PeerId, RangeInclusive<Ctx::Height>)> {
+    ) -> HashMap<PeerId, RangeInclusive<Ctx::Height>> {
         // Peers that support batching (v2 sync protocol) and can provide at least the first value in the range.
-        let v2_peers = self.peers.iter().filter(|(&peer, detail)| {
+        let v2_peers = peers.iter().filter(|(&peer, detail)| {
             detail.kind == PeerKind::SyncV2
                 && detail.status.history_min_height <= *range.start()
+                && *range.start() <= detail.status.tip_height
                 && except.is_none_or(|p| p != peer)
         });
 
         // Peers that support batching and can provide the whole range of values.
         let v2_peers_with_whole_range = v2_peers
             .clone()
-            .filter(|(_, detail)| *range.end() <= detail.status.tip_height)
+            .filter(|(_, detail)| {
+                *range.start() <= *range.end() && *range.end() <= detail.status.tip_height
+            })
             .map(|(peer, _)| (peer.clone(), range.clone()))
             .collect::<HashMap<_, _>>();
 
         // Prefer peers that have the whole range of values in their history.
-        let v2_peers_with_range = if !v2_peers_with_whole_range.is_empty() {
+        let v2_peers_range = if !v2_peers_with_whole_range.is_empty() {
             v2_peers_with_whole_range
         } else {
             // Otherwise, just get the peers that can provide a prefix of the range.
@@ -133,26 +136,37 @@ where
         };
 
         // Prefer peers with a higher version of the sync protocol.
-        let peers_with_range = if !v2_peers_with_range.is_empty() {
-            v2_peers_with_range
+        if !v2_peers_range.is_empty() {
+            v2_peers_range
         } else {
             // Fallback to v1 peers that can provide the first value in the range.
-            self.peers
+            peers
                 .iter()
                 .filter(|(&peer, detail)| {
                     detail.kind == PeerKind::SyncV1
                         && detail.status.history_min_height <= *range.start()
+                        && *range.start() <= detail.status.tip_height
                         && except.is_none_or(|p| p != peer)
                 })
                 .map(|(peer, _)| (peer.clone(), *range.start()..=*range.start()))
                 .collect::<HashMap<_, _>>()
-        };
+        }
+    }
+
+    /// Select at random a peer that can provide the given range of values, while excluding the given peer if provided.
+    pub fn random_peer_with_except(
+        &mut self,
+        range: &RangeInclusive<Ctx::Height>,
+        except: Option<PeerId>,
+    ) -> Option<(PeerId, RangeInclusive<Ctx::Height>)> {
+        // Filtered peers together with the range of heights they can provide.
+        let peers_range = Self::filter_peers_by_range(&self.peers, range, except);
 
         // Select a peer at random.
-        let peer_ids = peers_with_range.keys().cloned().collect::<Vec<_>>();
+        let peer_ids = peers_range.keys().cloned().collect::<Vec<_>>();
         self.peer_scorer
             .select_peer(&peer_ids, &mut self.rng)
-            .map(|peer_id| (peer_id, peers_with_range.get(&peer_id).unwrap().clone()))
+            .map(|peer_id| (peer_id, peers_range.get(&peer_id).unwrap().clone()))
     }
 
     /// Same as [`Self::random_peer_with_except`] but without excluding any peer.
