@@ -1,24 +1,15 @@
-use std::collections::BTreeMap;
+use std::cmp::max;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::RangeInclusive;
+
+use libp2p::StreamProtocol;
 
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
+use tracing::warn;
 
 use crate::scoring::{ema, PeerScorer, Strategy};
-use crate::{Config, OutboundRequestId, Status};
-
-/// State of a decided value request.
-///
-/// State transitions:
-/// WaitingResponse -> WaitingValidation -> Validated
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum RequestState {
-    /// Initial state: waiting for a response from a peer
-    WaitingResponse,
-    /// Response received: waiting for value validation by consensus
-    WaitingValidation,
-    /// Value validated: request is complete
-    Validated,
-}
+use crate::{Behaviour, Config, OutboundRequestId, PeerInfo, PeerKind, Status};
 
 pub struct State<Ctx>
 where
@@ -35,17 +26,15 @@ where
     /// Height of last decided value
     pub tip_height: Ctx::Height,
 
-    /// Height currently syncing.
+    /// Next height to send a sync request.
+    /// Invariant: `sync_height > tip_height`
     pub sync_height: Ctx::Height,
 
-    /// Decided value requests for these heights have been sent out to peers.
-    pub pending_value_requests: BTreeMap<Ctx::Height, (OutboundRequestId, RequestState)>,
-
-    /// Maps request ID to height for pending decided value requests.
-    pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
+    /// The requested range of heights.
+    pub pending_requests: BTreeMap<OutboundRequestId, RangeInclusive<Ctx::Height>>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
-    pub peers: BTreeMap<PeerId, Status<Ctx>>,
+    pub peers: BTreeMap<PeerId, PeerInfo<Ctx>>,
 
     /// Peer scorer for scoring peers based on their performance.
     pub peer_scorer: PeerScorer,
@@ -71,139 +60,140 @@ where
             started: false,
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
-            pending_value_requests: BTreeMap::new(),
-            height_per_request_id: BTreeMap::new(),
+            pending_requests: BTreeMap::new(),
             peers: BTreeMap::new(),
             peer_scorer,
         }
     }
 
-    pub fn update_status(&mut self, status: Status<Ctx>) {
-        self.peers.insert(status.peer_id, status);
+    pub fn add_peer(&mut self, peer_id: PeerId, protocols: Vec<StreamProtocol>) {
+        if self.peers.contains_key(&peer_id) {
+            warn!("Peer {} already exists in the state", peer_id);
+            return;
+        }
+
+        let kind = if protocols.contains(&Behaviour::SYNC_V2_PROTOCOL.0) {
+            PeerKind::SyncV2
+        } else if protocols.contains(&Behaviour::SYNC_V1_PROTOCOL.0) {
+            PeerKind::SyncV1
+        } else {
+            warn!("Peer {} does not support any known sync protocol", peer_id);
+            return;
+        };
+
+        self.peers.insert(
+            peer_id,
+            PeerInfo {
+                kind,
+                status: Status::default(peer_id),
+            },
+        );
     }
 
-    /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
-    /// In other words, `height` is in `status.history_min_height..=status.tip_height` range.
-    pub fn random_peer_with_tip_at_or_above(&mut self, height: Ctx::Height) -> Option<PeerId>
+    pub fn update_status(&mut self, status: Status<Ctx>) {
+        // TODO: should we consider status messages from non connected peers?
+        if let Some(peer_details) = self.peers.get_mut(&status.peer_id) {
+            peer_details.update_status(status);
+        }
+    }
+
+    /// Filter peers to only include those that can provide the given range of values, or at least a prefix of the range.
+    ///
+    /// If there is no peer with all requested values, select a peer that has a tip at or above the start of the range.
+    /// Prefer peers that support batching (v2 sync protocol).
+    /// Return the peer ID and the range of heights that the peer can provide.
+    pub fn filter_peers_by_range(
+        peers: &BTreeMap<PeerId, PeerInfo<Ctx>>,
+        range: &RangeInclusive<Ctx::Height>,
+        except: Option<PeerId>,
+    ) -> HashMap<PeerId, RangeInclusive<Ctx::Height>> {
+        // Peers that support batching (v2 sync protocol) and can provide at least the first value in the range.
+        let v2_peers = peers.iter().filter(|(&peer, detail)| {
+            detail.kind == PeerKind::SyncV2
+                && detail.status.history_min_height <= *range.start()
+                && *range.start() <= detail.status.tip_height
+                && except.is_none_or(|p| p != peer)
+        });
+
+        // Peers that support batching and can provide the whole range of values.
+        let v2_peers_with_whole_range = v2_peers
+            .clone()
+            .filter(|(_, detail)| {
+                *range.start() <= *range.end() && *range.end() <= detail.status.tip_height
+            })
+            .map(|(peer, _)| (peer.clone(), range.clone()))
+            .collect::<HashMap<_, _>>();
+
+        // Prefer peers that have the whole range of values in their history.
+        let v2_peers_range = if !v2_peers_with_whole_range.is_empty() {
+            v2_peers_with_whole_range
+        } else {
+            // Otherwise, just get the peers that can provide a prefix of the range.
+            v2_peers
+                .map(|(peer, detail)| (peer.clone(), *range.start()..=detail.status.tip_height))
+                .filter(|(_, range)| !range.is_empty())
+                .collect::<HashMap<_, _>>()
+        };
+
+        // Prefer peers with a higher version of the sync protocol.
+        if !v2_peers_range.is_empty() {
+            v2_peers_range
+        } else {
+            // Fallback to v1 peers that can provide the first value in the range.
+            peers
+                .iter()
+                .filter(|(&peer, detail)| {
+                    detail.kind == PeerKind::SyncV1
+                        && detail.status.history_min_height <= *range.start()
+                        && *range.start() <= detail.status.tip_height
+                        && except.is_none_or(|p| p != peer)
+                })
+                .map(|(peer, _)| (peer.clone(), *range.start()..=*range.start()))
+                .collect::<HashMap<_, _>>()
+        }
+    }
+
+    /// Select at random a peer that can provide the given range of values, while excluding the given peer if provided.
+    pub fn random_peer_with_except(
+        &mut self,
+        range: &RangeInclusive<Ctx::Height>,
+        except: Option<PeerId>,
+    ) -> Option<(PeerId, RangeInclusive<Ctx::Height>)> {
+        // Filtered peers together with the range of heights they can provide.
+        let peers_range = Self::filter_peers_by_range(&self.peers, range, except);
+
+        // Select a peer at random.
+        let peer_ids = peers_range.keys().cloned().collect::<Vec<_>>();
+        self.peer_scorer
+            .select_peer(&peer_ids, &mut self.rng)
+            .map(|peer_id| (peer_id, peers_range.get(&peer_id).unwrap().clone()))
+    }
+
+    /// Same as [`Self::random_peer_with_except`] but without excluding any peer.
+    pub fn random_peer_with(
+        &mut self,
+        range: &RangeInclusive<Ctx::Height>,
+    ) -> Option<(PeerId, RangeInclusive<Ctx::Height>)>
     where
         Ctx: Context,
     {
-        let peers = self
-            .peers
-            .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
-                    .contains(&height)
-                    .then_some(peer)
-            })
-            .collect::<Vec<_>>();
-
-        self.peer_scorer.select_peer(&peers, &mut self.rng)
+        self.random_peer_with_except(range, None)
     }
 
-    /// Same as [`Self::random_peer_with_tip_at_or_above`], but excludes the given peer.
-    pub fn random_peer_with_tip_at_or_above_except(
+    /// Return a new range of heights, trimming from the beginning any height
+    /// that is not validated by consensus.
+    pub fn trim_validated_heights(
         &mut self,
-        height: Ctx::Height,
-        except: PeerId,
-    ) -> Option<PeerId> {
-        let peers = self
-            .peers
-            .iter()
-            .filter_map(|(&peer, status)| {
-                (status.history_min_height..=status.tip_height)
-                    .contains(&height)
-                    .then_some(peer)
-            })
-            .filter(|&peer| peer != except)
-            .collect::<Vec<_>>();
-
-        self.peer_scorer.select_peer(&peers, &mut self.rng)
+        range: &RangeInclusive<Ctx::Height>,
+    ) -> RangeInclusive<Ctx::Height> {
+        let start = max(self.tip_height.increment(), *range.start());
+        start..=*range.end()
     }
 
-    /// Store a pending decided value request for a given height and request ID.
-    ///
-    /// State transition: None -> WaitingResponse
-    pub fn store_pending_value_request(
-        &mut self,
-        height: Ctx::Height,
-        request_id: OutboundRequestId,
-    ) {
-        self.height_per_request_id
-            .insert(request_id.clone(), height);
-
-        self.pending_value_requests
-            .insert(height, (request_id, RequestState::WaitingResponse));
-    }
-
-    /// Mark that a response has been received for a height.
-    ///
-    /// State transition: WaitingResponse -> WaitingValidation
-    pub fn response_received(&mut self, request_id: OutboundRequestId, height: Ctx::Height) {
-        if let Some((req_id, state)) = self.pending_value_requests.get_mut(&height) {
-            if req_id != &request_id {
-                return; // A new request has been made in the meantime, ignore this response.
-            }
-            if *state == RequestState::WaitingResponse {
-                *state = RequestState::WaitingValidation;
-            }
-        }
-    }
-
-    /// Mark that a decided value has been validated for a height.
-    ///
-    /// State transition: WaitingValidation -> Validated
-    /// It is also possible to have the following transition: WaitingResponse -> Validated.
-    pub fn validate_response(&mut self, height: Ctx::Height) {
-        if let Some((_, state)) = self.pending_value_requests.get_mut(&height) {
-            *state = RequestState::Validated;
-        }
-    }
-
-    /// Get the height for a given request ID.
-    pub fn get_height_for_request_id(&self, request_id: &OutboundRequestId) -> Option<Ctx::Height> {
-        self.height_per_request_id.get(request_id).cloned()
-    }
-
-    /// Remove the pending decided value request for a given height.
-    pub fn remove_pending_request_by_height(&mut self, height: &Ctx::Height) {
-        if let Some((request_id, _)) = self.pending_value_requests.remove(height) {
-            self.height_per_request_id.remove(&request_id);
-        }
-    }
-
-    /// Remove a pending decided value request by its ID and return the height it was associated with.
-    pub fn remove_pending_value_request_by_id(
-        &mut self,
-        request_id: &OutboundRequestId,
-    ) -> Option<Ctx::Height> {
-        let height = self.height_per_request_id.remove(request_id)?;
-
-        self.pending_value_requests.remove(&height);
-
-        Some(height)
-    }
-
-    /// Check if there are any pending decided value requests for a given height.
-    pub fn has_pending_value_request(&self, height: &Ctx::Height) -> bool {
-        self.pending_value_requests.contains_key(height)
-    }
-
-    /// Check if a pending decided value request for a given height is in the `Validated` state.
-    pub fn is_pending_value_request_validated_by_height(&self, height: &Ctx::Height) -> bool {
-        if let Some((_, state)) = self.pending_value_requests.get(height) {
-            *state == RequestState::Validated
-        } else {
-            false
-        }
-    }
-
-    /// Check if a pending decided value request for a given request ID is in the `Validated` state.
-    pub fn is_pending_value_request_validated_by_id(&self, request_id: &OutboundRequestId) -> bool {
-        if let Some(height) = self.height_per_request_id.get(request_id) {
-            self.is_pending_value_request_validated_by_height(height)
-        } else {
-            false
-        }
+    /// When the tip height is higher than the requested range, then the request
+    /// has been fully validated and it can be removed.
+    pub fn remove_fully_validated_requests(&mut self) {
+        self.pending_requests
+            .retain(|_, range| range.end() > &self.tip_height);
     }
 }

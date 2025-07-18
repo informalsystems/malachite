@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
 use bytes::Bytes;
 use derive_where::derive_where;
@@ -6,7 +6,7 @@ use displaydoc::Display;
 use libp2p::request_response;
 use serde::{Deserialize, Serialize};
 
-use malachitebft_core_types::{CommitCertificate, Context};
+use malachitebft_core_types::{CommitCertificate, Context, Height};
 pub use malachitebft_peer::PeerId;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
@@ -31,11 +31,41 @@ impl OutboundRequestId {
 
 pub type ResponseChannel = request_response::ResponseChannel<RawResponse>;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PeerKind {
+    SyncV1,
+    SyncV2,
+}
+
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct Status<Ctx: Context> {
     pub peer_id: PeerId,
     pub tip_height: Ctx::Height,
     pub history_min_height: Ctx::Height,
+}
+
+impl<Ctx: Context> Status<Ctx> {
+    pub(crate) fn default(peer_id: PeerId) -> Self {
+        Self {
+            peer_id,
+            tip_height: Ctx::Height::ZERO,
+            history_min_height: Ctx::Height::ZERO,
+        }
+    }
+}
+
+#[derive_where(Clone, Debug, PartialEq, Eq)]
+pub struct PeerInfo<Ctx: Context> {
+    /// The kind of protocol the peer supports.
+    pub kind: PeerKind,
+    /// The peer's status.
+    pub status: Status<Ctx>,
+}
+
+impl<Ctx: Context> PeerInfo<Ctx> {
+    pub(crate) fn update_status(&mut self, status: Status<Ctx>) {
+        self.status = status;
+    }
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
@@ -50,24 +80,38 @@ pub enum Response<Ctx: Context> {
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueRequest<Ctx: Context> {
-    pub height: Ctx::Height,
+    pub range: RangeInclusive<Ctx::Height>,
 }
 
 impl<Ctx: Context> ValueRequest<Ctx> {
-    pub fn new(height: Ctx::Height) -> Self {
-        Self { height }
+    pub fn new(range: RangeInclusive<Ctx::Height>) -> Self {
+        Self { range }
     }
 }
 
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct ValueResponse<Ctx: Context> {
-    pub height: Ctx::Height,
-    pub value: Option<RawDecidedValue<Ctx>>,
+    /// The height of the first value in the response.
+    pub start_height: Ctx::Height,
+
+    /// Values are sequentially ordered by height.
+    pub values: Vec<RawDecidedValue<Ctx>>,
 }
 
 impl<Ctx: Context> ValueResponse<Ctx> {
-    pub fn new(height: Ctx::Height, value: Option<RawDecidedValue<Ctx>>) -> Self {
-        Self { height, value }
+    pub fn new(start_height: Ctx::Height, values: Vec<RawDecidedValue<Ctx>>) -> Self {
+        Self {
+            start_height,
+            values,
+        }
+    }
+
+    pub fn end_height(&self) -> Option<Ctx::Height> {
+        if self.values.is_empty() {
+            None
+        } else {
+            Some(self.start_height.increment_by(self.values.len() as u64 - 1))
+        }
     }
 }
 
