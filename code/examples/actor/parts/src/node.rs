@@ -255,7 +255,7 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
     let metrics_port = METRICS_BASE_PORT + index;
 
     Config {
-        moniker: format!("actor-app-with-parts-{}", index),
+        moniker: format!("actor-app-with-parts-{index}"),
         consensus: ConsensusConfig {
             value_payload: ValuePayload::ProposalAndParts,
             queue_capacity: 100,
@@ -352,7 +352,7 @@ fn make_distributed_config(
     let metrics_port = METRICS_BASE_PORT + (index / machines.len());
 
     Config {
-        moniker: format!("actor-app-with-parts-{}", index),
+        moniker: format!("actor-app-with-parts-{index}"),
         consensus: ConsensusConfig {
             value_payload: ValuePayload::ProposalAndParts,
             queue_capacity: 100,

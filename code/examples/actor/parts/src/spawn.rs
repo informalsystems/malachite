@@ -175,8 +175,8 @@ async fn spawn_sync_actor(
         sync_metrics,
         span.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     Some(actor_ref)
 }
