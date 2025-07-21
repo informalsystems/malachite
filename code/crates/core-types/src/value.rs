@@ -1,9 +1,16 @@
 use core::fmt::{Debug, Display};
 
+use malachitebft_peer::PeerId;
+
 /// Represents either `Nil` or a value of type `Value`.
 ///
 /// This type is isomorphic to `Option<Value>` but is more explicit about its intent.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "borsh",
+    derive(borsh::BorshSerialize, borsh::BorshDeserialize)
+)]
 pub enum NilOrVal<Value> {
     /// The value is `nil`.
     #[default]
@@ -129,8 +136,20 @@ impl ValuePayload {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ValueOrigin {
     /// Synchronization protocol
-    Sync,
+    Sync(PeerId),
 
     /// Consensus protocol
     Consensus,
+}
+
+impl ValueOrigin {
+    /// Value was received from the synchronization protocol.
+    pub fn is_sync(&self) -> bool {
+        matches!(self, Self::Sync(_))
+    }
+
+    /// Value was received from the consensus protocol.
+    pub fn is_consensus(&self) -> bool {
+        matches!(self, Self::Consensus)
+    }
 }

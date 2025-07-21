@@ -1,17 +1,33 @@
 use std::collections::BTreeMap;
 
-use rand::seq::IteratorRandom;
-
-use malachitebft_core_types::{Context, Height, Round};
+use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
 
-use crate::Status;
+use crate::scoring::{ema, PeerScorer, Strategy};
+use crate::{Config, OutboundRequestId, Status};
+
+/// State of a decided value request.
+///
+/// State transitions:
+/// WaitingResponse -> WaitingValidation -> Validated
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RequestState {
+    /// Initial state: waiting for a response from a peer
+    WaitingResponse,
+    /// Response received: waiting for value validation by consensus
+    WaitingValidation,
+    /// Value validated: request is complete
+    Validated,
+}
 
 pub struct State<Ctx>
 where
     Ctx: Context,
 {
     rng: Box<dyn rand::RngCore + Send>,
+
+    /// Configuration for the sync state and behaviour.
+    pub config: Config,
 
     /// Consensus has started
     pub started: bool,
@@ -23,25 +39,42 @@ where
     pub sync_height: Ctx::Height,
 
     /// Decided value requests for these heights have been sent out to peers.
-    pub pending_decided_value_requests: BTreeMap<Ctx::Height, PeerId>,
+    pub pending_value_requests: BTreeMap<Ctx::Height, (OutboundRequestId, RequestState)>,
+
+    /// Maps request ID to height for pending decided value requests.
+    pub height_per_request_id: BTreeMap<OutboundRequestId, Ctx::Height>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
-    /// TODO - For now value and vote sync peers are the same. Might need to revise in the future.
     pub peers: BTreeMap<PeerId, Status<Ctx>>,
+
+    /// Peer scorer for scoring peers based on their performance.
+    pub peer_scorer: PeerScorer,
 }
 
 impl<Ctx> State<Ctx>
 where
     Ctx: Context,
 {
-    pub fn new(rng: Box<dyn rand::RngCore + Send>) -> Self {
+    pub fn new(
+        // Random number generator for selecting peers
+        rng: Box<dyn rand::RngCore + Send>,
+        // Sync configuration
+        config: Config,
+    ) -> Self {
+        let peer_scorer = match config.scoring_strategy {
+            Strategy::Ema => PeerScorer::new(ema::ExponentialMovingAverage::default()),
+        };
+
         Self {
             rng,
+            config,
             started: false,
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
-            pending_decided_value_requests: BTreeMap::new(),
+            pending_value_requests: BTreeMap::new(),
+            height_per_request_id: BTreeMap::new(),
             peers: BTreeMap::new(),
+            peer_scorer,
         }
     }
 
@@ -49,58 +82,128 @@ where
         self.peers.insert(status.peer_id, status);
     }
 
-    /// Select at random a peer that is currently running consensus at `height` and round >= `round`.
-    /// TODO: Potentially extend `Status` to include consensus height and round.
-    pub fn random_peer_with_sync_at(
-        &mut self,
-        sync_height: Ctx::Height,
-        _round: Round,
-    ) -> Option<PeerId> {
-        let tip_height = sync_height.decrement().unwrap_or(sync_height);
-        self.random_peer_with_tip_at(tip_height)
-    }
-
-    /// Select at random a peer whose tip is at the given height.
-    pub fn random_peer_with_tip_at(&mut self, height: Ctx::Height) -> Option<PeerId> {
-        self.peers
-            .iter()
-            .filter_map(move |(&peer, status)| (status.tip_height == height).then_some(peer))
-            .choose_stable(&mut self.rng)
-    }
-
-    /// Select at random a peer whose tip at or above the given height.
+    /// Select at random a peer whose tip is at or above the given height and with min height below the given height.
+    /// In other words, `height` is in `status.history_min_height..=status.tip_height` range.
     pub fn random_peer_with_tip_at_or_above(&mut self, height: Ctx::Height) -> Option<PeerId>
     where
         Ctx: Context,
     {
-        self.peers
+        let peers = self
+            .peers
             .iter()
-            .filter_map(move |(&peer, status)| (status.tip_height >= height).then_some(peer))
-            .choose_stable(&mut self.rng)
+            .filter_map(|(&peer, status)| {
+                (status.history_min_height..=status.tip_height)
+                    .contains(&height)
+                    .then_some(peer)
+            })
+            .collect::<Vec<_>>();
+
+        self.peer_scorer.select_peer(&peers, &mut self.rng)
     }
 
-    /// Select at random a peer that that we know is at or above the given height, except the given one.
+    /// Same as [`Self::random_peer_with_tip_at_or_above`], but excludes the given peer.
     pub fn random_peer_with_tip_at_or_above_except(
         &mut self,
         height: Ctx::Height,
         except: PeerId,
     ) -> Option<PeerId> {
-        self.peers
+        let peers = self
+            .peers
             .iter()
-            .filter_map(move |(&peer, status)| (status.tip_height >= height).then_some(peer))
+            .filter_map(|(&peer, status)| {
+                (status.history_min_height..=status.tip_height)
+                    .contains(&height)
+                    .then_some(peer)
+            })
             .filter(|&peer| peer != except)
-            .choose_stable(&mut self.rng)
+            .collect::<Vec<_>>();
+
+        self.peer_scorer.select_peer(&peers, &mut self.rng)
     }
 
-    pub fn store_pending_decided_value_request(&mut self, height: Ctx::Height, peer: PeerId) {
-        self.pending_decided_value_requests.insert(height, peer);
+    /// Store a pending decided value request for a given height and request ID.
+    ///
+    /// State transition: None -> WaitingResponse
+    pub fn store_pending_value_request(
+        &mut self,
+        height: Ctx::Height,
+        request_id: OutboundRequestId,
+    ) {
+        self.height_per_request_id
+            .insert(request_id.clone(), height);
+
+        self.pending_value_requests
+            .insert(height, (request_id, RequestState::WaitingResponse));
     }
 
-    pub fn remove_pending_decided_value_request(&mut self, height: Ctx::Height) {
-        self.pending_decided_value_requests.remove(&height);
+    /// Mark that a response has been received for a height.
+    ///
+    /// State transition: WaitingResponse -> WaitingValidation
+    pub fn response_received(&mut self, request_id: OutboundRequestId, height: Ctx::Height) {
+        if let Some((req_id, state)) = self.pending_value_requests.get_mut(&height) {
+            if req_id != &request_id {
+                return; // A new request has been made in the meantime, ignore this response.
+            }
+            if *state == RequestState::WaitingResponse {
+                *state = RequestState::WaitingValidation;
+            }
+        }
     }
 
-    pub fn has_pending_decided_value_request(&self, height: &Ctx::Height) -> bool {
-        self.pending_decided_value_requests.contains_key(height)
+    /// Mark that a decided value has been validated for a height.
+    ///
+    /// State transition: WaitingValidation -> Validated
+    /// It is also possible to have the following transition: WaitingResponse -> Validated.
+    pub fn validate_response(&mut self, height: Ctx::Height) {
+        if let Some((_, state)) = self.pending_value_requests.get_mut(&height) {
+            *state = RequestState::Validated;
+        }
+    }
+
+    /// Get the height for a given request ID.
+    pub fn get_height_for_request_id(&self, request_id: &OutboundRequestId) -> Option<Ctx::Height> {
+        self.height_per_request_id.get(request_id).cloned()
+    }
+
+    /// Remove the pending decided value request for a given height.
+    pub fn remove_pending_request_by_height(&mut self, height: &Ctx::Height) {
+        if let Some((request_id, _)) = self.pending_value_requests.remove(height) {
+            self.height_per_request_id.remove(&request_id);
+        }
+    }
+
+    /// Remove a pending decided value request by its ID and return the height it was associated with.
+    pub fn remove_pending_value_request_by_id(
+        &mut self,
+        request_id: &OutboundRequestId,
+    ) -> Option<Ctx::Height> {
+        let height = self.height_per_request_id.remove(request_id)?;
+
+        self.pending_value_requests.remove(&height);
+
+        Some(height)
+    }
+
+    /// Check if there are any pending decided value requests for a given height.
+    pub fn has_pending_value_request(&self, height: &Ctx::Height) -> bool {
+        self.pending_value_requests.contains_key(height)
+    }
+
+    /// Check if a pending decided value request for a given height is in the `Validated` state.
+    pub fn is_pending_value_request_validated_by_height(&self, height: &Ctx::Height) -> bool {
+        if let Some((_, state)) = self.pending_value_requests.get(height) {
+            *state == RequestState::Validated
+        } else {
+            false
+        }
+    }
+
+    /// Check if a pending decided value request for a given request ID is in the `Validated` state.
+    pub fn is_pending_value_request_validated_by_id(&self, request_id: &OutboundRequestId) -> bool {
+        if let Some(height) = self.height_per_request_id.get(request_id) {
+            self.is_pending_value_request_validated_by_height(height)
+        } else {
+            false
+        }
     }
 }
