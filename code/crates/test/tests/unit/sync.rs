@@ -35,83 +35,168 @@ fn filtering_peers() {
     let range2 = Height::new(3)..=Height::new(10);
     let range3 = Height::new(11)..=Height::new(20);
 
-    let mut peers = BTreeMap::new();
+    struct TestCase {
+        name: &'static str,
+        peers: Vec<(PeerId, PeerKind, u64, u64)>,
+        range: std::ops::RangeInclusive<Height>,
+        exclude_peer: Option<PeerId>,
+        expected_peers: Vec<PeerId>,
+        expected_ranges: Vec<(u64, u64)>, // (start, end) for each expected peer
+    }
 
-    // Only v2 peers
-    add_peer(&mut peers, peer1, SyncV2, 1, 5);
-    add_peer(&mut peers, peer2, SyncV2, 1, 10);
+    let test_cases = vec![
+        TestCase {
+            name: "only v2 peers, range1, no exclusion",
+            peers: vec![(peer1, SyncV2, 1, 5), (peer2, SyncV2, 1, 10)],
+            range: range1.clone(),
+            exclude_peer: None,
+            expected_peers: vec![peer1, peer2],
+            expected_ranges: vec![(3, 5), (3, 5)],
+        },
+        TestCase {
+            name: "only v2 peers, range1, exclude peer1",
+            peers: vec![(peer1, SyncV2, 1, 5), (peer2, SyncV2, 1, 10)],
+            range: range1.clone(),
+            exclude_peer: Some(peer1),
+            expected_peers: vec![peer2],
+            expected_ranges: vec![(3, 5)],
+        },
+        TestCase {
+            name: "only v2 peers, range2, no exclusion",
+            peers: vec![(peer1, SyncV2, 1, 5), (peer2, SyncV2, 1, 10)],
+            range: range2.clone(),
+            exclude_peer: None,
+            expected_peers: vec![peer2],
+            expected_ranges: vec![(3, 10)],
+        },
+        TestCase {
+            name: "only v2 peers, range3, no exclusion",
+            peers: vec![(peer1, SyncV2, 1, 5), (peer2, SyncV2, 1, 10)],
+            range: range3.clone(),
+            exclude_peer: None,
+            expected_peers: vec![],
+            expected_ranges: vec![],
+        },
+        TestCase {
+            name: "mix of v1 and v2 peers, range1, no exclusion",
+            peers: vec![
+                (peer1, SyncV2, 1, 5),
+                (peer2, SyncV2, 1, 10),
+                (peer3, SyncV1, 1, 5),
+                (peer4, SyncV1, 1, 10),
+            ],
+            range: range1.clone(),
+            exclude_peer: None,
+            expected_peers: vec![peer1, peer2],
+            expected_ranges: vec![(3, 5), (3, 5)],
+        },
+        TestCase {
+            name: "mix of v1 and v2 peers, range1, exclude peer1",
+            peers: vec![
+                (peer1, SyncV2, 1, 5),
+                (peer2, SyncV2, 1, 10),
+                (peer3, SyncV1, 1, 5),
+                (peer4, SyncV1, 1, 10),
+            ],
+            range: range1.clone(),
+            exclude_peer: Some(peer1),
+            expected_peers: vec![peer2],
+            expected_ranges: vec![(3, 5)],
+        },
+        TestCase {
+            name: "mix of v1 and v2 peers, range3, no exclusion",
+            peers: vec![
+                (peer1, SyncV2, 1, 5),
+                (peer2, SyncV2, 1, 10),
+                (peer3, SyncV1, 1, 5),
+                (peer4, SyncV1, 1, 10),
+            ],
+            range: range3.clone(),
+            exclude_peer: None,
+            expected_peers: vec![],
+            expected_ranges: vec![],
+        },
+        TestCase {
+            name: "only v1 peers, range2, no exclusion",
+            peers: vec![(peer3, SyncV1, 1, 5), (peer4, SyncV1, 1, 10)],
+            range: range2.clone(),
+            exclude_peer: None,
+            expected_peers: vec![peer3, peer4],
+            expected_ranges: vec![(3, 3), (3, 3)],
+        },
+        TestCase {
+            name: "only v1 peers, range2, exclude peer3",
+            peers: vec![(peer3, SyncV1, 1, 5), (peer4, SyncV1, 1, 10)],
+            range: range2.clone(),
+            exclude_peer: Some(peer3),
+            expected_peers: vec![peer4],
+            expected_ranges: vec![(3, 3)],
+        },
+        TestCase {
+            name: "only v1 peers, range3, no exclusion",
+            peers: vec![(peer3, SyncV1, 1, 5), (peer4, SyncV1, 1, 10)],
+            range: range3.clone(),
+            exclude_peer: None,
+            expected_peers: vec![],
+            expected_ranges: vec![],
+        },
+    ];
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range1, None);
-    assert_eq!(filtered_peers.len(), 2);
-    assert!(filtered_peers.contains_key(&peer1));
-    assert!(filtered_peers.contains_key(&peer2));
-    assert_eq!(filtered_peers.get(&peer1).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer1).unwrap().end().as_u64(), 5);
-    assert_eq!(filtered_peers.get(&peer2).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer2).unwrap().end().as_u64(), 5);
+    for test_case in test_cases {
+        let mut peers = BTreeMap::new();
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range1, Some(peer1));
-    assert_eq!(filtered_peers.len(), 1);
-    assert!(!filtered_peers.contains_key(&peer1));
-    assert!(filtered_peers.contains_key(&peer2));
-    assert_eq!(filtered_peers.get(&peer2).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer2).unwrap().end().as_u64(), 5);
+        // Setup peers for this test case
+        for (peer_id, kind, min, max) in &test_case.peers {
+            add_peer(&mut peers, *peer_id, *kind, *min, *max);
+        }
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range2, None);
-    assert_eq!(filtered_peers.len(), 1);
-    assert!(!filtered_peers.contains_key(&peer1));
-    assert!(filtered_peers.contains_key(&peer2));
-    assert_eq!(filtered_peers.get(&peer2).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer2).unwrap().end().as_u64(), 10);
+        let filtered_peers = State::<TestContext>::filter_peers_by_range(
+            &peers,
+            &test_case.range,
+            test_case.exclude_peer,
+        );
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range3, None);
-    assert!(filtered_peers.is_empty());
+        // Verify expected number of peers
+        assert_eq!(
+            filtered_peers.len(),
+            test_case.expected_peers.len(),
+            "Test case '{}': expected {} peers, got {}",
+            test_case.name,
+            test_case.expected_peers.len(),
+            filtered_peers.len()
+        );
 
-    // A mix of v1 and v2 peers
-    add_peer(&mut peers, peer3, SyncV1, 1, 5);
-    add_peer(&mut peers, peer4, SyncV1, 1, 10);
+        // Verify each expected peer is present with correct range
+        for (i, expected_peer) in test_case.expected_peers.iter().enumerate() {
+            assert!(
+                filtered_peers.contains_key(expected_peer),
+                "Test case '{}': expected peer {:?} not found",
+                test_case.name,
+                expected_peer
+            );
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range1, None);
-    assert_eq!(filtered_peers.len(), 2);
-    assert!(filtered_peers.contains_key(&peer1));
-    assert!(filtered_peers.contains_key(&peer2));
-    assert!(!filtered_peers.contains_key(&peer3));
-    assert!(!filtered_peers.contains_key(&peer4));
+            let peer_range = filtered_peers.get(expected_peer).unwrap();
+            let (expected_start, expected_end) = test_case.expected_ranges[i];
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range1, Some(peer1));
-    assert_eq!(filtered_peers.len(), 1);
-    assert!(!filtered_peers.contains_key(&peer1));
-    assert!(filtered_peers.contains_key(&peer2));
-    assert!(!filtered_peers.contains_key(&peer3));
-    assert!(!filtered_peers.contains_key(&peer4));
+            assert_eq!(
+                peer_range.start().as_u64(),
+                expected_start,
+                "Test case '{}': peer {:?} has wrong start, expected {}, got {}",
+                test_case.name,
+                expected_peer,
+                expected_start,
+                peer_range.start().as_u64()
+            );
 
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range3, None);
-    assert!(filtered_peers.is_empty());
-
-    // Only v1 peers
-    peers.remove(&peer1);
-    peers.remove(&peer2);
-
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range2, None);
-    assert_eq!(filtered_peers.len(), 2);
-    assert!(!filtered_peers.contains_key(&peer1));
-    assert!(!filtered_peers.contains_key(&peer2));
-    assert!(filtered_peers.contains_key(&peer3));
-    assert!(filtered_peers.contains_key(&peer4));
-    assert_eq!(filtered_peers.get(&peer3).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer3).unwrap().end().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer4).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer4).unwrap().end().as_u64(), 3);
-
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range2, Some(peer3));
-    assert_eq!(filtered_peers.len(), 1);
-    assert!(!filtered_peers.contains_key(&peer1));
-    assert!(!filtered_peers.contains_key(&peer2));
-    assert!(!filtered_peers.contains_key(&peer3));
-    assert!(filtered_peers.contains_key(&peer4));
-    assert_eq!(filtered_peers.get(&peer4).unwrap().start().as_u64(), 3);
-    assert_eq!(filtered_peers.get(&peer4).unwrap().end().as_u64(), 3);
-
-    let filtered_peers = State::<TestContext>::filter_peers_by_range(&peers, &range3, None);
-    assert!(filtered_peers.is_empty());
+            assert_eq!(
+                peer_range.end().as_u64(),
+                expected_end,
+                "Test case '{}': peer {:?} has wrong end, expected {}, got {}",
+                test_case.name,
+                expected_peer,
+                expected_end,
+                peer_range.end().as_u64()
+            );
+        }
+    }
 }
