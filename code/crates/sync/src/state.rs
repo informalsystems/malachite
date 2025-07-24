@@ -186,7 +186,9 @@ where
 
     /// Check if there are any pending decided value requests for a given height.
     pub fn has_pending_value_request(&self, height: &Ctx::Height) -> bool {
-        self.pending_value_requests.contains_key(height)
+        self.pending_value_requests
+            .get(height)
+            .is_some_and(|(_, state)| *state == RequestState::WaitingResponse)
     }
 
     /// Check if a pending decided value request for a given height is in the `Validated` state.
