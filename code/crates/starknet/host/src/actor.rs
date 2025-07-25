@@ -556,7 +556,20 @@ async fn on_received_proposal_part(
             part.height = %parts.height,
             part.round = %parts.round,
             part.sequence = %sequence,
-            "Received outdated proposal part, ignoring"
+            "Received proposal part for past height, ignoring"
+        );
+
+        return Ok(());
+    }
+
+    if parts.height > state.height {
+        trace!(
+            height = %state.height,
+            round = %state.round,
+            part.height = %parts.height,
+            part.round = %parts.round,
+            part.sequence = %sequence,
+            "Received proposal part for future height, ignoring"
         );
 
         return Ok(());

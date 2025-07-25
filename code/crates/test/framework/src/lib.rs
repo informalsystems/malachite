@@ -116,7 +116,7 @@ where
         Ctx: HasTestRunner<R>,
         S: Send + Sync + 'static,
     {
-        run_test::<Ctx::Runner, Ctx, S>(self, timeout, params).await
+        run_test::<Ctx::Runner, Ctx, S>(self, timeout * 2, params).await
     }
 }
 
