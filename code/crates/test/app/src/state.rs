@@ -110,7 +110,20 @@ impl State {
                 part.height = %parts.height,
                 part.round = %parts.round,
                 part.sequence = %sequence,
-                "Received outdated proposal part, ignoring"
+                "Received proposal part for past height, ignoring"
+            );
+
+            return Ok(None);
+        }
+
+        if parts.height > self.current_height {
+            debug!(
+                height = %self.current_height,
+                round = %self.current_round,
+                part.height = %parts.height,
+                part.round = %parts.round,
+                part.sequence = %sequence,
+                "Received proposal part for future height, ignoring"
             );
 
             return Ok(None);
