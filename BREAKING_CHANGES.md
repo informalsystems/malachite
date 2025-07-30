@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### General
+
+- Updated libp2p to v0.56.x ([#1124](https://github.com/informalsystems/malachite/pull/1124))
+
+### `malachitebft-app-channel`
+
+- Changed type of field `reply` of enum variant `AppMsg::Decided` to `Reply<malachitebft_engine::host::Next<Ctx>>` ([#1109](https://github.com/informalsystems/malachite/pull/1109))
+
+### `malachitebft-engine`
+
+- Changed tuple field of enum variant `HostMsg::ConsensusReady` to a field named `reply_to` of type `RpcReplyPort<(Ctx::Height, Ctx::ValidatorSet)>` ([#1109](https://github.com/informalsystems/malachite/pull/1109))
+- Added field `reply_to` to enum variant `HostMsg::StartedRound` with type `RpcReplyPort<Vec<ProposedValue<Ctx>>>` ([#1109](https://github.com/informalsystems/malachite/pull/1109))
+- Changed type of field `reply_to` of enum variant `HostMsg::Decided` to `RpcReplyPort<malachitebft_engine::host::Next<Ctx>>` ([#1109](https://github.com/informalsystems/malachite/pull/1109))
+
+### `malachitebft-core-consensus`
+
+- Rename `Effect::RebroadcastVote` to `Effect::RepublishVote` and `Effect::RebroadcastRoundCertificate` to `Effect::RepublishRoundCertificate` ([#1011](https://github.com/informalsystems/malachite/issues/1011))
+
+## 0.4.0
+
+*July 8th, 2025*
+
+### `malachitebft-config`
+- Added new sync parameters to config.
+  See ([#1092](https://github.com/informalsystems/malachite/issues/1092)) for more details.
+
+### `malachitebft-sync`
+- Added new parallel requests related parameters to sync config.
+  See ([#1092](https://github.com/informalsystems/malachite/issues/1092)) for more details.
+
+
+## 0.3.1
+
+*July 7th, 2025*
+
+No breaking changes.
+
+
+## 0.3.0
+
+*June 17th, 2025*
+
 ### `malachitebft-core-types`
 - Removed the VoteSet synchronization protocol, as it is neither required nor sufficient for liveness.
   See ([#998](https://github.com/informalsystems/malachite/issues/998)) for more details.
@@ -11,6 +53,9 @@
   See ([#998](https://github.com/informalsystems/malachite/issues/998)) for more details.
 - Added new variants to `Input` enum: `PolkaCertificate` and `RoundCertificate`
 - Added new variant to `Effect` enum: `PublishLivenessMessage`
+
+### `malachitebft-metrics`
+- Removed app-specific metrics from the `malachitebft-metrics` crate ([#1054](https://github.com/informalsystems/malachite/issues/1054))
 
 ### `malachitebft-engine`
 - Removed the VoteSet synchronization protocol, as it is neither required nor sufficient for liveness.
@@ -34,6 +79,9 @@
 ### `malachitebft-sync`
 - Removed the VoteSet synchronization protocol, as it is neither required nor sufficient for liveness.
   See ([#998](https://github.com/informalsystems/malachite/issues/998)) for more details.
+
+### `informalsystems-malachitebft-app-channel`
+- The `start_engine` function now takes two `Codec`s: one for the WAL and one for the network.
 
 ## 0.2.0
 

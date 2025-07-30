@@ -139,11 +139,12 @@ impl TestRunner {
         let i = node - 1;
 
         Config {
-            moniker: format!("node-{}", node),
+            moniker: format!("node-{node}"),
             logging: LoggingConfig::default(),
             consensus: ConsensusConfig {
                 // Current test app does not support proposal-only value payload properly as Init does not include valid_round
                 value_payload: ValuePayload::ProposalAndParts,
+                queue_capacity: 100, // Deprecated, derived from `sync.parallel_requests`
                 timeouts: TimeoutConfig::default(),
                 p2p: P2pConfig {
                     protocol,
@@ -160,6 +161,7 @@ impl TestRunner {
                 enabled: true,
                 status_update_interval: Duration::from_secs(2),
                 request_timeout: Duration::from_secs(5),
+                ..Default::default()
             },
             metrics: MetricsConfig {
                 enabled: false,

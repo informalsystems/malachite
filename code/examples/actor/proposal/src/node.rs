@@ -13,7 +13,7 @@ use malachitebft_app::node::{
     CanMakePrivateKeyFile, MakeConfigSettings, Node, NodeHandle,
 };
 use malachitebft_app::types::Keypair;
-use malachitebft_config::mempool_load::UniformLoadConfig;
+use malachitebft_config::{mempool_load::UniformLoadConfig, ValueSyncConfig};
 use malachitebft_core_types::VotingPower;
 use malachitebft_engine::node::NodeRef;
 
@@ -253,6 +253,7 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
     Config {
         moniker: format!("actor-app-proposal-{}", index),
         consensus: ConsensusConfig {
+            queue_capacity: 1000,
             value_payload: ValuePayload::ProposalOnly,
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
@@ -350,6 +351,7 @@ fn make_distributed_config(
     Config {
         moniker: format!("actor-app-proposal-{}", index),
         consensus: ConsensusConfig {
+            queue_capacity: 1000,
             value_payload: ValuePayload::ProposalOnly,
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
@@ -407,6 +409,7 @@ fn make_distributed_config(
             enabled: false,
             status_update_interval: Duration::from_secs(0),
             request_timeout: Duration::from_secs(0),
+            ..Default::default()
         },
         metrics: MetricsConfig {
             enabled: true,
@@ -428,6 +431,7 @@ fn default_config() -> Config {
             runtime: RuntimeConfig::single_threaded(),
             transport: TransportProtocol::Tcp,
             discovery: DiscoveryConfig::default(),
+            value_sync: ValueSyncConfig::default(),
         },
     )
 }

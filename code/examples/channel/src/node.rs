@@ -124,13 +124,12 @@ impl Node for App {
         let genesis = self.load_genesis()?;
         let initial_validator_set = genesis.validator_set.clone();
 
-        let codec = ProtobufCodec;
-
         let (mut channels, engine_handle) = malachitebft_app_channel::start_engine(
             ctx.clone(),
-            codec,
             self.clone(),
             config.clone(),
+            ProtobufCodec, // WAL codec
+            ProtobufCodec, // Network codec
             self.start_height,
             initial_validator_set,
         )
@@ -223,10 +222,11 @@ fn make_config(index: usize, total: usize, settings: MakeConfigSettings) -> Conf
     let metrics_port = METRICS_BASE_PORT + index;
 
     Config {
-        moniker: format!("app-{}", index),
+        moniker: format!("app-{index}"),
         consensus: ConsensusConfig {
             // Current channel app does not support parts-only value payload properly as Init does not include valid_round
             value_payload: ValuePayload::ProposalAndParts,
+            queue_capacity: 100, // Deprecated, derived from `sync.parallel_requests`
             timeouts: TimeoutConfig::default(),
             p2p: P2pConfig {
                 protocol: PubSubProtocol::default(),

@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use eyre::eyre;
+use malachitebft_app_channel::app::engine::host::Next;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
 
@@ -10,8 +11,8 @@ use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{Round, Validity};
 use malachitebft_app_channel::app::types::sync::RawDecidedValue;
 use malachitebft_app_channel::app::types::{LocallyProposedValue, ProposedValue};
-use malachitebft_app_channel::{AppMsg, Channels, ConsensusMsg, NetworkMsg};
-use malachitebft_test::codec::proto::ProtobufCodec;
+use malachitebft_app_channel::{AppMsg, Channels, NetworkMsg};
+use malachitebft_test::codec::json::JsonCodec;
 use malachitebft_test::{Genesis, Height, TestContext};
 
 use crate::state::{decode_value, State};
@@ -207,10 +208,7 @@ pub async fn run(
                             .expect("Validator set should be available");
 
                         if reply
-                            .send(ConsensusMsg::StartHeight(
-                                state.current_height,
-                                validator_set,
-                            ))
+                            .send(Next::Start(state.current_height, validator_set))
                             .is_err()
                         {
                             error!("Failed to send StartHeight reply");
@@ -233,10 +231,7 @@ pub async fn run(
                             .expect("Validator set should be available");
 
                         if reply
-                            .send(ConsensusMsg::RestartHeight(
-                                state.current_height,
-                                validator_set,
-                            ))
+                            .send(Next::Restart(state.current_height, validator_set))
                             .is_err()
                         {
                             error!("Failed to send RestartHeight reply");
@@ -261,23 +256,26 @@ pub async fn run(
             } => {
                 info!(%height, %round, "Processing synced value");
 
-                let value = decode_value(value_bytes);
+                if let Some(value) = decode_value(value_bytes) {
+                    let proposal = ProposedValue {
+                        height,
+                        round,
+                        valid_round: Round::Nil,
+                        proposer,
+                        value,
+                        validity: Validity::Valid,
+                    };
 
-                // TODO - verify the validity of value
-                let proposal = ProposedValue {
-                    height,
-                    round,
-                    valid_round: Round::Nil,
-                    proposer,
-                    value,
-                    validity: Validity::Valid,
-                };
+                    state.store_synced_value(proposal.clone()).await?;
 
-                // TODO - should we store invalid values?
-                state.store_synced_value(proposal.clone()).await?;
-
-                if reply.send(proposal).is_err() {
-                    error!("Failed to send ProcessSyncedValue reply");
+                    if reply.send(Some(proposal)).is_err() {
+                        error!("Failed to send ProcessSyncedValue reply");
+                    }
+                } else {
+                    error!(%height, %round, "Failed to decode synced value");
+                    if reply.send(None).is_err() {
+                        error!("Failed to send ProcessSyncedValue reply");
+                    }
                 }
             }
 
@@ -294,7 +292,7 @@ pub async fn run(
 
                 let raw_decided_value = decided_value.map(|decided_value| RawDecidedValue {
                     certificate: decided_value.certificate,
-                    value_bytes: ProtobufCodec.encode(&decided_value.value).unwrap(), // FIXME: unwrap
+                    value_bytes: JsonCodec.encode(&decided_value.value).unwrap(), // FIXME: unwrap
                 });
 
                 if reply.send(raw_decided_value).is_err() {

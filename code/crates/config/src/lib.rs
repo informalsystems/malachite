@@ -67,6 +67,10 @@ pub struct DiscoveryConfig {
     #[serde(default)]
     pub num_inbound_peers: usize,
 
+    /// Maximum number of connections per peer
+    #[serde(default)]
+    pub max_connections_per_peer: usize,
+
     /// Ephemeral connection timeout
     #[serde(default)]
     #[serde(with = "humantime_serde")]
@@ -81,6 +85,7 @@ impl Default for DiscoveryConfig {
             selector: Default::default(),
             num_outbound_peers: 0,
             num_inbound_peers: 20,
+            max_connections_per_peer: 5,
             ephemeral_connection_timeout: Default::default(),
         }
     }
@@ -423,6 +428,23 @@ pub struct ValueSyncConfig {
     /// Timeout duration for sync requests
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
+
+    /// Maximum size of a request
+    pub max_request_size: ByteSize,
+
+    /// Maximum size of a response
+    pub max_response_size: ByteSize,
+
+    /// Maximum number of parallel requests to send
+    pub parallel_requests: usize,
+
+    /// Scoring strategy for peers
+    #[serde(default)]
+    pub scoring_strategy: ScoringStrategy,
+
+    /// Threshold for considering a peer inactive
+    #[serde(with = "humantime_serde")]
+    pub inactive_threshold: Duration,
 }
 
 impl Default for ValueSyncConfig {
@@ -431,6 +453,37 @@ impl Default for ValueSyncConfig {
             enabled: true,
             status_update_interval: Duration::from_secs(10),
             request_timeout: Duration::from_secs(10),
+            max_request_size: ByteSize::mib(1),
+            max_response_size: ByteSize::mib(512),
+            parallel_requests: 5,
+            scoring_strategy: ScoringStrategy::default(),
+            inactive_threshold: Duration::from_secs(60),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScoringStrategy {
+    #[default]
+    Ema,
+}
+
+impl ScoringStrategy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Ema => "ema",
+        }
+    }
+}
+
+impl FromStr for ScoringStrategy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ema" => Ok(Self::Ema),
+            e => Err(format!("unknown scoring strategy: {e}, available: ema")),
         }
     }
 }
@@ -447,6 +500,14 @@ pub struct ConsensusConfig {
 
     /// Message types that can carry values
     pub value_payload: ValuePayload,
+
+    /// Size of the consensus input queue
+    ///
+    /// # Deprecated
+    /// This setting is deprecated and will be removed in the future.
+    /// The queue capacity is now derived from the `sync.parallel_requests` setting.
+    #[serde(default)]
+    pub queue_capacity: usize,
 }
 
 /// Message types required by consensus to deliver the value being proposed
@@ -503,7 +564,7 @@ pub struct TimeoutConfig {
     pub timeout_precommit_delta: Duration,
 
     /// How long we wait after entering a round before starting
-    /// the rebroadcast liveness protocol    
+    /// the rebroadcast liveness protocol
     #[serde(with = "humantime_serde")]
     pub timeout_rebroadcast: Duration,
 }

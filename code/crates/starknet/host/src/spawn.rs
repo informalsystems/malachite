@@ -145,9 +145,32 @@ async fn spawn_sync_actor(
         request_timeout: config.request_timeout,
     };
 
-    let actor_ref = Sync::spawn(ctx, network, host, params, sync_metrics, span.clone())
-        .await
-        .unwrap();
+    let scoring_strategy = match config.scoring_strategy {
+        config::ScoringStrategy::Ema => sync::scoring::Strategy::Ema,
+    };
+
+    let sync_config = sync::Config {
+        enabled: config.enabled,
+        max_request_size: config.max_request_size.as_u64() as usize,
+        max_response_size: config.max_response_size.as_u64() as usize,
+        request_timeout: config.request_timeout,
+        parallel_requests: config.parallel_requests as u64,
+        scoring_strategy,
+        inactive_threshold: (!config.inactive_threshold.is_zero())
+            .then_some(config.inactive_threshold),
+    };
+
+    let actor_ref = Sync::spawn(
+        ctx,
+        network,
+        host,
+        params,
+        sync_config,
+        sync_metrics,
+        span.clone(),
+    )
+    .await
+    .unwrap();
 
     Some(actor_ref)
 }
@@ -158,7 +181,7 @@ async fn spawn_consensus_actor(
     initial_validator_set: ValidatorSet,
     address: Address,
     ctx: MockContext,
-    cfg: Config,
+    mut cfg: Config,
     signing_provider: Ed25519Provider,
     network: NetworkRef<MockContext>,
     host: HostRef<MockContext>,
@@ -176,10 +199,13 @@ async fn spawn_consensus_actor(
         value_payload: ValuePayload::PartsOnly,
     };
 
+    // Derive the consensus queue capacity from `sync.parallel_requests`
+    cfg.consensus.queue_capacity = cfg.value_sync.parallel_requests;
+
     Consensus::spawn(
         ctx,
         consensus_params,
-        cfg.consensus.timeouts,
+        cfg.consensus,
         Box::new(signing_provider),
         network,
         host,
@@ -220,6 +246,7 @@ async fn spawn_network_actor(
             selector,
             num_outbound_peers: cfg.consensus.p2p.discovery.num_outbound_peers,
             num_inbound_peers: cfg.consensus.p2p.discovery.num_inbound_peers,
+            max_connections_per_peer: cfg.consensus.p2p.discovery.max_connections_per_peer,
             ephemeral_connection_timeout: cfg.consensus.p2p.discovery.ephemeral_connection_timeout,
             ..Default::default()
         },

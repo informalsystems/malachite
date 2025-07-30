@@ -14,9 +14,8 @@ use crate::types::{
     Address, Block, Ed25519Provider, Hash, Height, MockContext, ValidatorSet, Value,
 };
 use malachitebft_core_consensus::Role;
-use malachitebft_core_types::{CommitCertificate, Round, Validity, ValueOrigin};
-use malachitebft_engine::consensus::{ConsensusMsg, ConsensusRef};
-use malachitebft_engine::host::{LocallyProposedValue, ProposedValue};
+use malachitebft_core_types::{CommitCertificate, Round, Validity};
+use malachitebft_engine::host::{LocallyProposedValue, Next, ProposedValue};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
@@ -111,14 +110,15 @@ impl Host {
         state: &mut HostState,
     ) -> Result<(), ActorProcessingErr> {
         match msg {
-            HostMsg::ConsensusReady(consensus) => on_consensus_ready(state, consensus).await,
+            HostMsg::ConsensusReady { reply_to } => on_consensus_ready(state, reply_to).await,
 
             HostMsg::StartedRound {
                 height,
                 round,
                 proposer,
                 role,
-            } => on_started_round(state, height, round, proposer, role).await,
+                reply_to,
+            } => on_started_round(state, height, round, proposer, role, reply_to).await,
 
             HostMsg::GetHistoryMinHeight { reply_to } => {
                 on_get_history_min_height(state, reply_to).await
@@ -153,9 +153,9 @@ impl Host {
 
             HostMsg::Decided {
                 certificate,
-                consensus,
+                reply_to,
                 ..
-            } => on_decided(state, &consensus, certificate, &self.metrics).await,
+            } => on_decided(state, certificate, &self.metrics, reply_to).await,
 
             HostMsg::GetDecidedValue { height, reply_to } => {
                 on_get_decided_block(height, state, reply_to).await
@@ -164,19 +164,11 @@ impl Host {
             HostMsg::ProcessSyncedValue {
                 height,
                 round,
-                validator_address,
+                proposer,
                 value_bytes,
                 reply_to,
             } => {
-                on_process_synced_value(
-                    state,
-                    value_bytes,
-                    height,
-                    round,
-                    validator_address,
-                    reply_to,
-                )
-                .await
+                on_process_synced_value(state, value_bytes, height, round, proposer, reply_to).await
             }
 
             HostMsg::ExtendVote { reply_to, .. } => {
@@ -194,7 +186,7 @@ impl Host {
 
 async fn on_consensus_ready(
     state: &mut HostState,
-    consensus: ConsensusRef<MockContext>,
+    reply_to: RpcReplyPort<(Height, ValidatorSet)>,
 ) -> Result<(), ActorProcessingErr> {
     let latest_block_height = state
         .block_store
@@ -202,39 +194,11 @@ async fn on_consensus_ready(
         .await
         .unwrap_or_default();
     let start_height = latest_block_height.increment();
-
-    state.consensus = Some(consensus.clone());
-
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    consensus.cast(ConsensusMsg::StartHeight(
-        start_height,
-        state.app.validator_set.clone(),
-    ))?;
-
-    Ok(())
-}
-
-async fn replay_undecided_values(
-    state: &mut HostState,
-    height: Height,
-    round: Round,
-) -> Result<(), ActorProcessingErr> {
-    let undecided_values = state
-        .block_store
-        .get_undecided_proposals(height, round)
-        .await?;
-
-    let consensus = state.consensus.as_ref().unwrap();
-
-    for proposal in undecided_values {
-        let hash = proposal.value.value.block_hash.clone();
-        info!(%height, %round, hash = ?hash, "Replaying already known proposed value");
-
-        consensus.cast(ConsensusMsg::ReceivedProposedValue(
-            proposal,
-            ValueOrigin::Consensus,
-        ))?;
+    if reply_to
+        .send((start_height, state.app.validator_set.clone()))
+        .is_err()
+    {
+        error!("Failed to send ConsensusReady reply");
     }
 
     Ok(())
@@ -246,6 +210,7 @@ async fn on_started_round(
     round: Round,
     proposer: Address,
     role: Role,
+    reply_to: RpcReplyPort<Vec<ProposedValue<MockContext>>>,
 ) -> Result<(), ActorProcessingErr> {
     state.height = height;
     state.round = round;
@@ -254,8 +219,14 @@ async fn on_started_round(
 
     // If we have already built or seen one or more values for this height and round,
     // feed them back to consensus. This may happen when we are restarting after a crash.
-    replay_undecided_values(state, height, round).await?;
+    let proposals = state
+        .block_store
+        .get_undecided_proposals(height, round)
+        .await?;
 
+    if reply_to.send(proposals).is_err() {
+        error!("Failed to send undecided proposals");
+    }
     Ok(())
 }
 
@@ -472,9 +443,9 @@ async fn on_get_decided_block(
 
 async fn on_decided(
     state: &mut HostState,
-    consensus: &ConsensusRef<MockContext>,
     certificate: CommitCertificate<MockContext>,
     metrics: &Metrics,
+    reply_to: RpcReplyPort<Next<MockContext>>,
 ) -> Result<(), ActorProcessingErr> {
     let (height, round) = (certificate.height, certificate.round);
 
@@ -520,10 +491,15 @@ async fn on_decided(
     state.app.decision(block, certificate).await;
 
     // Start the next height
-    consensus.cast(ConsensusMsg::StartHeight(
-        state.height.increment(),
-        state.app.validator_set.clone(),
-    ))?;
+    if reply_to
+        .send(Next::Start(
+            state.height.increment(),
+            state.app.validator_set.clone(),
+        ))
+        .is_err()
+    {
+        error!("Failed to send StartHeight reply");
+    }
 
     Ok(())
 }

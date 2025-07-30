@@ -1,14 +1,83 @@
 # Changelog
 
+## 0.4.0
+
+*July 8, 2025*
+
+## 📖 Release notes
+See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#040) for the release notes.
+
+### ⚠️ Breaking changes
+See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#040) for the list of breaking changes.
+
+### 🚀 Features
+
+- *(code/sync)* Parallel requests ([#1095](https://github.com/informalsystems/malachite/pull/1095))
+
+## 0.3.1
+
+*July 7, 2025*
+
+## 📖 Release notes
+See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#031) for the release notes.
+
+### ⚠️ Breaking changes
+No breaking changes.
+
+### 🚀 Features
+
+- *(code)* Derive Borsh encoding for core types ([#1098](https://github.com/informalsystems/malachite/pull/1098))
+
+### 🐛 Bug Fixes
+
+- *(code)* Emit error instead of panic when validator set is empty ([#1111](https://github.com/informalsystems/malachite/pull/1111))
+- *(code)* Drop the sync response instead of passing it up to the app when the commit certificate is invalid ([#1112](https://github.com/informalsystems/malachite/pull/1112))
+
+## 0.3.0
+
+*June 17, 2025*
+
+## 📖 Release notes
+See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#030) for the release notes.
+
+### ⚠️ Breaking changes
+See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#030) for the list of breaking changes.
+
+### 🧪 Specifications
+
+- *(spec/quint)* Move consensus timeout firing into state machine ([#981](https://github.com/informalsystems/malachite/pull/981))
+
+### 🚀 Features
+
+- *(code/test)* Dynamic validator set ([#987](https://github.com/informalsystems/malachite/pull/987))
+- *(code)* Handle multiple proposals for same height and round ([#977](https://github.com/informalsystems/malachite/pull/977))
+- *(code)* Implement minimal gossip properties to ensure liveness ([#997](https://github.com/informalsystems/malachite/pull/997))
+- *(code)* Improve round certificate verification ([#1041](https://github.com/informalsystems/malachite/pull/1041))
+- *(code)* Compute and show in logs the role of the node during a round: Proposer, Validator, or None ([#1055](https://github.com/informalsystems/malachite/pull/1055))
+- *(code)* Prune votes and polka certificates that are from lower rounds than node's `locked_round` ([#1061](https://github.com/informalsystems/malachite/pull/1061))
+- *(code)* Add driver support for handling multiple equivocating proposals ([#1057](https://github.com/informalsystems/malachite/pull/1057))
+- *(code/app)* Resurrect the JSON codec, use it in the test app for networking ([#1077](https://github.com/informalsystems/malachite/pull/1077))
+- *(code/sync)* Add peer scoring system  ([#1071](https://github.com/informalsystems/malachite/pull/1071))
+- *(code/sync)* Re-request sync from another peer on failed responses ([#1084](https://github.com/informalsystems/malachite/pull/1084))
+
+### 🐛 Bug Fixes
+
+- *(code)* Make `Store`/`BlockStore` "open" method async in example, test app, and starknet ([#1014](https://github.com/informalsystems/malachite/pull/1014))
+- *(code)* Remove unused `PeerJoined` and `PeerLeft` host/app messages ([#1016](https://github.com/informalsystems/malachite/pull/1016))
+- *(code)* Remove app-specific metrics from the `metrics` crate ([#1064](https://github.com/informalsystems/malachite/pull/1064))
+- *(code/sync)* Add `history_min_height <= height` filter when selecting sync peers ([#1075](https://github.com/informalsystems/malachite/pull/1075))
+- *(code/sync)* Process sync responses even when they fail to decode ([#1078](https://github.com/informalsystems/malachite/pull/1078))
+- *(code/discovery)* Connection upgrades and multiaddr issues ([#1060](https://github.com/informalsystems/malachite/pull/1060))
+
 ## 0.2.0
 
 *April 16, 2025*
 
 ## 📖 Release notes
-See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#0.2.0) for the release notes.
+See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#020) for the release notes.
 
 ### ⚠️ Breaking changes
-See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#0.2.0) for the list of breaking changes.
+See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#020) for the list of breaking changes.
 
 ### 🚀 Features
 
@@ -25,10 +94,10 @@ See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#0.2.0) for the list of breakin
 *April 9, 2025*
 
 ## 📖 Release notes
-See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#0.1.0) for the release notes.
+See [`RELEASE_NOTES.md`](./RELEASE_NOTES.md#010) for the release notes.
 
 ### ⚠️ Breaking changes
-See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#0.1.0) for the list of breaking changes.
+See [`BREAKING_CHANGES.md`](./BREAKING_CHANGES.md#010) for the list of breaking changes.
 
 ### 🧪 Specifications
 

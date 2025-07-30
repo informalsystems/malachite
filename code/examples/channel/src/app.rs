@@ -1,19 +1,18 @@
 use std::time::Duration;
 
 use eyre::eyre;
+use malachitebft_app_channel::app::engine::host::Next;
 use tokio::time::sleep;
 use tracing::{error, info};
 
 use malachitebft_app_channel::app::streaming::StreamContent;
-use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{Height as _, Round, Validity};
 use malachitebft_app_channel::app::types::sync::RawDecidedValue;
 use malachitebft_app_channel::app::types::{LocallyProposedValue, ProposedValue};
-use malachitebft_app_channel::{AppMsg, Channels, ConsensusMsg, NetworkMsg};
-use malachitebft_test::codec::proto::ProtobufCodec;
+use malachitebft_app_channel::{AppMsg, Channels, NetworkMsg};
 use malachitebft_test::{Height, TestContext};
 
-use crate::state::{decode_value, State};
+use crate::state::{decode_value, encode_value, State};
 
 pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyre::Result<()> {
     while let Some(msg) = channels.consensus.recv().await {
@@ -196,9 +195,12 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 // When that happens, we store the decided value in our store
                 match state.commit(certificate, extensions).await {
                     Ok(_) => {
+                        // Sleep a bit to slow down the app.
+                        sleep(Duration::from_millis(500)).await;
+
                         // And then we instruct consensus to start the next height
                         if reply
-                            .send(ConsensusMsg::StartHeight(
+                            .send(Next::Start(
                                 state.current_height,
                                 state.get_validator_set(state.current_height).clone(),
                             ))
@@ -208,12 +210,15 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         }
                     }
                     Err(_) => {
+                        let height = state.current_height;
+
                         // Commit failed, restart the height
-                        error!("Commit failed, restarting height {}", state.current_height);
+                        error!("Commit failed, restarting height {height}");
+
                         if reply
-                            .send(ConsensusMsg::RestartHeight(
-                                state.current_height,
-                                state.get_validator_set(state.current_height).clone(),
+                            .send(Next::Restart(
+                                height,
+                                state.get_validator_set(height).clone(),
                             ))
                             .is_err()
                         {
@@ -221,7 +226,6 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         }
                     }
                 }
-                sleep(Duration::from_millis(500)).await;
             }
 
             // It may happen that our node is lagging behind its peers. In that case,
@@ -239,25 +243,25 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
             } => {
                 info!(%height, %round, "Processing synced value");
 
-                let value = decode_value(value_bytes);
-                // TODO - verify the validity of value
+                if let Some(value) = decode_value(value_bytes) {
+                    let proposed_value = ProposedValue {
+                        height,
+                        round,
+                        valid_round: Round::Nil,
+                        proposer,
+                        value,
+                        validity: Validity::Valid,
+                    };
 
-                let proposed_value = ProposedValue {
-                    height,
-                    round,
-                    valid_round: Round::Nil,
-                    proposer,
-                    value,
-                    validity: Validity::Valid,
-                };
+                    state
+                        .store
+                        .store_undecided_proposal(proposed_value.clone())
+                        .await?;
 
-                // TODO - should we store invalid values?
-                state
-                    .store
-                    .store_undecided_proposal(proposed_value.clone())
-                    .await?;
-
-                if reply.send(proposed_value).is_err() {
+                    if reply.send(Some(proposed_value)).is_err() {
+                        error!("Failed to send ProcessSyncedValue reply");
+                    }
+                } else if reply.send(None).is_err() {
                     error!("Failed to send ProcessSyncedValue reply");
                 }
             }
@@ -275,7 +279,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
 
                 let raw_decided_value = decided_value.map(|decided_value| RawDecidedValue {
                     certificate: decided_value.certificate,
-                    value_bytes: ProtobufCodec.encode(&decided_value.value).unwrap(),
+                    value_bytes: encode_value(&decided_value.value),
                 });
 
                 if reply.send(raw_decided_value).is_err() {
