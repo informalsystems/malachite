@@ -7,7 +7,7 @@ use eyre::eyre;
 use tokio::time::Instant;
 use tracing::{debug, trace};
 
-use malachitebft_core_types::Round;
+use malachitebft_core_types::{Height as HeightTrait, Round};
 
 use crate::app::AppParams;
 use crate::mempool::{MempoolMsg, MempoolRef};
@@ -43,7 +43,7 @@ pub async fn build_proposal_task(
         let reaped_txes = mempool
             .call(
                 |reply| MempoolMsg::Reap {
-                    height: height.as_u64(),
+                    height: HeightTrait::as_u64(&height),
                     num_txes: 1,
                     reply,
                 },

@@ -1,3 +1,5 @@
+use malachitebft_core_types::Height as HeightTrait;
+
 use crate::types::{BlockHash, Height};
 use core::mem::size_of;
 use malachitebft_core_types::Round;
@@ -29,7 +31,7 @@ impl redb::Value for HeightKey {
         Self: 'a,
         Self: 'b,
     {
-        <u64 as redb::Value>::as_bytes(&value.as_u64())
+        <u64 as redb::Value>::as_bytes(&HeightTrait::as_u64(value))
     }
 
     fn type_name() -> redb::TypeName {

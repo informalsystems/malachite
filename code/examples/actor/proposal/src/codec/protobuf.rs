@@ -5,8 +5,9 @@ use malachitebft_app::engine::util::streaming::StreamMessage;
 use malachitebft_codec::Codec;
 use malachitebft_core_consensus::{LivenessMsg, ProposedValue, SignedConsensusMsg};
 use malachitebft_core_types::{
-    CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
-    RoundCertificate, RoundCertificateType, RoundSignature, SignedProposal, SignedVote, Validity,
+    CommitCertificate, CommitSignature, Height as HeightTrait, NilOrVal, PolkaCertificate,
+    PolkaSignature, Round, RoundCertificate, RoundCertificateType, RoundSignature, SignedProposal,
+    SignedVote, Validity,
 };
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 
@@ -125,7 +126,7 @@ pub fn encode_round_certificate(
     certificate: &RoundCertificate<TestContext>,
 ) -> Result<proto::RoundCertificate, ProtoError> {
     Ok(proto::RoundCertificate {
-        height: certificate.height.as_u64(),
+        height: HeightTrait::as_u64(&certificate.height),
         round: certificate.round.as_u32().expect("round should not be nil"),
         cert_type: match certificate.cert_type {
             RoundCertificateType::Precommit => {
@@ -316,8 +317,8 @@ impl Codec<sync::Status<TestContext>> for ProtobufCodec {
             peer_id: Some(proto::PeerId {
                 id: Bytes::from(msg.peer_id.to_bytes()),
             }),
-            height: msg.tip_height.as_u64(),
-            earliest_height: msg.history_min_height.as_u64(),
+            height: HeightTrait::as_u64(&msg.tip_height),
+            earliest_height: HeightTrait::as_u64(&msg.history_min_height),
         };
 
         Ok(Bytes::from(proto.encode_to_vec()))
@@ -342,7 +343,7 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
         let proto = match msg {
             sync::Request::ValueRequest(req) => proto::SyncRequest {
                 value_request: Some(proto::ValueRequest {
-                    height: req.height.as_u64(),
+                    height: HeightTrait::as_u64(&req.height),
                 }),
             },
         };
@@ -404,7 +405,7 @@ pub fn encode_sync_response(
     let proto = match response {
         sync::Response::ValueResponse(value_response) => proto::SyncResponse {
             value_response: Some(proto::ValueResponse {
-                height: value_response.height.as_u64(),
+                height: HeightTrait::as_u64(&value_response.height),
                 value: value_response
                     .value
                     .as_ref()
@@ -459,7 +460,7 @@ pub(crate) fn encode_polka_certificate(
     polka_certificate: &PolkaCertificate<TestContext>,
 ) -> Result<proto::PolkaCertificate, ProtoError> {
     Ok(proto::PolkaCertificate {
-        height: polka_certificate.height.as_u64(),
+        height: HeightTrait::as_u64(&polka_certificate.height),
         round: polka_certificate
             .round
             .as_u32()
@@ -518,7 +519,7 @@ pub fn encode_commit_certificate(
     certificate: &CommitCertificate<TestContext>,
 ) -> Result<proto::CommitCertificate, ProtoError> {
     Ok(proto::CommitCertificate {
-        height: certificate.height.as_u64(),
+        height: HeightTrait::as_u64(&certificate.height),
         round: certificate.round.as_u32().expect("round should not be nil"),
         value_id: Some(certificate.value_id.to_proto()?),
         signatures: certificate

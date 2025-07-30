@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use malachitebft_core_types::{Context, NilOrVal, Round, ValidatorSet as _};
+use malachitebft_core_types::{Context, Height as HeightTrait, NilOrVal, Round, ValidatorSet as _};
 
 use super::{
     address::*, height::*, proposal::*, proposal_part::*, signing::*, validator_set::*, value::*,
@@ -25,7 +25,7 @@ impl MockContext {
         assert!(round != Round::Nil && round.as_i64() >= 0);
 
         let proposer_index = {
-            let height = height.as_u64() as usize;
+            let height = HeightTrait::as_u64(&height) as usize;
             let round = round.as_i64() as usize;
 
             (height - 1 + round) % validator_set.count()

@@ -14,7 +14,7 @@ use crate::types::{
     Address, Block, Ed25519Provider, Hash, Height, MockContext, ValidatorSet, Value,
 };
 use malachitebft_core_consensus::Role;
-use malachitebft_core_types::{CommitCertificate, Round, Validity};
+use malachitebft_core_types::{CommitCertificate, Height as HeightTrait, Round, Validity};
 use malachitebft_engine::host::{LocallyProposedValue, Next, ProposedValue};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
@@ -193,7 +193,7 @@ async fn on_consensus_ready(
         .max_decided_value_height()
         .await
         .unwrap_or_default();
-    let start_height = latest_block_height.increment();
+    let start_height = HeightTrait::increment(&latest_block_height);
     if reply_to
         .send((start_height, state.app.validator_set.clone()))
         .is_err()
@@ -513,7 +513,7 @@ async fn prune_block_store(state: &mut HostState) {
     let max_retain_blocks = state.app.params.max_retain_blocks as u64;
 
     // Compute the height to retain blocks higher than
-    let retain_height = max_height.as_u64().saturating_sub(max_retain_blocks);
+    let retain_height = HeightTrait::as_u64(&max_height).saturating_sub(max_retain_blocks);
     if retain_height <= 1 {
         // No need to prune anything, since we would retain every blocks
         return;
