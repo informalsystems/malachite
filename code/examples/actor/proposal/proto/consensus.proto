@@ -46,12 +46,6 @@ message Proposal {
     Address validator_address = 5;
 }
 
-message ProposalPart {
-    oneof part {
-        ProposalData data = 2;
-    }
-}
-
 message ProposalData {
     Block block = 1;
 }

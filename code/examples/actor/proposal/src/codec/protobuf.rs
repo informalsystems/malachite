@@ -41,12 +41,12 @@ impl Codec<Value> for ProtobufCodec {
 impl Codec<ProposalPart> for ProtobufCodec {
     type Error = ProtoError;
 
-    fn decode(&self, bytes: Bytes) -> Result<ProposalPart, Self::Error> {
-        Protobuf::from_bytes(&bytes)
+    fn decode(&self, _bytes: Bytes) -> Result<ProposalPart, Self::Error> {
+        Ok(ProposalPart {})
     }
 
-    fn encode(&self, msg: &ProposalPart) -> Result<Bytes, Self::Error> {
-        Protobuf::to_bytes(msg)
+    fn encode(&self, _msg: &ProposalPart) -> Result<Bytes, Self::Error> {
+        Ok(Bytes::new())
     }
 }
 
