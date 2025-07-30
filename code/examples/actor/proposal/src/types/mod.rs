@@ -3,7 +3,6 @@
 mod address;
 mod block;
 mod context;
-mod genesis;
 mod hash;
 mod height;
 mod proposal;
@@ -21,7 +20,6 @@ pub mod proto;
 pub use address::*;
 pub use block::*;
 pub use context::*;
-pub use genesis::*;
 pub use hash::*;
 pub use height::*;
 pub use proposal::*;
