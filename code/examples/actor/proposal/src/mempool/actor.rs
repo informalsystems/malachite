@@ -30,7 +30,7 @@ pub enum Msg {
         num_txes: usize,
         reply: RpcReplyPort<Vec<Transaction>>,
     },
-    Update {
+    Remove {
         tx_hashes: Vec<Hash>,
     },
 }
@@ -209,7 +209,7 @@ impl Mempool {
                 reply.send(txes)?;
             }
 
-            Msg::Update { tx_hashes } => {
+            Msg::Remove { tx_hashes } => {
                 tx_hashes.iter().for_each(|hash| state.remove_tx(hash));
             }
         }

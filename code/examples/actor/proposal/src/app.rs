@@ -71,7 +71,7 @@ impl App {
             tx_hashes.push(tx.hash().clone());
         }
         // Notify the mempool to remove corresponding txs
-        if let Err(err) = self.mempool.cast(MempoolMsg::Update { tx_hashes }) {
+        if let Err(err) = self.mempool.cast(MempoolMsg::Remove { tx_hashes }) {
             tracing::error!(
                 error = ?err,
                 height = ?certificate.height,
