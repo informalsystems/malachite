@@ -16,7 +16,7 @@ pub struct Hash([u8; HASH_SIZE]);
 impl fmt::Debug for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for byte in &self.0 {
-            write!(f, "{:02X}", byte)?;
+            write!(f, "{byte:02X}")?;
         }
         Ok(())
     }
@@ -47,7 +47,7 @@ impl Hash {
     pub fn to_hex_string(&self) -> String {
         self.0
             .iter()
-            .map(|byte| format!("{:02x}", byte))
+            .map(|byte| format!("{byte:02x}"))
             .collect::<String>()
     }
 
