@@ -4,6 +4,7 @@ use std::time::Duration;
 use mempool::MempoolConfig;
 use tokio::task::JoinHandle;
 
+use libp2p_network::Config as MempoolNetworkConfig;
 use malachitebft_config::{self as config, MempoolLoadConfig, ValueSyncConfig};
 use malachitebft_core_types::ValuePayload;
 use malachitebft_engine::consensus::{Consensus, ConsensusParams, ConsensusRef};
@@ -16,16 +17,15 @@ use malachitebft_engine::wal::{Wal, WalRef};
 use malachitebft_metrics::{Metrics as ConsensusMetrics, SharedRegistry};
 use malachitebft_network::Keypair;
 use malachitebft_sync as sync;
-use libp2p_network::Config as MempoolNetworkConfig;
 
 use crate::actor::Host;
 use crate::codec::ProtobufCodec;
 
-use libp2p_network::network::{MempoolNetworkActorRef, MempoolNetwork};
 use crate::fifo_mempool::{Mempool, MempoolRef};
 use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
 use crate::metrics::Metrics as AppMetrics;
 use crate::mock_host::{MockHost, MockHostParams};
+use libp2p_network::network::{MempoolNetwork, MempoolNetworkActorRef};
 
 use crate::config::Config;
 use crate::types::{
@@ -61,7 +61,7 @@ pub async fn spawn_node_actor(
     let mempool_network = spawn_mempool_network_actor(&cfg, &private_key, &registry, &span).await;
     let mempool_config = MempoolConfig {
         max_txs_bytes: cfg.test.max_block_size.as_u64(),
-        max_txs_per_block: cfg.test.max_retain_blocks/256, // TODO - make configurable
+        max_txs_per_block: cfg.test.max_retain_blocks / 256, // TODO - make configurable
     };
     let mempool = spawn_mempool_actor(mempool_network, &mempool_config, &span).await;
     let mempool_load = spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
@@ -312,14 +312,9 @@ async fn spawn_mempool_actor(
     mempool_config: &MempoolConfig,
     span: &tracing::Span,
 ) -> MempoolRef {
-    Mempool::spawn(
-        mempool_network,
-        None,
-        span.clone(),
-        mempool_config.clone()
-    )
-    .await
-    .unwrap()
+    Mempool::spawn(mempool_network, None, span.clone(), mempool_config.clone())
+        .await
+        .unwrap()
 }
 
 async fn spawn_mempool_load_actor(
@@ -344,7 +339,9 @@ async fn spawn_mempool_network_actor(
     registry: &SharedRegistry,
     _span: &tracing::Span,
 ) -> MempoolNetworkActorRef {
+    tracing::info!("🔧 SPAWN DEBUG: spawn_mempool_network_actor() called");
     let keypair = make_keypair(private_key);
+    tracing::info!("🔧 SPAWN DEBUG: About to call MempoolNetwork::spawn()...");
 
     let config = MempoolNetworkConfig {
         listen_addr: cfg.mempool.p2p.listen_addr.clone(),
@@ -352,9 +349,11 @@ async fn spawn_mempool_network_actor(
         idle_connection_timeout: Duration::from_secs(15 * 60),
     };
 
-    MempoolNetwork::spawn(keypair, config, registry.clone())
+    let result = MempoolNetwork::spawn(keypair, config, registry.clone())
         .await
-        .unwrap()
+        .unwrap();
+    tracing::info!("🔧 SPAWN DEBUG: MempoolNetwork::spawn() completed successfully");
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -177,9 +177,9 @@ impl Actor for MempoolLoad {
                 for tx in tx_batch.into_vec() {
                     let raw_tx = ::mempool::RawTx(tx.to_bytes());
                     let (reply_tx, _reply_rx) = ractor::concurrency::oneshot();
-                    self.mempool.cast(MempoolMsg::Add { 
-                        tx: raw_tx, 
-                        reply: ractor::RpcReplyPort::from(reply_tx)
+                    self.mempool.cast(MempoolMsg::Add {
+                        tx: raw_tx,
+                        reply: ractor::RpcReplyPort::from(reply_tx),
                     })?;
                 }
 

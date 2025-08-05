@@ -91,10 +91,7 @@ async fn run_build_proposal_task(
 
     'reap: loop {
         let reaped_txes = mempool
-            .call(
-                |reply| MempoolMsg::Take { reply },
-                Some(build_duration),
-            )
+            .call(|reply| MempoolMsg::Take { reply }, Some(build_duration))
             .await?
             .success_or(eyre!("Failed to reap transactions from the mempool"))?;
 
