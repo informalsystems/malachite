@@ -3,6 +3,7 @@ use core::mem::size_of;
 use malachitebft_core_types::Round;
 
 pub type UndecidedValueKey = (HeightKey, RoundKey, BlockHashKey);
+pub type PendingValueKey = (HeightKey, RoundKey, BlockHashKey);
 
 #[derive(Copy, Clone, Debug)]
 pub struct HeightKey;

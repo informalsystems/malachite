@@ -14,6 +14,7 @@ use malachitebft_core_types::{CommitCertificate, Round};
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 
 use crate::codec::{self, ProtobufCodec};
+use crate::store::keys::PendingValueKey;
 use crate::types::context::MockContext;
 use crate::types::proto;
 use crate::types::{block::Block, hash::BlockHash, height::Height};
@@ -78,6 +79,9 @@ const UNDECIDED_VALUES_TABLE: redb::TableDefinition<UndecidedValueKey, Vec<u8>> 
 
 const UNDECIDED_BLOCKS_TABLE: redb::TableDefinition<UndecidedValueKey, Vec<u8>> =
     redb::TableDefinition::new("undecided_blocks");
+
+const PENDING_VALUES_TABLE: redb::TableDefinition<PendingValueKey, Vec<u8>> =
+    redb::TableDefinition::new("pending_blocks");
 
 struct Db {
     db: redb::Database,
@@ -172,6 +176,65 @@ impl Db {
         Ok(())
     }
 
+    fn get_pending_values(
+        &self,
+        height: Height,
+        round: Round,
+    ) -> Result<Vec<ProposedValue<MockContext>>, StoreError> {
+        let tx = self.db.begin_read()?;
+        let mut values = Vec::new();
+
+        let from = (height, round, BlockHash::new([0; 32]));
+        let to = (height, round, BlockHash::new([255; 32]));
+
+        let table = tx.open_table(PENDING_VALUES_TABLE)?;
+        let keys = self.undecided_values_range(&table, from..to)?;
+
+        for key in keys {
+            if let Ok(Some(value)) = table.get(&key) {
+                let Ok(value) = ProtobufCodec.decode(Bytes::from(value.value())) else {
+                    error!(hash = ?key.2, "Failed to decode ProposedValue");
+                    continue;
+                };
+
+                values.push(value);
+            }
+        }
+
+        Ok(values)
+    }
+
+    fn insert_pending_value(&self, value: ProposedValue<MockContext>) -> Result<(), StoreError> {
+        let key = (
+            value.height,
+            value.round,
+            value.value.id().as_hash().clone(),
+        );
+        let value = ProtobufCodec.encode(&value)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(PENDING_VALUES_TABLE)?;
+            table.insert(key, value.to_vec())?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn remove_pending_value(&self, value: ProposedValue<MockContext>) -> Result<(), StoreError> {
+        let key = (
+            value.height,
+            value.round,
+            value.value.id().as_hash().clone(),
+        );
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(PENDING_VALUES_TABLE)?;
+            table.remove(key)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     fn height_range<Table>(
         &self,
         table: &Table,
@@ -179,6 +242,21 @@ impl Db {
     ) -> Result<Vec<Height>, StoreError>
     where
         Table: redb::ReadableTable<HeightKey, Vec<u8>>,
+    {
+        Ok(table
+            .range(range)?
+            .flatten()
+            .map(|(key, _)| key.value())
+            .collect::<Vec<_>>())
+    }
+
+    fn pending_values_range<Table>(
+        &self,
+        table: &Table,
+        range: impl RangeBounds<(Height, Round, BlockHash)>,
+    ) -> Result<Vec<(Height, Round, BlockHash)>, StoreError>
+    where
+        Table: redb::ReadableTable<PendingValueKey, Vec<u8>>,
     {
         Ok(table
             .range(range)?
@@ -203,29 +281,46 @@ impl Db {
     }
 
     fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
-        let tx = self.db.begin_write().unwrap();
+        let tx = self
+            .db
+            .begin_write()
+            .map_err(|e| StoreError::Transaction(Box::new(e)))?;
+
         let pruned = {
-            let mut undecided_proposals = tx.open_table(UNDECIDED_VALUES_TABLE)?;
-            let mut undecided_blocks = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
-            let keys = self.undecided_values_range(
-                &undecided_proposals,
+            let mut pending = tx.open_table(PENDING_VALUES_TABLE)?;
+
+            let keys = self.pending_values_range(
+                &pending,
                 ..(retain_height, Round::Nil, BlockHash::new([0; 32])),
             )?;
+
             for key in keys {
-                undecided_proposals.remove(&key)?;
-                undecided_blocks.remove(&key)?;
+                pending.remove(key)?;
             }
 
-            let mut decided_blocks = tx.open_table(DECIDED_BLOCKS_TABLE)?;
+            let mut undecided = tx.open_table(UNDECIDED_VALUES_TABLE)?;
+
+            let keys = self.undecided_values_range(
+                &undecided,
+                ..(retain_height, Round::Nil, BlockHash::new([0; 32])),
+            )?;
+
+            for key in keys {
+                undecided.remove(key)?;
+            }
+            let mut decided = tx.open_table(DECIDED_BLOCKS_TABLE)?;
             let mut certificates = tx.open_table(CERTIFICATES_TABLE)?;
 
-            let keys = self.height_range(&decided_blocks, ..retain_height)?;
+            let keys = self.height_range(&decided, ..retain_height)?;
+
             for key in &keys {
-                decided_blocks.remove(key)?;
+                decided.remove(key)?;
                 certificates.remove(key)?;
             }
+
             keys
         };
+
         tx.commit()?;
 
         Ok(pruned)
@@ -366,6 +461,14 @@ impl BlockStore {
         tokio::task::spawn_blocking(move || db.insert_undecided_value(value)).await?
     }
 
+    pub async fn remove_pending_proposal(
+        &self,
+        value: ProposedValue<MockContext>,
+    ) -> Result<(), StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.remove_pending_value(value)).await?
+    }
+
     pub async fn get_undecided_proposals(
         &self,
         height: Height,
@@ -373,6 +476,23 @@ impl BlockStore {
     ) -> Result<Vec<ProposedValue<MockContext>>, StoreError> {
         let db = Arc::clone(&self.db);
         tokio::task::spawn_blocking(move || db.get_undecided_values(height, round)).await?
+    }
+
+    pub async fn get_pending_proposals(
+        &self,
+        height: Height,
+        round: Round,
+    ) -> Result<Vec<ProposedValue<MockContext>>, StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.get_pending_values(height, round)).await?
+    }
+
+    pub async fn store_pending_proposal(
+        &self,
+        value: ProposedValue<MockContext>,
+    ) -> Result<(), StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.insert_pending_value(value)).await?
     }
 
     pub async fn prune(&self, retain_height: Height) -> Result<Vec<Height>, StoreError> {
