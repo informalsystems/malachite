@@ -12,7 +12,7 @@ use tracing::{debug, error, trace};
 use malachitebft_core_types::Round;
 use malachitebft_signing_ed25519::PrivateKey;
 
-use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::fifo_mempool::{MempoolMsg, MempoolRef};
 use crate::mock_host::MockHostParams;
 use crate::types::{
     address::Address,
@@ -92,11 +92,7 @@ async fn run_build_proposal_task(
     'reap: loop {
         let reaped_txes = mempool
             .call(
-                |reply| MempoolMsg::Reap {
-                    height: height.as_u64(),
-                    num_txes: params.txs_per_part,
-                    reply,
-                },
+                |reply| MempoolMsg::Take { reply },
                 Some(build_duration),
             )
             .await?
@@ -113,16 +109,16 @@ async fn run_build_proposal_task(
         let mut full_block = false;
 
         'txes: for tx in reaped_txes {
-            if block_size + tx.size_bytes() > max_block_size {
+            if block_size + tx.len() > max_block_size {
                 full_block = true;
                 break 'txes;
             }
 
-            block_size += tx.size_bytes();
+            block_size += tx.len();
             block_tx_count += 1;
-
             txes.push(tx.clone());
-            hasher.update(tx.clone().hash().as_bytes());
+            let tx_hash = tx.hash();
+            hasher.update(tx_hash.0);
         }
 
         let exec_time = params.exec_time_per_tx * txes.len() as u32;
@@ -138,7 +134,11 @@ async fn run_build_proposal_task(
 
         // Transactions
         {
-            let part = ProposalPart::Data(ProposalData { transactions: txes });
+            let transactions: Vec<crate::types::transaction::Transaction> = txes
+                .into_iter()
+                .map(|raw_tx| crate::types::transaction::Transaction::new(raw_tx.0))
+                .collect();
+            let part = ProposalPart::Data(ProposalData { transactions });
             tx_part.send(part).await?;
             sequence += 1;
         }

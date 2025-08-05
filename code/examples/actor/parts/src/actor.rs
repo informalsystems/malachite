@@ -20,7 +20,7 @@ use malachitebft_engine::util::streaming::{StreamContent, StreamMessage};
 use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
-use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::fifo_mempool::{MempoolMsg, MempoolRef};
 use crate::mempool_load::MempoolLoadRef;
 use crate::metrics::Metrics;
 use crate::mock_host::MockHost;
@@ -723,13 +723,12 @@ async fn on_decided(
     metrics.block_size_bytes.observe(block_size as f64);
     metrics.finalized_txes.inc_by(tx_count as u64);
 
-    // Gather hashes of all the tx-es included in the block,
-    // so that we can notify the mempool to remove them.
-    let tx_hashes: Vec<_> = block
+    // Convert transactions to RawTx and get their hashes
+    let raw_txs: Vec<::mempool::RawTx> = block
         .transactions
         .to_vec()
         .into_iter()
-        .map(|tx| tx.hash().clone())
+        .map(|tx| ::mempool::RawTx(tx.to_bytes()))
         .collect();
 
     // Prune the PartStore of all parts for heights lower than `state.height`
@@ -739,8 +738,11 @@ async fn on_decided(
     // Also prunes parts, the undecided blocks and proposals.
     prune_block_store(state).await;
 
-    // Notify the mempool to remove corresponding txs
-    mempool.cast(MempoolMsg::Update { tx_hashes })?;
+    // Notify the mempool to remove corresponding txs by hash
+    for raw_tx in raw_txs {
+        let tx_hash = raw_tx.hash();
+        mempool.cast(MempoolMsg::Remove(vec![tx_hash]))?;
+    }
 
     // Notify the Host of the decision
     state.host.decision(certificate).await;

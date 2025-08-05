@@ -21,7 +21,6 @@ malachitebft-metrics = { workspace = true }
 malachitebft-proto = { workspace = true }
 malachitebft-signing-ed25519 = { workspace = true, features = ["serde", "rand"] }
 malachitebft-sync = { workspace = true }
-malachitebft-test-mempool = { workspace = true }
 malachitebft-wal = { workspace = true }
 
 async-trait = { workspace = true }
@@ -45,6 +44,9 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 hex = { version = "0.4", features = ["serde"] }
+
+mempool = { package = "fifo-mempool", path = "/Users/ancaz/malachite-mempool/fifo-mempool" }
+libp2p-network = { package = "libp2p-network", path = "/Users/ancaz/malachite-mempool/libp2p-network" }
 
 [lints]
 workspace = true

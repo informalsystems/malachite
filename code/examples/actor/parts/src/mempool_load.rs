@@ -11,7 +11,7 @@ use tracing::info;
 use malachitebft_config::mempool_load::{NonUniformLoadConfig, UniformLoadConfig};
 use malachitebft_config::MempoolLoadType;
 
-use crate::mempool::{MempoolMsg, MempoolRef};
+use crate::fifo_mempool::{MempoolMsg, MempoolRef};
 use crate::types::transaction::{Transaction, TransactionBatch};
 
 pub type MempoolLoadMsg = Msg;
@@ -174,7 +174,14 @@ impl Actor for MempoolLoad {
                 let transactions = Self::generate_transactions(count, size);
                 let tx_batch = TransactionBatch::new(transactions);
 
-                self.mempool.cast(MempoolMsg::AddBatch(tx_batch))?;
+                for tx in tx_batch.into_vec() {
+                    let raw_tx = ::mempool::RawTx(tx.to_bytes());
+                    let (reply_tx, _reply_rx) = ractor::concurrency::oneshot();
+                    self.mempool.cast(MempoolMsg::Add { 
+                        tx: raw_tx, 
+                        reply: ractor::RpcReplyPort::from(reply_tx)
+                    })?;
+                }
 
                 Ok(())
             }

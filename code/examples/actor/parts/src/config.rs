@@ -1,12 +1,13 @@
 use std::path::Path;
 
+use malachitebft_config::MempoolConfig;
 use serde::{Deserialize, Serialize};
 
 use malachitebft_app::node::NodeConfig;
 
 pub use malachitebft_app::config::{
-    ConsensusConfig, LogFormat, LogLevel, LoggingConfig, MempoolConfig, MetricsConfig,
-    RuntimeConfig, TestConfig, TimeoutConfig, ValueSyncConfig,
+    ConsensusConfig, LogFormat, LogLevel, LoggingConfig, MetricsConfig, RuntimeConfig, TestConfig,
+    TimeoutConfig, ValueSyncConfig,
 };
 
 /// Malachite configuration options
