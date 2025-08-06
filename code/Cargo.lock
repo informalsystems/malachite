@@ -1353,6 +1353,7 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 [[package]]
 name = "fifo-mempool"
 version = "0.1.0"
+source = "git+https://github.com/informalsystems/malachite-mempool.git?branch=anca%2Ffifo-mempool#9569de347fcd9b604a7df98bb7becd1d68395e15"
 dependencies = [
  "anyhow",
  "futures",
@@ -3141,6 +3142,7 @@ dependencies = [
 [[package]]
 name = "libp2p-network"
 version = "0.1.0"
+source = "git+https://github.com/informalsystems/malachite-mempool.git?branch=anca%2Ffifo-mempool#9569de347fcd9b604a7df98bb7becd1d68395e15"
 dependencies = [
  "async-trait",
  "eyre",

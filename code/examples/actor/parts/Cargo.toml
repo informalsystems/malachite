@@ -45,8 +45,8 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 hex = { version = "0.4", features = ["serde"] }
 
-mempool = { package = "fifo-mempool", path = "/Users/ancaz/malachite-mempool/fifo-mempool" }
-libp2p-network = { package = "libp2p-network", path = "/Users/ancaz/malachite-mempool/libp2p-network" }
+mempool = { package = "fifo-mempool", git = "https://github.com/informalsystems/malachite-mempool.git", branch = "anca/fifo-mempool" }
+libp2p-network = { package = "libp2p-network", git = "https://github.com/informalsystems/malachite-mempool.git", branch = "anca/fifo-mempool" }
 
 [lints]
 workspace = true
