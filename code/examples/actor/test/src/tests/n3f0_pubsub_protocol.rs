@@ -26,7 +26,7 @@ pub async fn broadcast_custom_config_1ktx() {
         protocol: PubSubProtocol::Broadcast,
         block_size: ByteSize::kib(1),
         tx_size: ByteSize::kib(1),
-        txs_per_part: 1,
+
         ..Default::default()
     };
 
@@ -40,7 +40,6 @@ pub async fn broadcast_custom_config_2ktx() {
         protocol: PubSubProtocol::Broadcast,
         block_size: ByteSize::kib(2),
         tx_size: ByteSize::kib(2),
-        txs_per_part: 1,
         ..Default::default()
     };
 
@@ -54,7 +53,6 @@ pub async fn gossip_custom_config_1ktx() {
         protocol: PubSubProtocol::GossipSub(GossipSubConfig::default()),
         block_size: ByteSize::kib(1),
         tx_size: ByteSize::kib(1),
-        txs_per_part: 1,
         ..Default::default()
     };
 
@@ -68,7 +66,6 @@ pub async fn gossip_custom_config_2ktx() {
         protocol: PubSubProtocol::GossipSub(GossipSubConfig::default()),
         block_size: ByteSize::kib(2),
         tx_size: ByteSize::kib(2),
-        txs_per_part: 1,
         ..Default::default()
     };
 
