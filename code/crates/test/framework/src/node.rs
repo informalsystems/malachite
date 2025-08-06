@@ -160,7 +160,7 @@ where
         })
     }
 
-    pub fn expect_wal_replay_at_crash_height<F>(&mut self, get_height: F) -> &mut Self 
+    pub fn expect_wal_replay_at_crash_height<F>(&mut self, get_height: F) -> &mut Self
     where
         F: Fn(&State) -> Option<u64> + Send + Sync + 'static,
     {

@@ -3,10 +3,10 @@ use std::time::Duration;
 use eyre::bail;
 use tracing::info;
 
+use informalsystems_malachitebft_actor_app_proposal::types::MockContext;
 use malachitebft_core_consensus::LocallyProposedValue;
 use malachitebft_core_types::SignedVote;
 use malachitebft_engine::util::events::Event;
-use informalsystems_malachitebft_actor_app_proposal::types::MockContext;
 
 use crate::{HandlerResult, TestBuilder, TestParams};
 
@@ -33,7 +33,10 @@ async fn proposer_crashes_after_proposing() {
         .on_event(|event, state| match event {
             Event::ProposedValue(value) => {
                 let height = value.height.as_u64();
-                info!("Proposer proposed block at height {}: {:?}", height, value.value);
+                info!(
+                    "Proposer proposed block at height {}: {:?}",
+                    height, value.value
+                );
                 state.first_proposed_value = Some(value);
                 state.actual_crash_height = Some(height);
                 Ok(HandlerResult::ContinueTest)

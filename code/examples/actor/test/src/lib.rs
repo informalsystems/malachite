@@ -8,12 +8,12 @@ use async_trait::async_trait;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
-use malachitebft_config::mempool_load::UniformLoadConfig;
 use informalsystems_malachitebft_actor_app_proposal::config::Config;
 use informalsystems_malachitebft_actor_app_proposal::node::{ActorNode, ConfigSource, Handle};
 use informalsystems_malachitebft_actor_app_proposal::types::{
     Height, MockContext, PrivateKey, Validator, ValidatorSet,
 };
+use malachitebft_config::mempool_load::UniformLoadConfig;
 use malachitebft_test_framework::HasTestRunner;
 use malachitebft_test_framework::{NodeRunner, TestNode};
 
@@ -27,7 +27,6 @@ use tempfile::TempDir;
 
 #[cfg(test)]
 pub mod tests;
-
 
 pub type TestBuilder<S> = GenTestBuilder<MockContext, S>;
 
