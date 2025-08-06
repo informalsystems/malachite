@@ -337,11 +337,9 @@ async fn spawn_mempool_network_actor(
     cfg: &Config,
     private_key: &PrivateKey,
     registry: &SharedRegistry,
-    _span: &tracing::Span,
+    span: &tracing::Span,
 ) -> MempoolNetworkActorRef {
-    tracing::info!("🔧 SPAWN DEBUG: spawn_mempool_network_actor() called");
     let keypair = make_keypair(private_key);
-    tracing::info!("🔧 SPAWN DEBUG: About to call MempoolNetwork::spawn()...");
 
     let config = MempoolNetworkConfig {
         listen_addr: cfg.mempool.p2p.listen_addr.clone(),
@@ -349,10 +347,9 @@ async fn spawn_mempool_network_actor(
         idle_connection_timeout: Duration::from_secs(15 * 60),
     };
 
-    let result = MempoolNetwork::spawn(keypair, config, registry.clone())
+    let result = MempoolNetwork::spawn(keypair, config, span.clone(), registry.clone())
         .await
         .unwrap();
-    tracing::info!("🔧 SPAWN DEBUG: MempoolNetwork::spawn() completed successfully");
     result
 }
 

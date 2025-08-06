@@ -114,8 +114,9 @@ async fn run_build_proposal_task(
             block_size += tx.len();
             block_tx_count += 1;
             txes.push(tx.clone());
-            let tx_hash = tx.hash();
-            hasher.update(tx_hash.0);
+            // Convert the external mempool transaction to our internal type to get consistent hash
+            let internal_tx = crate::types::transaction::Transaction::new(tx.0);
+            hasher.update(internal_tx.hash().as_bytes());
         }
 
         let exec_time = params.exec_time_per_tx * txes.len() as u32;
