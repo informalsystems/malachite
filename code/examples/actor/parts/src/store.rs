@@ -347,6 +347,7 @@ impl Db {
         let _ = tx.open_table(CERTIFICATES_TABLE)?;
         let _ = tx.open_table(UNDECIDED_VALUES_TABLE)?;
         let _ = tx.open_table(UNDECIDED_BLOCKS_TABLE)?;
+        let _ = tx.open_table(PENDING_VALUES_TABLE)?;
         tx.commit()?;
         Ok(())
     }

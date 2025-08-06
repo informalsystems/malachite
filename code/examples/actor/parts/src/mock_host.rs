@@ -7,7 +7,7 @@ use malachitebft_app::part_store::PartStore;
 use malachitebft_core_types::{CommitCertificate, Round};
 use malachitebft_signing_ed25519::PrivateKey;
 
-use crate::mempool::MempoolRef;
+use crate::fifo_mempool::MempoolRef;
 use crate::proposal::{build_proposal_task, repropose_task};
 use crate::types::address::Address;
 use crate::types::context::MockContext;

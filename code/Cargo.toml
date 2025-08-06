@@ -176,3 +176,7 @@ toml               = "0.8.21"
 tracing            = "0.1.41"
 tracing-appender   = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+[patch."https://github.com/informalsystems/malachite-mempool.git"]
+informalsystems-malachitebft-metrics = { path = "crates/metrics" }
+informalsystems-malachitebft-proto = { path = "crates/proto" }
