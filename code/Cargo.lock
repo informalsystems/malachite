@@ -2094,6 +2094,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "informalsystems-malachitebft-actor-test"
+version = "0.5.0-pre"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bytesize",
+ "eyre",
+ "informalsystems-malachitebft-config",
+ "informalsystems-malachitebft-core-consensus",
+ "informalsystems-malachitebft-core-types",
+ "informalsystems-malachitebft-engine",
+ "informalsystems-malachitebft-metrics",
+ "informalsystems-malachitebft-test-framework",
+ "informalsystems_malachitebft_actor_app_proposal",
+ "ractor",
+ "rand 0.8.5",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "informalsystems-malachitebft-app"
 version = "0.5.0-pre"
 dependencies = [
