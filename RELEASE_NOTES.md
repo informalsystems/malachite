@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-> Nothing yet
+- Fix bug in WAL recovery logic where a corrupted entry would not be detected in some circumstances ([#1127](https://github.com/informalsystems/malachite/pull/1127))
 
 ## 0.5.0
 
