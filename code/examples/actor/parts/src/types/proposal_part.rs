@@ -11,7 +11,7 @@ use crate::types::{
 
 use super::proto;
 use crate::codec::{decode_signature, encode_signature};
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposalData {
     pub transactions: Vec<Transaction>,
 }
@@ -23,6 +23,16 @@ impl ProposalData {
 
     pub fn size_bytes(&self) -> usize {
         std::mem::size_of::<u64>()
+    }
+}
+
+impl std::fmt::Debug for ProposalData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ProposalData {{ {} transactions }}",
+            self.transactions.len()
+        )
     }
 }
 

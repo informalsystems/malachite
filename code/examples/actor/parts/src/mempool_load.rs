@@ -1,12 +1,14 @@
+use eyre::eyre;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use bytesize::ByteSize;
+use mempool::{CheckTxOutcome, TxHash};
 use ractor::{concurrency::JoinHandle, Actor, ActorProcessingErr, ActorRef};
 use rand::rngs::SmallRng;
 use rand::seq::IteratorRandom;
 use rand::{Rng, RngCore, SeedableRng};
-use tracing::info;
+use tracing::{error, info, trace};
 
 use malachitebft_config::mempool_load::{NonUniformLoadConfig, UniformLoadConfig};
 use malachitebft_config::MempoolLoadType;
@@ -17,8 +19,28 @@ use crate::types::transaction::{Transaction, TransactionBatch};
 pub type MempoolLoadMsg = Msg;
 pub type MempoolLoadRef = ActorRef<Msg>;
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum TestCheckTxOutcome {
+    Success(TxHash),
+    Error(TxHash, String),
+}
+
+impl CheckTxOutcome for TestCheckTxOutcome {
+    fn is_valid(&self) -> bool {
+        matches!(self, TestCheckTxOutcome::Success(_))
+    }
+    fn hash(&self) -> TxHash {
+        match self {
+            TestCheckTxOutcome::Success(hash) => hash.clone(),
+            TestCheckTxOutcome::Error(hash, _) => hash.clone(),
+        }
+    }
+}
+
 pub enum Msg {
     GenerateTransactions { count: usize, size: ByteSize },
+    AddTxReply(Transaction, TestCheckTxOutcome),
+    Error(String),
 }
 
 #[derive(Debug)]
@@ -165,7 +187,7 @@ impl Actor for MempoolLoad {
     #[tracing::instrument("host.mempool_load", parent = &self.span, skip_all)]
     async fn handle(
         &self,
-        _myself: MempoolLoadRef,
+        myself: MempoolLoadRef,
         msg: Msg,
         _state: &mut State,
     ) -> Result<(), ActorProcessingErr> {
@@ -174,17 +196,44 @@ impl Actor for MempoolLoad {
                 let transactions = Self::generate_transactions(count, size);
                 let tx_batch = TransactionBatch::new(transactions);
 
-                for tx in tx_batch.into_vec() {
+                for tx in tx_batch.into_vec().into_iter() {
                     let raw_tx = ::mempool::RawTx(tx.to_bytes());
-                    let (reply_tx, _reply_rx) = ractor::concurrency::oneshot();
-                    self.mempool.cast(MempoolMsg::Add {
-                        tx: raw_tx,
-                        reply: ractor::RpcReplyPort::from(reply_tx),
-                    })?;
-                }
 
-                Ok(())
+                    self.mempool
+                        .call_and_forward(
+                            |reply| MempoolMsg::Add { tx: raw_tx, reply },
+                            &myself,
+                            move |outcome| match outcome {
+                                Ok(check_tx_outcome) => {
+                                    let tx_hash = check_tx_outcome.hash();
+                                    if check_tx_outcome.is_valid() {
+                                        Msg::AddTxReply(tx, TestCheckTxOutcome::Success(tx_hash))
+                                    } else {
+                                        Msg::AddTxReply(
+                                            tx,
+                                            TestCheckTxOutcome::Error(
+                                                tx_hash,
+                                                "Transaction validation failed".to_string(),
+                                            ),
+                                        )
+                                    }
+                                }
+                                Err(e) => Msg::Error(e.to_string()),
+                            },
+                            None,
+                        )
+                        .map_err(|e| eyre!("Error when sending decided value to host: {e:?}"))?
+                        .await
+                        .map_err(|e| eyre!("Error waiting for result: {e:?}"))?;
+                }
+            }
+            Msg::AddTxReply(_tx, outcome) => {
+                trace!(tx_hash = ?outcome.hash(), is_valid = outcome.is_valid(), "Received transaction reply");
+            }
+            Msg::Error(e) => {
+                error!(e, "Error:")
             }
         }
+        Ok(())
     }
 }

@@ -1,14 +1,18 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use itertools::Itertools;
-use ractor::{async_trait, Actor, ActorProcessingErr, RpcReplyPort, SpawnErr};
+use libp2p_network::output_port::OutputPortSubscriberTrait;
+use mempool::{MempoolEvent, TxHash};
+use ractor::{async_trait, Actor, ActorProcessingErr, ActorRef, RpcReplyPort, SpawnErr};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use tokio::time::Instant;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::consensus_host::ConsensusHostMsg;
 use crate::types::signing::Ed25519Provider;
 use crate::types::value::Value;
 use malachitebft_core_consensus::{PeerId, Role};
@@ -21,7 +25,6 @@ use malachitebft_proto::Protobuf;
 use malachitebft_sync::RawDecidedValue;
 
 use crate::fifo_mempool::{MempoolMsg, MempoolRef};
-use crate::mempool_load::MempoolLoadRef;
 use crate::metrics::Metrics;
 use crate::mock_host::MockHost;
 use crate::state::HostState;
@@ -33,26 +36,42 @@ use crate::types::proposal_part::{PartType, ProposalFin, ProposalInit, ProposalP
 use crate::types::validator_set::ValidatorSet;
 use crate::types::value::ValueId;
 
+pub type HostRef = ActorRef<HostMsg>;
+pub type ConsensusNetworkRef = NetworkRef<MockContext>;
+
 pub struct Host {
     mempool: MempoolRef,
-    mempool_load: MempoolLoadRef,
-    network: NetworkRef<MockContext>,
+    network: ConsensusNetworkRef,
     metrics: Metrics,
     span: tracing::Span,
 }
 
-pub type HostRef = malachitebft_engine::host::HostRef<MockContext>;
-pub type HostMsg = malachitebft_engine::host::HostMsg<MockContext>;
+// Unified message type that combines ConsensusMsg and MempoolMsg
+#[allow(clippy::large_enum_variant)]
+pub enum HostMsg {
+    // Consensus messages
+    Consensus(ConsensusHostMsg),
+
+    // Mempool events
+    MempoolEvent(MempoolEvent),
+}
+
+impl From<Arc<MempoolEvent>> for HostMsg {
+    fn from(event: Arc<MempoolEvent>) -> Self {
+        match Arc::try_unwrap(event) {
+            Ok(event) => HostMsg::MempoolEvent(event),
+            Err(_) => panic!("Cannot unwrap Arc<MempoolEvent> with multiple references"),
+        }
+    }
+}
 
 impl Host {
-    #[allow(clippy::too_many_arguments)]
     pub async fn spawn(
         home_dir: PathBuf,
         signing_provider: Ed25519Provider,
         host: MockHost,
         mempool: MempoolRef,
-        mempool_load: MempoolLoadRef,
-        network: NetworkRef<MockContext>,
+        network: ConsensusNetworkRef,
         metrics: Metrics,
         span: tracing::Span,
     ) -> Result<HostRef, SpawnErr> {
@@ -64,7 +83,7 @@ impl Host {
 
         let (actor_ref, _) = Actor::spawn(
             None,
-            Self::new(mempool, mempool_load, network, metrics, span),
+            Self::new(mempool, network, metrics, span),
             HostState::new(
                 ctx,
                 signing_provider,
@@ -81,14 +100,12 @@ impl Host {
 
     pub fn new(
         mempool: MempoolRef,
-        mempool_load: MempoolLoadRef,
-        network: NetworkRef<MockContext>,
+        network: ConsensusNetworkRef,
         metrics: Metrics,
         span: tracing::Span,
     ) -> Self {
         Self {
             mempool,
-            mempool_load,
             network,
             metrics,
             span,
@@ -108,7 +125,11 @@ impl Actor for Host {
         initial_state: Self::State,
     ) -> Result<Self::State, ActorProcessingErr> {
         self.mempool.link(myself.get_cell());
-        self.mempool_load.link(myself.get_cell());
+
+        let subscriber: Box<dyn OutputPortSubscriberTrait<Arc<MempoolEvent>>> =
+            Box::new(myself.clone());
+        self.mempool
+            .cast(MempoolMsg::Subscribe(Box::new(subscriber)))?;
 
         Ok(initial_state)
     }
@@ -141,9 +162,44 @@ impl Host {
         state: &mut HostState,
     ) -> Result<(), ActorProcessingErr> {
         match msg {
-            HostMsg::ConsensusReady { reply_to } => on_consensus_ready(state, reply_to).await,
+            // Handle consensus messages
+            HostMsg::Consensus(consensus_msg) => {
+                self.handle_consensus_msg(consensus_msg, state).await
+            }
 
-            HostMsg::StartedRound {
+            // Handle mempool events
+            HostMsg::MempoolEvent(event) => self.handle_mempool_event(event, state).await,
+        }
+    }
+
+    async fn handle_mempool_event(
+        &self,
+        mempool_msg: MempoolEvent,
+        state: &mut HostState,
+    ) -> Result<(), ActorProcessingErr> {
+        // Handle CheckTx validation - this is called by the mempool
+        match mempool_msg {
+            MempoolEvent::CheckTx { tx, reply } => {
+                let result = state.check_tx(&tx);
+                let response = MempoolMsg::CheckTxResult { tx, result, reply };
+                self.mempool.cast(response)?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_consensus_msg(
+        &self,
+        consensus_msg: ConsensusHostMsg,
+        state: &mut HostState,
+    ) -> Result<(), ActorProcessingErr> {
+        debug!("Received consensus message: {:?}", consensus_msg);
+        match consensus_msg {
+            ConsensusHostMsg::ConsensusReady { reply_to } => {
+                on_consensus_ready(state, reply_to).await
+            }
+
+            ConsensusHostMsg::StartedRound {
                 height,
                 round,
                 proposer,
@@ -151,18 +207,18 @@ impl Host {
                 reply_to,
             } => on_started_round(state, height, round, proposer, role, reply_to).await,
 
-            HostMsg::GetHistoryMinHeight { reply_to } => {
+            ConsensusHostMsg::GetHistoryMinHeight { reply_to } => {
                 on_get_history_min_height(state, reply_to).await
             }
 
-            HostMsg::GetValue {
+            ConsensusHostMsg::GetValue {
                 height,
                 round,
                 timeout,
                 reply_to,
             } => on_get_value(state, &self.network, height, round, timeout, reply_to).await,
 
-            HostMsg::RestreamValue {
+            ConsensusHostMsg::RestreamValue {
                 height,
                 round,
                 valid_round,
@@ -181,17 +237,17 @@ impl Host {
                 .await
             }
 
-            HostMsg::ReceivedProposalPart {
+            ConsensusHostMsg::ReceivedProposalPart {
                 from,
                 part,
                 reply_to,
             } => on_received_proposal_part(state, part, from, reply_to).await,
 
-            HostMsg::GetValidatorSet { height, reply_to } => {
+            ConsensusHostMsg::GetValidatorSet { height, reply_to } => {
                 on_get_validator_set(state, height, reply_to).await
             }
 
-            HostMsg::Decided {
+            ConsensusHostMsg::Decided {
                 certificate,
                 extensions,
                 reply_to,
@@ -207,11 +263,11 @@ impl Host {
                 .await
             }
 
-            HostMsg::GetDecidedValue { height, reply_to } => {
+            ConsensusHostMsg::GetDecidedValue { height, reply_to } => {
                 on_get_decided_block(height, state, reply_to).await
             }
 
-            HostMsg::ProcessSyncedValue {
+            ConsensusHostMsg::ProcessSyncedValue {
                 height,
                 round,
                 proposer,
@@ -221,12 +277,12 @@ impl Host {
                 on_process_synced_value(state, value_bytes, height, round, proposer, reply_to).await
             }
 
-            HostMsg::ExtendVote { reply_to, .. } => {
+            ConsensusHostMsg::ExtendVote { reply_to, .. } => {
                 reply_to.send(None)?;
                 Ok(())
             }
 
-            HostMsg::VerifyVoteExtension { reply_to, .. } => {
+            ConsensusHostMsg::VerifyVoteExtension { reply_to, .. } => {
                 reply_to.send(Ok(()))?;
                 Ok(())
             }
@@ -318,7 +374,7 @@ async fn on_get_validator_set(
 
 async fn on_get_value(
     state: &mut HostState,
-    network: &NetworkRef<MockContext>,
+    network: &ConsensusNetworkRef,
     height: Height,
     round: Round,
     timeout: Duration,
@@ -425,7 +481,7 @@ async fn find_previously_built_value(
 
 async fn on_restream_proposal(
     state: &mut HostState,
-    network: &NetworkRef<MockContext>,
+    network: &ConsensusNetworkRef,
     height: Height,
     round: Round,
     value_id: ValueId,
@@ -723,14 +779,6 @@ async fn on_decided(
     metrics.block_size_bytes.observe(block_size as f64);
     metrics.finalized_txes.inc_by(tx_count as u64);
 
-    // Convert transactions to RawTx and get their hashes
-    let raw_txs: Vec<::mempool::RawTx> = block
-        .transactions
-        .to_vec()
-        .into_iter()
-        .map(|tx| ::mempool::RawTx(tx.to_bytes()))
-        .collect();
-
     // Prune the PartStore of all parts for heights lower than `state.height`
     state.host.part_store.prune(state.height);
 
@@ -738,11 +786,16 @@ async fn on_decided(
     // Also prunes parts, the undecided blocks and proposals.
     prune_block_store(state).await;
 
-    // Notify the mempool to remove corresponding txs by hash
-    for raw_tx in raw_txs {
-        let tx_hash = raw_tx.hash();
-        mempool.cast(MempoolMsg::Remove(vec![tx_hash]))?;
-    }
+    // Get transactions hashes
+    let tx_hashes: Vec<TxHash> = block
+        .transactions
+        .to_vec()
+        .into_iter()
+        .map(|tx| TxHash(Bytes::from(tx.hash().to_vec())))
+        .collect();
+
+    // Notify the mempool to remove corresponding txs
+    mempool.cast(MempoolMsg::Remove(tx_hashes))?;
 
     // Notify the Host of the decision
     state.host.decision(certificate).await;

@@ -1,7 +1,9 @@
 
 # Example actor-based app
 
-This is an example application using the actor based integration with malachite
+This is an example application using the actor based integration with malachite and malachite-mempool.
+
+Detailed actor architecture and mempool transaction flow documentation can be found in [transaction-flow](transaction-flow.md).
 
 ## Run a local testnet
 

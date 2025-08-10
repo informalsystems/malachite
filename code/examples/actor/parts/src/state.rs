@@ -1,4 +1,6 @@
+use bytes::Bytes;
 use malachitebft_core_consensus::Role;
+use mempool::{RawTx, TxHash};
 use sha3::Digest;
 use std::mem::size_of;
 use std::path::Path;
@@ -8,6 +10,7 @@ use std::time::Duration;
 use crate::types::block::Block;
 use crate::types::hash::Hash;
 use crate::types::signing::Ed25519Provider;
+use mempool::CheckTxOutcome as MempoolCheckTxOutcome;
 use rand::RngCore;
 use tracing::{debug, error, trace};
 
@@ -25,6 +28,27 @@ use crate::types::height::Height;
 use crate::types::proposal_part::ProposalPart;
 use crate::types::transaction::{Transaction, TransactionBatch};
 use crate::types::value::Value;
+
+pub type AppResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+#[derive(Debug)]
+pub enum CheckTxOutcome {
+    Success(Hash),
+    Error(Hash, String),
+}
+
+impl MempoolCheckTxOutcome for CheckTxOutcome {
+    fn is_valid(&self) -> bool {
+        matches!(self, CheckTxOutcome::Success(_))
+    }
+
+    fn hash(&self) -> TxHash {
+        match self {
+            CheckTxOutcome::Success(hash) => TxHash(Bytes::from(hash.to_vec())),
+            CheckTxOutcome::Error(hash, _) => TxHash(Bytes::from(hash.to_vec())),
+        }
+    }
+}
 
 pub struct HostState {
     pub ctx: MockContext,
@@ -64,6 +88,14 @@ impl HostState {
             block_store: BlockStore::new(db_path).await.unwrap(),
             nonce: rng.next_u64(),
         }
+    }
+
+    pub fn check_tx(&self, tx: &RawTx) -> AppResult<Box<dyn MempoolCheckTxOutcome>> {
+        // Create transaction to compute hash, then create TxHash consistently with removal logic
+        let transaction = Transaction::new(tx.0.clone());
+        // Use the same hash format as removal: TxHash from hash bytes
+        let tx_hash = transaction.hash().clone();
+        Ok(Box::new(CheckTxOutcome::Success(tx_hash)))
     }
 
     pub fn stream_id(&mut self) -> StreamId {

@@ -12,7 +12,6 @@ message Address {
 
 message ConsensusTransaction {
     bytes tx = 1;
-    bytes hash = 2;
 }
 
 message TransactionBatch {
