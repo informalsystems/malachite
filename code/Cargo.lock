@@ -2183,6 +2183,7 @@ dependencies = [
  "async-recursion",
  "borsh",
  "derive-where",
+ "futures",
  "genawaiter",
  "informalsystems-malachitebft-core-driver",
  "informalsystems-malachitebft-core-types",
@@ -2191,6 +2192,7 @@ dependencies = [
  "informalsystems-malachitebft-test",
  "multiaddr",
  "thiserror 2.0.12",
+ "tokio",
  "tracing",
 ]
 
@@ -2220,6 +2222,7 @@ dependencies = [
 name = "informalsystems-malachitebft-core-types"
 version = "0.6.0-pre"
 dependencies = [
+ "async-trait",
  "borsh",
  "bytes",
  "derive-where",
@@ -2461,6 +2464,7 @@ dependencies = [
 name = "informalsystems-malachitebft-starknet-p2p-types"
 version = "0.6.0-pre"
 dependencies = [
+ "async-trait",
  "bytes",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-proto 0.6.0-pre",
@@ -2546,6 +2550,7 @@ dependencies = [
  "bytesize",
  "ed25519-consensus",
  "eyre",
+ "futures",
  "hex",
  "informalsystems-malachitebft-app",
  "informalsystems-malachitebft-codec",
