@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use mempool::MempoolConfig;
 use tokio::task::JoinHandle;
 
-use malachitebft_config::{self as config, MempoolConfig, MempoolLoadConfig, ValueSyncConfig};
+use libp2p_network::Config as MempoolNetworkConfig;
+use malachitebft_config::{self as config, MempoolLoadConfig, ValueSyncConfig};
 use malachitebft_core_types::ValuePayload;
 use malachitebft_engine::consensus::{Consensus, ConsensusParams, ConsensusRef};
-use malachitebft_engine::host::HostRef;
 use malachitebft_engine::network::{Network, NetworkRef};
 use malachitebft_engine::node::{Node, NodeRef};
 use malachitebft_engine::sync::{Params as SyncParams, Sync, SyncRef};
@@ -15,16 +16,16 @@ use malachitebft_engine::wal::{Wal, WalRef};
 use malachitebft_metrics::{Metrics as ConsensusMetrics, SharedRegistry};
 use malachitebft_network::Keypair;
 use malachitebft_sync as sync;
-use malachitebft_test_mempool::Config as MempoolNetworkConfig;
 
-use crate::actor::Host;
+use crate::actor::{ConsensusNetworkRef, HostRef};
 use crate::codec::ProtobufCodec;
 
-use crate::mempool::network::{MempoolNetwork, MempoolNetworkRef};
-use crate::mempool::{Mempool, MempoolRef};
+use crate::consensus_host::ConsensusHostRef;
+use crate::fifo_mempool::{Mempool, MempoolRef};
 use crate::mempool_load::{MempoolLoad, MempoolLoadRef, Params};
 use crate::metrics::Metrics as AppMetrics;
 use crate::mock_host::{MockHost, MockHostParams};
+use libp2p_network::network::{MempoolNetwork, MempoolNetworkActorRef};
 
 use crate::config::Config;
 use crate::types::{
@@ -57,12 +58,18 @@ pub async fn spawn_node_actor(
     let address = Address::from_public_key(&private_key.public_key());
 
     // Spawn mempool and its gossip layer
-    let mempool_network = spawn_mempool_network_actor(&cfg, &private_key, &registry, &span).await;
-    let mempool = spawn_mempool_actor(mempool_network, &cfg.mempool, &span).await;
-    let mempool_load = spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
+    let mempool_network = spawn_mempool_network_actor(&cfg, &private_key, &span).await;
+    let mempool_config = MempoolConfig {
+        max_txs_bytes: cfg.test.max_block_size.as_u64(),
+        max_txs_per_block: cfg.test.max_retain_blocks / 256, // TODO - make configurable
+        max_pool_size: cfg.mempool.max_tx_count,
+    };
+    let mempool = spawn_mempool_actor(mempool_network, &mempool_config, &span).await;
+    let _mempool_load = spawn_mempool_load_actor(&cfg.mempool.load, mempool.clone(), &span).await;
 
     // Spawn consensus gossip
-    let network = spawn_network_actor(&cfg, &private_key, &registry, &span).await;
+    let consensus_network =
+        spawn_consensus_network_actor(&cfg, &private_key, &registry, &span).await;
 
     // Spawn the host actor
     let host = spawn_host_actor(
@@ -72,17 +79,19 @@ pub async fn spawn_node_actor(
         &private_key,
         &initial_validator_set,
         mempool,
-        mempool_load,
-        network.clone(),
-        app_metrics,
+        consensus_network.clone(),
+        app_metrics.clone(),
         &span,
     )
     .await;
 
+    // Spawn the consensus host actor that relays consensus messages to the host actor
+    let consensus_host = spawn_consensus_host_actor(host.clone()).await;
+
     let sync = spawn_sync_actor(
         ctx,
-        network.clone(),
-        host.clone(),
+        consensus_network.clone(),
+        consensus_host.clone(),
         &cfg.value_sync,
         sync_metrics,
         &span,
@@ -93,15 +102,15 @@ pub async fn spawn_node_actor(
 
     // Spawn consensus
     let signing_provider = Ed25519Provider::new(private_key.clone());
-    let consensus = spawn_consensus_actor(
+    let consensus = spawn_consensus_engine_actor(
         start_height,
         initial_validator_set,
         address,
         ctx,
         cfg,
         signing_provider,
-        network.clone(),
-        host.clone(),
+        consensus_network.clone(),
+        consensus_host.clone(),
         wal.clone(),
         sync.clone(),
         consensus_metrics,
@@ -111,7 +120,15 @@ pub async fn spawn_node_actor(
     .await;
 
     // Spawn the node actor
-    let node = Node::new(ctx, network, consensus, wal, sync, host, span);
+    let node = Node::new(
+        ctx,
+        consensus_network,
+        consensus,
+        wal,
+        sync,
+        consensus_host,
+        span,
+    );
 
     let (actor_ref, handle) = node.spawn().await.unwrap();
 
@@ -136,8 +153,8 @@ async fn spawn_wal_actor(
 
 async fn spawn_sync_actor(
     ctx: MockContext,
-    network: NetworkRef<MockContext>,
-    host: HostRef<MockContext>,
+    network: ConsensusNetworkRef,
+    host: ConsensusHostRef,
     config: &ValueSyncConfig,
     sync_metrics: sync::Metrics,
     span: &tracing::Span,
@@ -164,6 +181,7 @@ async fn spawn_sync_actor(
         scoring_strategy,
         inactive_threshold: (!config.inactive_threshold.is_zero())
             .then_some(config.inactive_threshold),
+        batch_size: 5, // Default batch size
     };
 
     let actor_ref = Sync::spawn(
@@ -182,15 +200,15 @@ async fn spawn_sync_actor(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn spawn_consensus_actor(
+async fn spawn_consensus_engine_actor(
     initial_height: Height,
     initial_validator_set: ValidatorSet,
     address: Address,
     ctx: MockContext,
     cfg: Config,
     signing_provider: Ed25519Provider,
-    network: NetworkRef<MockContext>,
-    host: HostRef<MockContext>,
+    network: ConsensusNetworkRef,
+    consensus_host: ConsensusHostRef,
     wal: WalRef<MockContext>,
     sync: Option<SyncRef<MockContext>>,
     consensus_metrics: ConsensusMetrics,
@@ -217,7 +235,7 @@ async fn spawn_consensus_actor(
         cfg.consensus,
         Box::new(signing_provider),
         network,
-        host,
+        consensus_host,
         wal,
         sync,
         consensus_metrics,
@@ -228,7 +246,7 @@ async fn spawn_consensus_actor(
     .unwrap()
 }
 
-async fn spawn_network_actor(
+async fn spawn_consensus_network_actor(
     cfg: &Config,
     private_key: &PrivateKey,
     registry: &SharedRegistry,
@@ -279,6 +297,7 @@ async fn spawn_network_actor(
             },
             config::PubSubProtocol::Broadcast => gossip::GossipSubConfig::default(),
         },
+        channel_names: gossip::ChannelNames::default(),
         rpc_max_size: cfg.consensus.p2p.rpc_max_size.as_u64() as usize,
         pubsub_max_size: cfg.consensus.p2p.pubsub_max_size.as_u64() as usize,
         enable_sync: true,
@@ -303,18 +322,13 @@ fn make_keypair(pk: &PrivateKey) -> Keypair {
 }
 
 async fn spawn_mempool_actor(
-    mempool_network: MempoolNetworkRef,
+    mempool_network: MempoolNetworkActorRef,
     mempool_config: &MempoolConfig,
     span: &tracing::Span,
 ) -> MempoolRef {
-    Mempool::spawn(
-        mempool_network,
-        mempool_config.gossip_batch_size,
-        mempool_config.max_tx_count,
-        span.clone(),
-    )
-    .await
-    .unwrap()
+    Mempool::spawn(mempool_network, mempool_config.clone(), span.clone())
+        .await
+        .unwrap()
 }
 
 async fn spawn_mempool_load_actor(
@@ -336,9 +350,8 @@ async fn spawn_mempool_load_actor(
 async fn spawn_mempool_network_actor(
     cfg: &Config,
     private_key: &PrivateKey,
-    registry: &SharedRegistry,
     span: &tracing::Span,
-) -> MempoolNetworkRef {
+) -> MempoolNetworkActorRef {
     let keypair = make_keypair(private_key);
 
     let config = MempoolNetworkConfig {
@@ -347,7 +360,15 @@ async fn spawn_mempool_network_actor(
         idle_connection_timeout: Duration::from_secs(15 * 60),
     };
 
-    MempoolNetwork::spawn(keypair, config, registry.clone(), span.clone())
+    let result = MempoolNetwork::spawn(keypair, config, span.clone())
+        .await
+        .unwrap();
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn spawn_consensus_host_actor(host: HostRef) -> ConsensusHostRef {
+    crate::consensus_host::ConsensusHost::spawn(host)
         .await
         .unwrap()
 }
@@ -360,11 +381,10 @@ async fn spawn_host_actor(
     private_key: &PrivateKey,
     initial_validator_set: &ValidatorSet,
     mempool: MempoolRef,
-    mempool_load: MempoolLoadRef,
-    network: NetworkRef<MockContext>,
+    network: ConsensusNetworkRef,
     metrics: AppMetrics,
     span: &tracing::Span,
-) -> HostRef<MockContext> {
+) -> HostRef {
     let mock_params = MockHostParams {
         max_block_size: cfg.test.max_block_size,
         txs_per_part: cfg.test.txs_per_part,
@@ -383,12 +403,11 @@ async fn spawn_host_actor(
 
     let signing_provider = Ed25519Provider::new(private_key.clone());
 
-    Host::spawn(
+    crate::actor::Host::spawn(
         home_dir.to_owned(),
         signing_provider,
         mock_host,
         mempool,
-        mempool_load,
         network,
         metrics,
         span.clone(),

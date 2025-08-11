@@ -7,37 +7,32 @@ use serde::{Deserialize, Serialize};
 
 /// Transaction
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
-pub struct Transaction {
-    data: Bytes,
-    hash: Hash,
-}
+pub struct Transaction(Bytes);
 
 impl Transaction {
     /// Create a new transaction from bytes
     pub fn new(data: impl Into<Bytes>) -> Self {
-        let data = data.into();
-        let hash = Self::compute_hash(&data);
-        Self { data, hash }
+        Self(data.into())
     }
 
     /// Get bytes from a transaction
     pub fn to_bytes(&self) -> Bytes {
-        self.data.clone()
+        self.0.clone()
     }
 
     /// Get bytes from a transaction
     pub fn as_bytes(&self) -> &[u8] {
-        self.data.as_ref()
+        self.0.as_ref()
     }
 
     /// Size of this transaction in bytes
     pub fn size_bytes(&self) -> usize {
-        self.data.len()
+        self.0.len()
     }
 
     /// Hash of this transaction
-    pub fn hash(&self) -> &Hash {
-        &self.hash
+    pub fn hash(&self) -> Hash {
+        Self::compute_hash(&self.0)
     }
 
     /// Compute the hash of a transaction
@@ -54,7 +49,7 @@ impl fmt::Debug for Transaction {
         write!(
             f,
             "Transaction({:?}, {} bytes)",
-            self.hash,
+            self.hash(),
             self.size_bytes()
         )
     }
@@ -64,16 +59,11 @@ impl proto::Protobuf for Transaction {
     type Proto = super::proto::ConsensusTransaction;
 
     fn from_proto(proto: Self::Proto) -> Result<Self, proto::Error> {
-        let data = proto.tx;
-        let hash = Self::compute_hash(&data);
-        Ok(Self { data, hash })
+        Ok(Self(proto.tx))
     }
 
     fn to_proto(&self) -> Result<Self::Proto, proto::Error> {
-        Ok(Self::Proto {
-            tx: self.data.clone(),
-            hash: Bytes::from(self.hash.to_vec()),
-        })
+        Ok(Self::Proto { tx: self.0.clone() })
     }
 }
 
