@@ -17,11 +17,9 @@ use crate::types::context::MockContext as TestContext;
 use crate::types::{
     address::Address,
     block::Block,
-    hash::BlockHash,
     height::Height,
     proposal::Proposal,
     proposal_part::ProposalPart,
-    transaction::TransactionBatch,
     value::{Value, ValueId},
     vote::Vote,
 };
@@ -368,8 +366,11 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
             .value_request
             .ok_or_else(|| ProtoError::missing_field::<proto::SyncRequest>("value_request"))?;
 
+        let start_height = Height::new(request.height);
+        let end_height = request.end_height.map(Height::new).unwrap_or(start_height);
+
         Ok(sync::Request::ValueRequest(sync::ValueRequest::new(
-            Height::new(request.height),
+            start_height..=end_height,
         )))
     }
 
@@ -377,7 +378,12 @@ impl Codec<sync::Request<TestContext>> for ProtobufCodec {
         let proto = match msg {
             sync::Request::ValueRequest(req) => proto::SyncRequest {
                 value_request: Some(proto::ValueRequest {
-                    height: req.height.as_u64(),
+                    height: req.range.start().as_u64(),
+                    end_height: if req.range.start() == req.range.end() {
+                        None
+                    } else {
+                        Some(req.range.end().as_u64())
+                    },
                 }),
             },
         };
@@ -405,31 +411,27 @@ pub fn decode_sync_response(
         .value_response
         .ok_or_else(|| ProtoError::missing_field::<proto::SyncResponse>("value_response"))?;
 
-    let certificate = response
-        .certificate
-        .ok_or_else(|| ProtoError::missing_field::<proto::ValueResponse>("certificate"))?;
+    let mut values = Vec::new();
+    for synced_value in response.values {
+        let block = synced_value
+            .value
+            .ok_or_else(|| ProtoError::missing_field::<proto::SyncedValue>("value"))?;
+
+        let certificate = synced_value
+            .certificate
+            .ok_or_else(|| ProtoError::missing_field::<proto::SyncedValue>("certificate"))?;
+
+        let block = Block::from_proto(block)?;
+
+        values.push(sync::RawDecidedValue {
+            value_bytes: block.to_bytes()?,
+            certificate: decode_commit_certificate(certificate)?,
+        });
+    }
 
     Ok(sync::Response::ValueResponse(sync::ValueResponse::new(
-        Height::new(certificate.height),
-        response
-            .value
-            .map(|b| {
-                let block =
-                    Block {
-                        height: Height::new(response.height),
-                        transactions: TransactionBatch::from_proto(b.transactions.ok_or_else(
-                            || ProtoError::missing_field::<proto::Block>("transactions"),
-                        )?)?,
-                        block_hash: BlockHash::from_proto(b.block_hash.ok_or_else(|| {
-                            ProtoError::missing_field::<proto::Block>("block_hash")
-                        })?)?,
-                    };
-                Ok::<sync::RawDecidedValue<TestContext>, ProtoError>(sync::RawDecidedValue {
-                    value_bytes: block.to_bytes()?,
-                    certificate: decode_commit_certificate(certificate.clone())?,
-                })
-            })
-            .transpose()?,
+        Height::new(response.start_height),
+        values,
     )))
 }
 
@@ -437,21 +439,26 @@ pub fn encode_sync_response(
     response: &sync::Response<TestContext>,
 ) -> Result<proto::SyncResponse, ProtoError> {
     let proto = match response {
-        sync::Response::ValueResponse(value_response) => proto::SyncResponse {
-            value_response: Some(proto::ValueResponse {
-                height: value_response.height.as_u64(),
-                value: value_response
-                    .value
-                    .as_ref()
-                    .map(|v| Block::from_bytes(&v.value_bytes).and_then(|b| b.to_proto()))
-                    .transpose()?,
-                certificate: value_response
-                    .value
-                    .as_ref()
-                    .map(|v| encode_commit_certificate(&v.certificate))
-                    .transpose()?,
-            }),
-        },
+        sync::Response::ValueResponse(value_response) => {
+            let mut synced_values = Vec::new();
+
+            for raw_decided_value in &value_response.values {
+                let block = Block::from_bytes(&raw_decided_value.value_bytes)
+                    .map_err(|e| ProtoError::Other(e.to_string()))?;
+
+                synced_values.push(proto::SyncedValue {
+                    value: Some(block.to_proto()?),
+                    certificate: Some(encode_commit_certificate(&raw_decided_value.certificate)?),
+                });
+            }
+
+            proto::SyncResponse {
+                value_response: Some(proto::ValueResponse {
+                    start_height: value_response.start_height.as_u64(),
+                    values: synced_values,
+                }),
+            }
+        }
     };
 
     Ok(proto)

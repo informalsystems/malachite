@@ -181,6 +181,7 @@ async fn spawn_sync_actor(
         scoring_strategy,
         inactive_threshold: (!config.inactive_threshold.is_zero())
             .then_some(config.inactive_threshold),
+        batch_size: 5, // Default batch size
     };
 
     let actor_ref = Sync::spawn(
@@ -296,6 +297,7 @@ async fn spawn_consensus_network_actor(
             },
             config::PubSubProtocol::Broadcast => gossip::GossipSubConfig::default(),
         },
+        channel_names: gossip::ChannelNames::default(),
         rpc_max_size: cfg.consensus.p2p.rpc_max_size.as_u64() as usize,
         pubsub_max_size: cfg.consensus.p2p.pubsub_max_size.as_u64() as usize,
         enable_sync: true,
