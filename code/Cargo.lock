@@ -2305,7 +2305,7 @@ dependencies = [
  "derive-where",
  "eyre",
  "informalsystems-malachitebft-app-channel",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-test",
  "informalsystems-malachitebft-test-cli",
  "itertools 0.14.0",
@@ -2364,7 +2364,8 @@ dependencies = [
 
 [[package]]
 name = "informalsystems-malachitebft-proto"
-version = "0.6.0-pre"
+version = "0.5.0"
+source = "git+https://github.com/informalsystems/malachite.git?branch=anca%2Factor_with_fifo_mempool#3059535018d899013650d6d48016d1e105d8e366"
 dependencies = [
  "prost",
  "prost-types",
@@ -2373,8 +2374,7 @@ dependencies = [
 
 [[package]]
 name = "informalsystems-malachitebft-proto"
-version = "0.5.0"
-source = "git+https://github.com/informalsystems/malachite.git?branch=anca%2Factor_with_fifo_mempool#3059535018d899013650d6d48016d1e105d8e366"
+version = "0.6.0-pre"
 dependencies = [
  "prost",
  "prost-types",
@@ -2426,7 +2426,7 @@ dependencies = [
  "informalsystems-malachitebft-engine",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-network",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-starknet-p2p-proto",
  "informalsystems-malachitebft-starknet-p2p-types",
  "informalsystems-malachitebft-sync",
@@ -2463,7 +2463,7 @@ version = "0.6.0-pre"
 dependencies = [
  "bytes",
  "informalsystems-malachitebft-core-types",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-signing-ed25519",
  "informalsystems-malachitebft-starknet-p2p-proto",
  "rand 0.8.5",
@@ -2554,7 +2554,7 @@ dependencies = [
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-engine",
  "informalsystems-malachitebft-peer",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-signing-ed25519",
  "informalsystems-malachitebft-sync",
  "informalsystems-malachitebft-test-app",
@@ -2584,7 +2584,7 @@ dependencies = [
  "derive-where",
  "eyre",
  "informalsystems-malachitebft-app-channel",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-test",
  "informalsystems-malachitebft-test-cli",
  "informalsystems-malachitebft-test-framework",
@@ -2681,7 +2681,7 @@ dependencies = [
  "eyre",
  "futures",
  "informalsystems-malachitebft-metrics",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "libp2p",
  "libp2p-gossipsub",
  "prost",
@@ -2731,7 +2731,7 @@ dependencies = [
  "informalsystems-malachitebft-engine",
  "informalsystems-malachitebft-metrics",
  "informalsystems-malachitebft-network",
- "informalsystems-malachitebft-proto 0.5.0",
+ "informalsystems-malachitebft-proto 0.6.0-pre",
  "informalsystems-malachitebft-signing-ed25519",
  "informalsystems-malachitebft-sync",
  "informalsystems-malachitebft-test-cli",
@@ -3145,7 +3145,7 @@ dependencies = [
  "async-trait",
  "eyre",
  "futures",
- "informalsystems-malachitebft-proto 0.5.0 (git+https://github.com/informalsystems/malachite.git?branch=anca%2Factor_with_fifo_mempool)",
+ "informalsystems-malachitebft-proto 0.5.0",
  "libp2p",
  "libp2p-gossipsub",
  "libp2p-identity",

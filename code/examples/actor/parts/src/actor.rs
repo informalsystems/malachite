@@ -795,6 +795,7 @@ async fn on_decided(
         .collect();
 
     // Notify the mempool to remove corresponding txs
+    debug!(%height, %round, tx_hashes = ?tx_hashes.len(), "Removing transactions from the mempool");
     mempool.cast(MempoolMsg::Remove(tx_hashes))?;
 
     // Notify the Host of the decision
