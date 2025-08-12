@@ -373,6 +373,10 @@ pub async fn run(
                     error!("Failed to send VerifyVoteExtension reply");
                 }
             }
+
+            AppMsg::ReceivedProposal { .. } => {
+                panic!("ReceivedProposal should not be called in test app");
+            }
         }
     }
 
