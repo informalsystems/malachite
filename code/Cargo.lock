@@ -2206,6 +2206,8 @@ dependencies = [
  "informalsystems-malachitebft-core-types",
  "multiaddr",
  "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -2278,6 +2280,7 @@ name = "informalsystems-malachitebft-discovery"
 version = "0.6.0-pre"
 dependencies = [
  "either",
+ "eyre",
  "informalsystems-malachitebft-metrics",
  "libp2p",
  "rand 0.8.5",
@@ -2553,6 +2556,7 @@ dependencies = [
  "dashmap",
  "derive-where",
  "displaydoc",
+ "eyre",
  "genawaiter",
  "informalsystems-malachitebft-core-types",
  "informalsystems-malachitebft-metrics",
