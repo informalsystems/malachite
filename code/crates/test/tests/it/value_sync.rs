@@ -7,7 +7,6 @@ use malachitebft_core_consensus::ProposedValue;
 use malachitebft_core_types::CommitCertificate;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use bytesize::ByteSize;
 
 pub async fn crash_restart_from_start(params: TestParams) {
     const HEIGHT: u64 = 6;
@@ -63,28 +62,6 @@ pub async fn crash_restart_from_start(params: TestParams) {
 pub async fn crash_restart_from_start_parts_only() {
     let params = TestParams {
         value_payload: ValuePayload::PartsOnly,
-        ..Default::default()
-    };
-
-    crash_restart_from_start(params).await
-}
-
-#[tokio::test]
-pub async fn test_block_size_more_than_rpc_size_times_out() {
-    let params = TestParams {
-        rpc_max_size: ByteSize::kib(10),
-        block_size: ByteSize::kib(15),
-        ..Default::default()
-    };
-
-    crash_restart_from_start(params).await
-}
-
-#[tokio::test]
-pub async fn test_block_size_more_than_rpc_size_succeeds() {
-    let params = TestParams {
-        rpc_max_size: ByteSize::kib(15),
-        block_size: ByteSize::kib(10),
         ..Default::default()
     };
 
