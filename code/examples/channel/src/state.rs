@@ -473,7 +473,7 @@ impl State {
         // Include each prime factor of the value as a separate proposal part
         {
             for factor in factor_value(value.value) {
-                parts.push(ProposalPart::Data(ProposalData::new(factor)));
+                parts.push(ProposalPart::Data(ProposalData::new(factor, Bytes::new())));
 
                 hasher.update(factor.to_be_bytes().as_slice());
             }
