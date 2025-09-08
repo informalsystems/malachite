@@ -11,15 +11,16 @@ use crate::{Address, Height, TestContext};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposalData {
     pub factor: u64,
+    pub extension: Bytes,
 }
 
 impl ProposalData {
-    pub fn new(factor: u64) -> Self {
-        Self { factor }
+    pub fn new(factor: u64, extension: Bytes) -> Self {
+        Self { factor, extension }
     }
 
     pub fn size_bytes(&self) -> usize {
-        std::mem::size_of::<u64>()
+        std::mem::size_of::<u64>() + self.extension.len()
     }
 }
 
@@ -127,7 +128,7 @@ impl Protobuf for ProposalPart {
                     .ok_or_else(|| ProtoError::missing_field::<Self::Proto>("proposer"))
                     .and_then(Address::from_proto)?,
             })),
-            Part::Data(data) => Ok(Self::Data(ProposalData::new(data.factor))),
+            Part::Data(data) => Ok(Self::Data(ProposalData::new(data.factor, data.extension))),
             Part::Fin(fin) => Ok(Self::Fin(ProposalFin {
                 signature: fin
                     .signature
@@ -154,6 +155,7 @@ impl Protobuf for ProposalPart {
             Self::Data(data) => Ok(Self::Proto {
                 part: Some(Part::Data(proto::ProposalData {
                     factor: data.factor,
+                    extension: data.extension.clone(),
                 })),
             }),
             Self::Fin(fin) => Ok(Self::Proto {

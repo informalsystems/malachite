@@ -6,16 +6,13 @@ use tokio::time::sleep;
 use tracing::{debug, error, info};
 
 // use malachitebft_app_channel::app::config::ValuePayload;
+use crate::state::{decode_value, encode_value, State};
 use malachitebft_app_channel::app::streaming::StreamContent;
-use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{Round, Validity};
 use malachitebft_app_channel::app::types::sync::RawDecidedValue;
 use malachitebft_app_channel::app::types::{LocallyProposedValue, ProposedValue};
 use malachitebft_app_channel::{AppMsg, Channels, NetworkMsg};
-use malachitebft_test::codec::json::JsonCodec;
 use malachitebft_test::{Height, TestContext};
-
-use crate::state::{decode_value, State};
 
 pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyre::Result<()> {
     while let Some(msg) = channels.consensus.recv().await {
@@ -308,7 +305,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
 
                 let raw_decided_value = decided_value.map(|decided_value| RawDecidedValue {
                     certificate: decided_value.certificate,
-                    value_bytes: JsonCodec.encode(&decided_value.value).unwrap(), // FIXME: unwrap
+                    value_bytes: encode_value(&decided_value.value),
                 });
 
                 if reply.send(raw_decided_value).is_err() {

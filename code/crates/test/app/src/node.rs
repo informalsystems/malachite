@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use malachitebft_test::codec::json::JsonCodec;
 use malachitebft_test::codec::proto::ProtobufCodec;
 use rand::{CryptoRng, RngCore};
 use tokio::task::JoinHandle;
@@ -138,7 +137,7 @@ impl Node for App {
             self.clone(),
             config.clone(),
             ProtobufCodec, // WAL codec
-            JsonCodec,     // Network codec
+            ProtobufCodec, // Network codec
             self.start_height,
             self.validator_set.clone(),
         )
