@@ -1,7 +1,7 @@
 #!/bin/bash
 
 RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=info \
-    /shared/build/sequencer/release/starknet_sequencer_node \
+    ${CARGO_TARGET_DIR}/debug/starknet_sequencer_node \
     --chain_id MY_CUSTOM_CHAIN_ID \
     --eth_fee_token_address 0x1001 \
     --strk_fee_token_address 0x1002 \
@@ -19,8 +19,8 @@ RUST_LOG=starknet_consensus=debug,starknet=info,papyrus_network=debug,papyrus=in
     --validator_id {{ validator_id }} \
     --consensus_manager_config.context_config.num_validators {{ num_validators }} \
     --consensus_manager_config.context_config.validator_ids {{ validator_ids }} \
-    {% if bootstrap_peer is defined and bootstrap_peer %}--consensus_manager_config.network_config.bootstrap_peer_multiaddr {{ bootstrap_peer }} \
-    --consensus_manager_config.network_config.bootstrap_peer_multiaddr.#is_none false{% endif %} \
+    {% if bootstrap_peers is defined and bootstrap_peers %}{% for peer in bootstrap_peers %}--consensus_manager_config.network_config.bootstrap_peer_multiaddr {{ peer }} \
+    {% endfor %}--consensus_manager_config.network_config.bootstrap_peer_multiaddr.#is_none false{% endif %} \
     --consensus_manager_config.consensus_config.timeouts.proposal_timeout {{ proposal_timeout }} \
     --consensus_manager_config.consensus_config.timeouts.prevote_timeout {{ prevote_timeout }} \
     --consensus_manager_config.consensus_config.timeouts.precommit_timeout {{ precommit_timeout }}

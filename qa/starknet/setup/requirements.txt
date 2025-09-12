@@ -1,3 +1,4 @@
 jinja2
 eth-hash
 pynacl
+libp2p

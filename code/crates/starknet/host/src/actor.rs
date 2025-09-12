@@ -228,14 +228,14 @@ async fn on_consensus_ready(
 
     state.start_height = start_height;
 
-    if !state.peers.is_empty() {
-        tokio::time::sleep(Duration::from_millis(200)).await;
+    
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
-        consensus.cast(ConsensusMsg::StartHeight(
-            start_height,
-            state.host.validator_set.clone(),
-        ))?;
-    }
+    consensus.cast(ConsensusMsg::StartHeight(
+        start_height,
+        state.host.validator_set.clone(),
+    ))?;
+    
 
     Ok(())
 }

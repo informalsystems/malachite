@@ -202,9 +202,9 @@ async fn run_build_proposal_task(
     // Fin
     {
         let part = ProposalPart::Fin(ProposalFin {
-            // TODO: Compute the actual propoosal commitment hash, for now
-            // we use the transaction commitment
-            proposal_commitment_hash: transaction_commitment,
+            // TODO: Compute the actual proposal commitment hash, for now
+            // we use the empty block hash
+            proposal_commitment_hash: Hash::new([0; 32]),
         });
         tx_part.send(part).await?;
         sequence += 1;

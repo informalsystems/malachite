@@ -53,10 +53,10 @@ case "$action" in
     echo "Starting the nodes..."
     containers=( $(docker compose -f "$compose_file" ps --format '{{.Name}}' ) )
     for container in "${containers[@]}"; do
-      if [[ "$container" =~ ^malachite-node- ]]; then
-        docker exec -it "$container" /bin/bash -lic "sleep 10 && start > /shared/networks/${network_name}/logs/${container}.log 2>&1 &"
+      if [[ "$container" =~ malachite-node- ]]; then
+        docker exec -itd "$container" /bin/bash -lic "sleep 10 && start > /shared/networks/${network_name}/logs/${container}.log 2>&1"
       else
-        docker exec -it "$container" /bin/bash -lic "start > /shared/networks/${network_name}/logs/${container}.log 2>&1 &"
+        docker exec -itd "$container" /bin/bash -lic "start > /shared/networks/${network_name}/logs/${container}.log 2>&1"
       fi
     done
     sleep 10 # The sequencer takes about 5 seconds to start

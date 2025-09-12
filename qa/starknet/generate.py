@@ -93,7 +93,7 @@ def main():
         "--proposal_timeout",
         type=int,
         required=False,
-        default=500,
+        default=1500,
         help="Proposal timeout (in ms)",
     )
     parser.add_argument(
@@ -131,6 +131,7 @@ def main():
     compose_template = env.get_template("templates/docker-compose.j2")
     rendered_compose = compose_template.render(
         network_name=args.name,
+        starknet_interop_path=os.path.dirname(os.path.abspath(__file__)),
         malachite_path=args.malachite_path,
         sequencer_path=args.sequencer_path,
         malachite_count=args.malachite_nodes,
@@ -229,6 +230,7 @@ def main():
         rendered_bashrc = bashrc_template.render(
             network_name=args.name,
             node_type="malachite",
+            node_bin="informalsystems-malachitebft-starknet-app",
             id=i,
         )
         save_bashrc(f"{base_dir}/malachite-node-{i}/", rendered_bashrc)
@@ -239,9 +241,9 @@ def main():
 
     if args.proposal_timeout <= 1000:
         print(
-            "Warning: Proposal timeout should be > 1s for the sequencer. Setting it to 1001ms."
+            "Warning: Proposal timeout should be > 1s for the sequencer. Setting it to 1500ms."
         )
-        args.proposal_timeout = 1001
+        args.proposal_timeout = 1500
 
     for i in range(1, args.sequencer_nodes + 1):
         rendered_cli = sequencer_cli_start_template.render(
@@ -267,6 +269,7 @@ def main():
         rendered_bashrc = bashrc_template.render(
             network_name=args.name,
             node_type="sequencer",
+            node_bin="starknet_sequencer_node",
             id=i,
         )
         save_bashrc(f"{base_dir}/sequencer-node-{i}/", rendered_bashrc)

@@ -1,7 +1,7 @@
-export CARGO_HOME=/shared/build/{{ node_type }}
-export CARGO_TARGET_DIR=/shared/build/{{ node_type }}
+# export CARGO_HOME=/shared/build/{{ node_type }}
+# export CARGO_TARGET_DIR=/shared/build/{{ node_type }}
 export PATH=/usr/local/cargo/bin:$PATH
 
-alias build="cargo build --locked --release --manifest-path /{{ node_type }}/Cargo.toml"
+alias build="cd {{ node_type }} && cargo build --locked --bin {{ node_bin }}"
 alias start="/shared/networks/{{ network_name }}/{{ node_type }}-node-{{ id }}/start.sh"
 alias reset="/shared/networks/{{ network_name }}/{{ node_type }}-node-{{ id }}/reset.sh"

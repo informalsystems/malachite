@@ -30,8 +30,8 @@ services:
   malachite-node-{{ i }}:
     container_name: {{ network_name }}-malachite-node-{{ i }}
     build:
-      context: {{ malachite_path }}/qa/starknet
-      dockerfile: malachite.Dockerfile
+      context: {{ malachite_path }}
+      dockerfile: {{ starknet_interop_path }}/malachite.Dockerfile
     environment:
       - CARGO_HOME=/shared/build/malachite
       - CARGO_TARGET_DIR=/shared/build/malachite
@@ -53,7 +53,7 @@ services:
     container_name: {{ network_name }}-sequencer-node-{{ i }}
     build:
       context: {{ sequencer_path }}
-      dockerfile: {{ malachite_path }}/qa/starknet/sequencer.Dockerfile
+      dockerfile: {{ starknet_interop_path }}/sequencer.Dockerfile
     environment:
       - CARGO_HOME=/shared/build/sequencer
       - CARGO_TARGET_DIR=/shared/build/sequencer
