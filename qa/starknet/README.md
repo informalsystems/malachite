@@ -13,9 +13,9 @@ This setup generates networks composed of any combination of Malachite and Seque
 
 2. Clone the Starknet sequencer fork:
     ```bash
-    git clone https://github.com/bastienfaivre/sequencer.git
+    git clone https://github.com/informalsystems/sequencer.git
     cd sequencer
-    git checkout shahak/for_informalsystems/mock_batcher_to_return_empty_proposals
+    git checkout bastien/validators-ids
     ```
 
 3. Generate a network:
