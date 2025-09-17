@@ -9,6 +9,7 @@ pub struct TestParams {
     pub parallel_requests: usize,
     pub batch_size: usize,
     pub protocol: PubSubProtocol,
+    pub rpc_max_size: ByteSize,
     pub block_size: ByteSize,
     pub tx_size: ByteSize,
     pub txs_per_part: usize,
@@ -25,8 +26,9 @@ impl Default for TestParams {
             parallel_requests: 1,
             batch_size: 1,
             protocol: PubSubProtocol::default(),
-            block_size: ByteSize::mib(1),
-            tx_size: ByteSize::kib(1),
+            rpc_max_size: ByteSize::kib(25),
+            block_size: ByteSize::kib(10),
+            tx_size: ByteSize::b(10),
             txs_per_part: 256,
             vote_extensions: None,
             value_payload: ValuePayload::ProposalAndParts,
@@ -42,6 +44,7 @@ impl TestParams {
         config.value_sync.parallel_requests = self.parallel_requests;
         config.value_sync.batch_size = self.batch_size;
         config.consensus.p2p.protocol = self.protocol;
+        config.consensus.p2p.rpc_max_size = self.rpc_max_size;
         config.consensus.value_payload = self.value_payload;
         config.test.max_block_size = self.block_size;
         config.test.txs_per_part = self.txs_per_part;

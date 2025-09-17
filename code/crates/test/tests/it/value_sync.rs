@@ -1,6 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
 use crate::{TestBuilder, TestParams};
 use eyre::bail;
 use informalsystems_malachitebft_test::middleware::{Middleware, RotateEpochValidators};
@@ -8,6 +5,8 @@ use informalsystems_malachitebft_test::TestContext;
 use malachitebft_config::ValuePayload;
 use malachitebft_core_consensus::ProposedValue;
 use malachitebft_core_types::CommitCertificate;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 pub async fn crash_restart_from_start(params: TestParams) {
     const HEIGHT: u64 = 6;
