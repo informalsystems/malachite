@@ -99,6 +99,7 @@ where
                     && end.as_u64() <= requested_range.end().as_u64()
                     && response.values.len() as u64 == range_len;
                 if is_valid {
+                    perform!(co, Effect::NotifyConsensusToProcessSyncResponse(request_id.clone(), peer_id, response.clone(), Default::default()));
                     return on_value_response(co, state, metrics, request_id, peer_id, response)
                         .await;
                 } else {

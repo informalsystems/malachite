@@ -7,7 +7,7 @@ use bytes::Bytes;
 use derive_where::derive_where;
 use eyre::eyre;
 
-use ractor::{Actor, ActorProcessingErr, ActorRef};
+use ractor::{Actor, ActorProcessingErr, ActorRef, RpcReplyPort};
 use rand::SeedableRng;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn, Instrument};
@@ -24,6 +24,7 @@ use malachitebft_sync::{
     self as sync, HeightStartType, InboundRequestId, OutboundRequestId, RawDecidedValue, Request,
     Response, Resumable,
 };
+use crate::consensus::{ConsensusMsg, ConsensusRef};
 
 /// Codec for sync protocol messages
 ///
@@ -105,6 +106,9 @@ pub enum Msg<Ctx: Context> {
 
     /// An error occurred while processing a value
     ValueProcessingError(PeerId, Ctx::Height),
+
+    /// Sets the consensus actor to be used by the sync actor.
+    SetConsensusActor(ConsensusRef<Ctx>, RpcReplyPort<()>),
 }
 
 impl<Ctx: Context> From<NetworkEvent<Ctx>> for Msg<Ctx> {
@@ -146,6 +150,8 @@ pub struct State<Ctx: Context> {
 
     /// Task for sending status updates
     ticker: JoinHandle<()>,
+
+    consensus: Option<ConsensusRef<Ctx>>,
 }
 
 #[allow(dead_code)]
@@ -208,7 +214,7 @@ where
             state: &mut state.sync,
             metrics: &self.metrics,
             with: effect => {
-                self.handle_effect(myself, &mut state.timers, &mut state.inflight, effect).await
+                self.handle_effect(myself, &mut state.consensus, &mut state.timers, &mut state.inflight, effect).await
             }
         )
     }
@@ -223,6 +229,7 @@ where
     async fn handle_effect(
         &self,
         myself: &ActorRef<Msg<Ctx>>,
+        consensus_actor: &mut Option<ActorRef<ConsensusMsg<Ctx>>>,
         timers: &mut Timers,
         inflight: &mut InflightRequests<Ctx>,
         effect: sync::Effect<Ctx>,
@@ -239,6 +246,13 @@ where
                 )))?;
 
                 Ok(r.resume_with(()))
+            }
+
+            Effect::NotifyConsensusToProcessSyncResponse(request_id, peer_id, value_response, r) => {
+                let consensus_actor = consensus_actor.as_ref().unwrap();
+                consensus_actor.cast(ConsensusMsg::ProcessSyncResponse(request_id, peer_id, ValueResponse(value_response)))?;
+
+               Ok(r.resume_with(()))
             }
 
             Effect::SendValueRequest(peer_id, value_request, r) => {
@@ -485,6 +499,12 @@ where
                     }
                 }
             }
+
+            Msg::SetConsensusActor(consensus_actor, reply_to) => {
+                state.consensus = Some(consensus_actor);
+                // reply to acknowledge we've updated the state and to not make the consensus actor wait
+                let _ = reply_to.send(());
+            }
         }
 
         Ok(())
@@ -522,6 +542,7 @@ where
             timers: Timers::new(Box::new(myself.clone())),
             inflight: HashMap::new(),
             ticker,
+            consensus: None,
         })
     }
 

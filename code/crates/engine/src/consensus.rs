@@ -21,7 +21,7 @@ use malachitebft_core_types::{
     ValidatorSet, Validity, Value, ValueId, ValueOrigin, ValueResponse as CoreValueResponse, Vote,
 };
 use malachitebft_metrics::Metrics;
-use malachitebft_sync::{self as sync, HeightStartType, ValueResponse};
+use malachitebft_sync::{self as sync, HeightStartType, OutboundRequestId, Response, ValueResponse};
 
 use crate::host::{HostMsg, HostRef, LocallyProposedValue, Next, ProposedValue};
 use crate::network::{NetworkEvent, NetworkMsg, NetworkRef};
@@ -118,6 +118,9 @@ pub enum Msg<Ctx: Context> {
 
     /// Request to dump the current consensus state
     DumpState(RpcReplyPort<StateDump<Ctx>>),
+
+    /// Process (i.e., verify commit certificate) the values of a sync response.
+    ProcessSyncResponse(OutboundRequestId, PeerId, Response<Ctx>),
 }
 
 impl<Ctx: Context> fmt::Display for Msg<Ctx> {
@@ -155,6 +158,7 @@ impl<Ctx: Context> fmt::Display for Msg<Ctx> {
             ),
             Msg::RestartHeight(height, _) => write!(f, "RestartHeight(height={height})"),
             Msg::DumpState(_) => write!(f, "DumpState"),
+            Msg::ProcessSyncResponse(request_id, peer_id, _) => write!(f, "ProcessSyncResponse(request_id={request_id}, peer_id={peer_id})"),
         }
     }
 }
@@ -488,43 +492,6 @@ where
                         }
                     }
 
-                    NetworkEvent::SyncResponse(
-                        request_id,
-                        peer,
-                        Some(sync::Response::ValueResponse(ValueResponse {
-                            start_height,
-                            values,
-                        })),
-                    ) => {
-                        debug!(%start_height, %request_id, "Received sync response with {} values", values.len());
-
-                        if values.is_empty() {
-                            error!(%start_height, %request_id, "Received empty value sync response");
-                            return Ok(());
-                        };
-
-                        // Process values sequentially starting from the lowest height
-                        let mut height = start_height;
-                        for value in values.iter() {
-                            if let Err(e) = self
-                                .process_sync_response(&myself, state, peer, height, value)
-                                .await
-                            {
-                                // At this point, `process_sync_response` has already sent a message
-                                // about an invalid value, etc. to the sync actor. The sync actor
-                                // will then, re-request this range again from some peer.
-                                // Because of this, in case of failing to process the response, we need
-                                // to exit early this loop to avoid issuing multiple parallel requests
-                                // for the same range of values. There's also no benefit in processing
-                                // the rest of the values.
-                                error!(%start_height, %height, %request_id, "Failed to process sync response:{e:?}");
-                                break;
-                            }
-
-                            height = height.increment();
-                        }
-                    }
-
                     NetworkEvent::Vote(from, vote) => {
                         if let Err(e) = self
                             .process_input(&myself, state, ConsensusInput::Vote(vote))
@@ -644,6 +611,41 @@ where
 
                 if let Err(e) = reply_to.send(dump) {
                     error!("Failed to reply with state dump: {e}");
+                }
+
+                Ok(())
+            }
+
+            Msg::ProcessSyncResponse(request_id, peer_id, sync::Response::ValueResponse(ValueResponse {
+                    start_height,
+                    values,
+                })) => {
+                debug!(%start_height, %request_id, "Received sync response for processing with {} values", values.len());
+
+                if values.is_empty() {
+                    error!(%start_height, %request_id, "Received empty value sync response");
+                    return Ok(());
+                };
+
+                // Process values sequentially starting from the lowest height
+                let mut height = start_height;
+                for value in values.iter() {
+                    if let Err(e) = self
+                        .process_sync_response(&myself, state, peer_id, height, value)
+                        .await
+                    {
+                        // At this point, `process_sync_response` has already sent a message
+                        // about an invalid value, etc. to the sync actor. The sync actor
+                        // will then re-request this range again from some peer.
+                        // Because of this, in case of failing to process the response, we need
+                        // to exit early this loop to avoid issuing multiple parallel requests
+                        // for the same range of values. There's also no benefit in processing
+                        // the rest of the values.
+                        error!(%start_height, %height, %request_id, "Failed to process sync response:{e:?}");
+                        break;
+                    }
+
+                    height = height.increment();
                 }
 
                 Ok(())
@@ -1342,6 +1344,15 @@ where
 
         self.network
             .cast(NetworkMsg::Subscribe(Box::new(myself.clone())))?;
+
+        // Now that the consensus actor is about to start, we inform the sync actor about it
+        // so that the sync actor can send messages to the consensus actor.
+        if let Some(sync) = self.sync.clone() {
+            ractor::call!(sync, |reply_to| {
+                SyncMsg::SetConsensusActor(myself.clone(), reply_to)
+            }).map_err(|e|
+                eyre!("Failed to set consensus actor: {e:?}"))?;
+        }
 
         Ok(State {
             timers: Timers::new(Box::new(myself)),
