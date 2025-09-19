@@ -12,6 +12,7 @@ use rand::SeedableRng;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn, Instrument};
 
+use crate::consensus::{ConsensusMsg, ConsensusRef};
 use crate::host::{HostMsg, HostRef};
 use crate::network::{NetworkEvent, NetworkMsg, NetworkRef, Status};
 use crate::util::ticker::ticker;
@@ -24,7 +25,6 @@ use malachitebft_sync::{
     self as sync, HeightStartType, InboundRequestId, OutboundRequestId, RawDecidedValue, Request,
     Response, Resumable,
 };
-use crate::consensus::{ConsensusMsg, ConsensusRef};
 
 /// Codec for sync protocol messages
 ///
@@ -248,11 +248,20 @@ where
                 Ok(r.resume_with(()))
             }
 
-            Effect::NotifyConsensusToProcessSyncResponse(request_id, peer_id, value_response, r) => {
+            Effect::NotifyConsensusToProcessSyncResponse(
+                request_id,
+                peer_id,
+                value_response,
+                r,
+            ) => {
                 let consensus_actor = consensus_actor.as_ref().unwrap();
-                consensus_actor.cast(ConsensusMsg::ProcessSyncResponse(request_id, peer_id, ValueResponse(value_response)))?;
+                consensus_actor.cast(ConsensusMsg::ProcessSyncResponse(
+                    request_id,
+                    peer_id,
+                    ValueResponse(value_response),
+                ))?;
 
-               Ok(r.resume_with(()))
+                Ok(r.resume_with(()))
             }
 
             Effect::SendValueRequest(peer_id, value_request, r) => {

@@ -78,13 +78,13 @@ pub enum Effect<Ctx: Context> {
         resume::Continue,
     ),
 
-
     /// Notify consensus to process a sync response.
     NotifyConsensusToProcessSyncResponse(
         OutboundRequestId,
         PeerId,
         ValueResponse<Ctx>,
-        resume::Continue),
+        resume::Continue,
+    ),
 }
 
 pub mod resume {

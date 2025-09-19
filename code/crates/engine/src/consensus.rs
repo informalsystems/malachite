@@ -21,7 +21,9 @@ use malachitebft_core_types::{
     ValidatorSet, Validity, Value, ValueId, ValueOrigin, ValueResponse as CoreValueResponse, Vote,
 };
 use malachitebft_metrics::Metrics;
-use malachitebft_sync::{self as sync, HeightStartType, OutboundRequestId, Response, ValueResponse};
+use malachitebft_sync::{
+    self as sync, HeightStartType, OutboundRequestId, Response, ValueResponse,
+};
 
 use crate::host::{HostMsg, HostRef, LocallyProposedValue, Next, ProposedValue};
 use crate::network::{NetworkEvent, NetworkMsg, NetworkRef};
@@ -158,7 +160,10 @@ impl<Ctx: Context> fmt::Display for Msg<Ctx> {
             ),
             Msg::RestartHeight(height, _) => write!(f, "RestartHeight(height={height})"),
             Msg::DumpState(_) => write!(f, "DumpState"),
-            Msg::ProcessSyncResponse(request_id, peer_id, _) => write!(f, "ProcessSyncResponse(request_id={request_id}, peer_id={peer_id})"),
+            Msg::ProcessSyncResponse(request_id, peer_id, _) => write!(
+                f,
+                "ProcessSyncResponse(request_id={request_id}, peer_id={peer_id})"
+            ),
         }
     }
 }
@@ -616,10 +621,14 @@ where
                 Ok(())
             }
 
-            Msg::ProcessSyncResponse(request_id, peer_id, sync::Response::ValueResponse(ValueResponse {
+            Msg::ProcessSyncResponse(
+                request_id,
+                peer_id,
+                sync::Response::ValueResponse(ValueResponse {
                     start_height,
                     values,
-                })) => {
+                }),
+            ) => {
                 debug!(%start_height, %request_id, "Received sync response for processing with {} values", values.len());
 
                 if values.is_empty() {
@@ -1350,8 +1359,8 @@ where
         if let Some(sync) = self.sync.clone() {
             ractor::call!(sync, |reply_to| {
                 SyncMsg::SetConsensusActor(myself.clone(), reply_to)
-            }).map_err(|e|
-                eyre!("Failed to set consensus actor: {e:?}"))?;
+            })
+            .map_err(|e| eyre!("Failed to set consensus actor: {e:?}"))?;
         }
 
         Ok(State {
