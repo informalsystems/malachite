@@ -27,7 +27,7 @@ where
     if consensus_height < cert_height {
         debug!(%consensus_height, %cert_height, "Received value response for higher height, queuing for later");
 
-        state.buffer_input(cert_height, Input::SyncValueResponse(value), metrics);
+        state.buffer_sync_input(cert_height, Input::SyncValueResponse(value), metrics);
 
         return Ok(());
     }
