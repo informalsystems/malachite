@@ -87,8 +87,14 @@ pub struct Inner {
     /// Number of heights in the consensus input queue
     pub queue_heights: Gauge,
 
+    /// Number of heights in the consensus sync input queue
+    pub sync_queue_heights: Gauge,
+
     /// Number of inputs in the consensus input queue across all heights
     pub queue_size: Gauge,
+
+    /// Number of sync inputs in the consensus input queue across all heights
+    pub sync_queue_size: Gauge,
 
     /// Internal state for measuring time taken for consensus
     instant_consensus_started: Arc<AtomicInstant>,
@@ -117,7 +123,9 @@ impl Metrics {
             signature_signing_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
             signature_verification_time: Histogram::new(exponential_buckets(0.001, 2.0, 10)),
             queue_heights: Gauge::default(),
+            sync_queue_heights: Gauge::default(),
             queue_size: Gauge::default(),
+            sync_queue_size: Gauge::default(),
             instant_consensus_started: Arc::new(AtomicInstant::empty()),
             instant_block_started: Arc::new(AtomicInstant::empty()),
             instant_step_started: Arc::new(Mutex::new((Step::Unstarted, Instant::now()))),
