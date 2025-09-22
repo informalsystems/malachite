@@ -683,16 +683,19 @@ where
         None => None,
     };
 
-    let Some((peer, peer_range)) = state.random_peer_with_except(&range, except_peer_id) else {
-        error!(
-            range.sync = %DisplayRange::<Ctx>(&range),
-            "No peer to request sync from"
-        );
+    let peer_id = state
+        .random_peer_with_except(&range, except_peer_id)
+        .map(|(id, _)| id)
+        .or(except_peer_id)
+        .ok_or_else(|| {
+            error!(
+                range.sync = %DisplayRange::<Ctx>(&range),
+                "No peer to request sync from; no fallback with `except_peer_id` either"
+            );
+            Error::PeerNotFound()
+        })?;
 
-        return Ok(());
-    };
-
-    request_values_from_peer(&co, state, metrics, peer_range, peer).await?;
+    request_values_from_peer(&co, state, metrics, range, peer_id).await?;
 
     Ok(())
 }

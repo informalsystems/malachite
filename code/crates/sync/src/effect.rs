@@ -42,6 +42,9 @@ pub trait Resumable<Ctx: Context> {
 #[derive_where(Debug)]
 #[derive(Error)]
 pub enum Error<Ctx: Context> {
+    #[error("Failed to find a peer to re-request values from")]
+    PeerNotFound(),
+
     /// The coroutine was resumed with a value which
     /// does not match the expected type of resume value.
     #[error("Unexpected resume: {0:?}, expected one of: {1}")]
