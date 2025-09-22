@@ -561,7 +561,6 @@ where
         skip_all,
         fields(
             height.tip = %state.sync.tip_height,
-            height.sync = %state.sync.sync_height,
         ),
     )]
     async fn handle(

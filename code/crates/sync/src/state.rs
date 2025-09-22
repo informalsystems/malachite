@@ -1,76 +1,11 @@
 use malachitebft_core_types::{Context, Height};
 use malachitebft_peer::PeerId;
-use std::cmp::{max, Ordering};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::cmp::max;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::RangeInclusive;
 
 use crate::scoring::{ema, PeerScorer, Strategy};
 use crate::{Config, OutboundRequestId, Status};
-
-#[derive(Clone)]
-pub struct QueuedRequest<Ctx>
-where
-    Ctx: Context,
-{
-    pub range: RangeInclusive<Ctx::Height>,
-    pub peer_id: PeerId,
-}
-
-impl<Ctx> QueuedRequest<Ctx>
-where
-    Ctx: Context,
-{
-    // FIXME
-    pub(crate) fn new(range: RangeInclusive<Ctx::Height>, peer_id: PeerId) -> QueuedRequest<Ctx>
-    where
-        Ctx: Context,
-    {
-        QueuedRequest { range, peer_id }
-    }
-}
-
-// Make Eq/PartialEq consistent with Ord:
-impl<Ctx: Context> PartialEq for QueuedRequest<Ctx>
-where
-    Ctx::Height: PartialEq,
-    PeerId: PartialEq,
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.range.start() == other.range.start()
-            && self.range.end() == other.range.end()
-            && self.peer_id == other.peer_id
-    }
-}
-impl<Ctx: Context> Eq for QueuedRequest<Ctx>
-where
-    Ctx::Height: Eq,
-    PeerId: Eq,
-{
-}
-
-// Total order for BTreeSet:
-impl<Ctx: Context> Ord for QueuedRequest<Ctx>
-where
-    Ctx::Height: Ord,
-    PeerId: Ord,
-{
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.range
-            .start()
-            .cmp(other.range.start())
-            .then(self.range.end().cmp(other.range.end()))
-            .then(self.peer_id.cmp(&other.peer_id))
-    }
-}
-impl<Ctx: Context> PartialOrd for QueuedRequest<Ctx>
-where
-    Ctx::Height: Ord,
-    PeerId: Ord,
-{
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
 
 pub struct State<Ctx>
 where
@@ -86,13 +21,6 @@ where
 
     /// Height of last decided value
     pub tip_height: Ctx::Height,
-
-    /// Next height to send a sync request.
-    /// Invariant: `sync_height > tip_height`
-    pub sync_height: Ctx::Height,
-
-    /// Requests that are still inflight (i.e., we have not received a response yet).
-    pub queued_requests: BTreeSet<QueuedRequest<Ctx>>,
 
     /// Requests that are still inflight (i.e., we have not received a response yet).
     pub inflight_requests: BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
@@ -127,8 +55,6 @@ where
             config,
             started: false,
             tip_height: Ctx::Height::ZERO,
-            sync_height: Ctx::Height::ZERO,
-            queued_requests: BTreeSet::new(),
             inflight_requests: BTreeMap::new(),
             pending_consensus_requests: BTreeMap::new(),
             peers: BTreeMap::new(),
@@ -225,16 +151,14 @@ where
     /// Get the request that contains the given height.
     ///
     /// Assumes a height cannot be in multiple pending requests.
-    pub fn get_request_id_by(
+    pub fn get_pending_consensus_request_id_by(
         &self,
         height: Ctx::Height,
-    ) -> Option<(OutboundRequestId, PeerId, RangeInclusive<Ctx::Height>)> {
+    ) -> Option<(OutboundRequestId, PeerId)> {
         self.pending_consensus_requests
             .iter()
             .find(|(_, (range, _))| range.contains(&height))
-            .map(|(request_id, (range, stored_peer_id))| {
-                (request_id.clone(), *stored_peer_id, range.clone())
-            })
+            .map(|(request_id, (_, stored_peer_id))| (request_id.clone(), *stored_peer_id))
     }
 
     /// Return a new range of heights, trimming from the beginning any height
