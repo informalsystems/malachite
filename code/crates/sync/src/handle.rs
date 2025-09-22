@@ -2,6 +2,7 @@ use std::cmp::max;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
+use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
 use malachitebft_core_types::{Context, Height};
@@ -75,7 +76,24 @@ where
             on_value_request(co, state, metrics, request_id, peer_id, request).await
         }
 
-        Input::ValueResponse(request_id, peer_id, Some(response)) => {
+        Input::ValueResponse(request_id, peer_id, response) => {
+            let requested_range = match take_inflight_if_peer_matches(state, &request_id, peer_id) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed taking inflight request: {e}");
+
+                    // This peer sent a response for a request id that is not related to the peer, and
+                    // hence we update the score of the peer accordingly.
+                    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                    return Ok(());
+                }
+            };
+
+            let Some(response) = response else {
+                return on_invalid_value_response(co, state, metrics, request_id, peer_id).await;
+            };
+
             let start = response.start_height;
             let end = response.end_height().unwrap_or(start);
             let range_len = end.as_u64() - start.as_u64() + 1;
@@ -83,48 +101,29 @@ where
             // Check if the response is valid. A valid response starts at the
             // requested start height, has at least one value, and no more than
             // the requested range.
-            if let Some((requested_range, stored_peer_id)) = state.pending_requests.get(&request_id)
-            {
-                if stored_peer_id != &peer_id {
-                    warn!(
-                        %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
-                        "Received response from different peer than expected"
-                    );
-                    return Ok(());
-                }
+            let is_valid = start.as_u64() == requested_range.start().as_u64()
+                && start.as_u64() <= end.as_u64()
+                && end.as_u64() <= requested_range.end().as_u64()
+                && response.values.len() as u64 == range_len;
 
-                let is_valid = start.as_u64() == requested_range.start().as_u64()
-                    && start.as_u64() <= end.as_u64()
-                    && end.as_u64() <= requested_range.end().as_u64()
-                    && response.values.len() as u64 == range_len;
-                if is_valid {
-                    perform!(
-                        co,
-                        Effect::NotifyConsensusToProcessSyncResponse(
-                            request_id.clone(),
-                            peer_id,
-                            response.clone(),
-                            Default::default()
-                        )
-                    );
-                    return on_value_response(co, state, metrics, request_id, peer_id, response)
-                        .await;
-                } else {
-                    warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
+            if !is_valid {
+                warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
                         requested_range.start().as_u64(), requested_range.end().as_u64(), range_len,
                         start.as_u64(), end.as_u64(), response.values.len() as u64);
-                    return on_invalid_value_response(co, state, metrics, request_id, peer_id)
-                        .await;
-                }
-            } else {
-                warn!(%request_id, %peer_id, "Received response for unknown request ID");
+                return on_invalid_value_response(co, state, metrics, request_id, peer_id).await;
             }
 
-            Ok(())
-        }
-
-        Input::ValueResponse(request_id, peer_id, None) => {
-            on_invalid_value_response(co, state, metrics, request_id, peer_id).await
+            // Only notify consensus to start processing the response after we've performed sanity checks on the response.
+            perform!(
+                co,
+                Effect::NotifyConsensusToProcessSyncResponse(
+                    request_id.clone(),
+                    peer_id,
+                    response.clone(),
+                    Default::default()
+                )
+            );
+            on_value_response(co, state, metrics, request_id, peer_id, response).await
         }
 
         Input::GotDecidedValues(request_id, range, values) => {
@@ -231,7 +230,7 @@ where
         // Consensus is retrying the height, so we should sync starting from it.
         state.sync_height = height;
         // Clear pending requests, as we are restarting the height.
-        state.pending_requests.clear();
+        state.pending_consensus_requests.clear();
     } else {
         // If consensus is voting on a height that is currently being synced from a peer, do not update the sync height.
         state.sync_height = max(state.sync_height, height);
@@ -312,7 +311,9 @@ where
     }
 
     // If the response contains a prefix of the requested values, re-request the remaining values.
-    if let Some((requested_range, stored_peer_id)) = state.pending_requests.get(&request_id) {
+    if let Some((requested_range, stored_peer_id)) =
+        state.pending_consensus_requests.get(&request_id)
+    {
         if stored_peer_id != &peer_id {
             // Defensive check: This should never happen because this check is already performed in
             // the handler of `Input::ValueResponse`.
@@ -525,17 +526,17 @@ where
 {
     let max_parallel_requests = state.max_parallel_requests();
 
-    if state.pending_requests.len() as u64 >= max_parallel_requests {
+    if state.pending_consensus_requests.len() as u64 >= max_parallel_requests {
         info!(
             %max_parallel_requests,
-            pending_requests = %state.pending_requests.len(),
+            pending_consensus_requests = %state.pending_consensus_requests.len(),
             "Maximum number of parallel requests reached, skipping request for values"
         );
 
         return Ok(());
     };
 
-    while (state.pending_requests.len() as u64) < max_parallel_requests {
+    while (state.pending_consensus_requests.len() as u64) < max_parallel_requests {
         // Build the next range of heights to request from a peer.
         let start_height = state.sync_height;
         let batch_size = max(1, state.config.batch_size as u64);
@@ -572,10 +573,10 @@ where
     // we log here because seeing this log frequently implies that we keep getting partial responses
     // from peers and hints to potential reconfiguration.
     let max_parallel_requests = state.max_parallel_requests();
-    if state.pending_requests.len() as u64 >= max_parallel_requests {
+    if state.pending_consensus_requests.len() as u64 >= max_parallel_requests {
         info!(
             %max_parallel_requests,
-            pending_requests = %state.pending_requests.len(),
+            pending_consensus_requests = %state.pending_consensus_requests.len(),
             "Maximum number of pending requests reached when re-requesting a partial range of values"
         );
     };
@@ -632,7 +633,10 @@ where
     // Store pending request and move the sync height.
     debug!(%request_id, range = %DisplayRange::<Ctx>(&range), %peer, "Sent sync request to peer");
     state.sync_height = max(state.sync_height, range.end().increment());
-    state.pending_requests.insert(request_id, (range, peer));
+    state
+        .pending_consensus_requests
+        .insert(request_id.clone(), (range.clone(), peer));
+    state.inflight_requests.insert(request_id, (range, peer));
 
     Ok(())
 }
@@ -651,7 +655,9 @@ where
 {
     info!(%request_id, except_peer_id = ?except_peer_id, "Re-requesting values from peer");
 
-    let Some((range, stored_peer_id)) = state.pending_requests.remove(&request_id.clone()) else {
+    let Some((range, stored_peer_id)) =
+        state.pending_consensus_requests.remove(&request_id.clone())
+    else {
         warn!(%request_id, "Unknown request ID when re-requesting values");
         return Ok(());
     };
@@ -700,6 +706,58 @@ where
     request_values_from_peer(&co, state, metrics, range, peer_id).await?;
 
     Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum InflightError {
+    #[error("received response from unknown request id")]
+    UnknownRequestId {
+        request_id: OutboundRequestId,
+        peer_id: PeerId,
+    },
+
+    #[error(
+        "received response from wrong peer (expected {expected_peer_id}, got {actual_peer_id})"
+    )]
+    WrongPeer {
+        request_id: OutboundRequestId,
+        expected_peer_id: PeerId,
+        actual_peer_id: PeerId,
+    },
+}
+
+fn take_inflight_if_peer_matches<Ctx>(
+    state: &mut State<Ctx>,
+    request_id: &OutboundRequestId,
+    peer_id: PeerId,
+) -> Result<RangeInclusive<Ctx::Height>, InflightError>
+where
+    Ctx: Context,
+{
+    let Some((requested_range, stored_peer_id)) = state.inflight_requests.get(request_id).cloned()
+    else {
+        return Err(InflightError::UnknownRequestId {
+            request_id: request_id.clone(),
+            peer_id,
+        });
+    };
+
+    if stored_peer_id != peer_id {
+        // This peer sent a response for a request id that is not related to the peer, and
+        // hence we update the score of the peer accordingly.
+        state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+        return Err(InflightError::WrongPeer {
+            request_id: request_id.clone(),
+            expected_peer_id: stored_peer_id,
+            actual_peer_id: peer_id,
+        });
+    }
+
+    // We received a response to a sync request from the corresponding peer, and hence this request
+    // is not in flight anymore.
+    state.inflight_requests.remove(request_id);
+
+    Ok(requested_range)
 }
 
 struct DisplayRange<'a, Ctx: Context>(&'a RangeInclusive<Ctx::Height>);

@@ -27,8 +27,12 @@ where
     /// Invariant: `sync_height > tip_height`
     pub sync_height: Ctx::Height,
 
-    /// The requested range of heights.
-    pub pending_requests: BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
+    /// Requests that are still inflight (i.e., we have not received a response yet).
+    pub inflight_requests: BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
+
+    /// The requested range of heights that we have received and are waiting for consensus verification.
+    pub pending_consensus_requests:
+        BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
     pub peers: BTreeMap<PeerId, Status<Ctx>>,
@@ -57,7 +61,8 @@ where
             started: false,
             tip_height: Ctx::Height::ZERO,
             sync_height: Ctx::Height::ZERO,
-            pending_requests: BTreeMap::new(),
+            inflight_requests: BTreeMap::new(),
+            pending_consensus_requests: BTreeMap::new(),
             peers: BTreeMap::new(),
             peer_scorer,
         }
@@ -79,7 +84,8 @@ where
         peer_id: PeerId,
         range: RangeInclusive<Ctx::Height>,
     ) {
-        self.pending_requests.insert(request_id, (range, peer_id));
+        self.pending_consensus_requests
+            .insert(request_id, (range, peer_id));
     }
 
     /// Filter peers to only include those that can provide the given range of values, or at least a prefix of the range.
@@ -152,7 +158,7 @@ where
     ///
     /// Assumes a height cannot be in multiple pending requests.
     pub fn get_request_id_by(&self, height: Ctx::Height) -> Option<(OutboundRequestId, PeerId)> {
-        self.pending_requests
+        self.pending_consensus_requests
             .iter()
             .find(|(_, (range, _))| range.contains(&height))
             .map(|(request_id, (_, stored_peer_id))| (request_id.clone(), *stored_peer_id))
@@ -171,7 +177,7 @@ where
     /// When the tip height is higher than the requested range, then the request
     /// has been fully validated and it can be removed.
     pub fn remove_fully_validated_requests(&mut self) {
-        self.pending_requests
+        self.pending_consensus_requests
             .retain(|_, (range, _)| range.end() > &self.tip_height);
     }
 }
