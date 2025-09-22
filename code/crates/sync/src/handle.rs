@@ -479,8 +479,9 @@ where
                 %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
                 "Received response from different peer than expected"
             );
+        } else {
+            re_request_values_from_peer_except(co, state, metrics, request_id, Some(peer_id)).await?;
         }
-        re_request_values_from_peer_except(co, state, metrics, request_id, Some(peer_id)).await?;
     } else {
         error!(%peer_id, %height, "Received height of invalid value for unknown request");
     }
