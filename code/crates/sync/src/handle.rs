@@ -90,8 +90,7 @@ where
                         %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
                         "Received response from different peer than expected"
                     );
-                    return on_invalid_value_response(co, state, metrics, request_id, peer_id)
-                        .await;
+                    return Ok(());
                 }
 
                 let is_valid = start.as_u64() == requested_range.start().as_u64()
@@ -321,7 +320,7 @@ where
                 %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
                 "Received response from different peer than expected"
             );
-            return on_invalid_value_response(co, state, metrics, request_id, peer_id).await;
+            return Ok(());
         }
 
         let range_len = requested_range.end().as_u64() - requested_range.start().as_u64() + 1;
