@@ -1354,15 +1354,6 @@ where
         self.network
             .cast(NetworkMsg::Subscribe(Box::new(myself.clone())))?;
 
-        // Now that the consensus actor is about to start, we inform the sync actor about it
-        // so that the sync actor can send messages to the consensus actor.
-        if let Some(sync) = self.sync.clone() {
-            ractor::call!(sync, |reply_to| {
-                SyncMsg::SetConsensusActor(myself.clone(), reply_to)
-            })
-            .map_err(|e| eyre!("Failed to set consensus actor: {e:?}"))?;
-        }
-
         Ok(State {
             timers: Timers::new(Box::new(myself)),
             timeouts: Timeouts::new(self.consensus_config.timeouts),
@@ -1388,12 +1379,22 @@ where
     )]
     async fn post_start(
         &self,
-        _myself: ActorRef<Msg<Ctx>>,
+        myself: ActorRef<Msg<Ctx>>,
         state: &mut State<Ctx>,
     ) -> Result<(), ActorProcessingErr> {
         info!("Consensus has started");
 
         state.timers.cancel_all();
+
+        // Now that the consensus actor has started, we inform the sync actor about it
+        // so that the sync actor can send messages to the consensus actor.
+        if let Some(sync) = self.sync.clone() {
+            ractor::call!(sync, |reply_to| {
+                SyncMsg::SetConsensusActor(myself.clone(), reply_to)
+            })
+            .map_err(|e| eyre!("Failed to set consensus actor: {e:?}"))?;
+        }
+
         Ok(())
     }
 

@@ -151,7 +151,17 @@ pub struct State<Ctx: Context> {
     /// Task for sending status updates
     ticker: JoinHandle<()>,
 
+    /// Reference to the consensus actor starts out as `None` because the consensus actor is spawned
+    /// only after the sync actor itself has been initialized. The circular dependency means sync cannot
+    /// hold a valid reference at creation time.
+    /// The consensus-actor reference is set later once the consensus actor is running.
     consensus: Option<ConsensusRef<Ctx>>,
+
+    // Flag on whether we have subscribed to the network or not.
+    // Note that we subscribe to network events only after the consensus actor has been set.
+    // Subscribing too early could cause sync to process value responses before it has a consensus
+    // actor to notify to process those values.
+    subscribed_to_network: bool,
 }
 
 #[allow(dead_code)]
@@ -254,12 +264,20 @@ where
                 value_response,
                 r,
             ) => {
-                let consensus_actor = consensus_actor.as_ref().unwrap();
-                consensus_actor.cast(ConsensusMsg::ProcessSyncResponse(
-                    request_id,
-                    peer_id,
-                    ValueResponse(value_response),
-                ))?;
+                match consensus_actor {
+                    Some(consensus) => {
+                        consensus.cast(ConsensusMsg::ProcessSyncResponse(
+                            request_id,
+                            peer_id,
+                            ValueResponse(value_response),
+                        ))?;
+                    }
+                    None => {
+                        // This should NEVER happen because we only send requests to peers and hence
+                        // receive responses if the consensus actor is set.
+                        error!(%request_id, %peer_id, "Received sync response before consensus actor was set.");
+                    }
+                }
 
                 Ok(r.resume_with(()))
             }
@@ -510,9 +528,25 @@ where
             }
 
             Msg::SetConsensusActor(consensus_actor, reply_to) => {
+                if state.consensus.is_some() {
+                    // This should NEVER happen and implies there's something wrong when spawning actors.
+                    error!("Consensus actor already set");
+                    return Ok(());
+                }
+
                 state.consensus = Some(consensus_actor);
                 // reply to acknowledge we've updated the state and to not make the consensus actor wait
                 let _ = reply_to.send(());
+
+                // Only now that we have set up the consensus actor, we can safely subscribe to
+                // network events. If we were to subscribe earlier, we might end up in a scenario where
+                // the sync actor gets response values and fails to notify the consensus actor because
+                // it is not yet set.
+                if !state.subscribed_to_network {
+                    self.gossip
+                        .cast(NetworkMsg::Subscribe(Box::new(myself.clone())))?;
+                    state.subscribed_to_network = true;
+                }
             }
         }
 
@@ -534,9 +568,6 @@ where
         myself: ActorRef<Self::Msg>,
         _args: Self::Arguments,
     ) -> Result<Self::State, ActorProcessingErr> {
-        self.gossip
-            .cast(NetworkMsg::Subscribe(Box::new(myself.clone())))?;
-
         let ticker = tokio::spawn(
             ticker(self.params.status_update_interval, myself.clone(), || {
                 Msg::Tick
@@ -552,6 +583,7 @@ where
             inflight: HashMap::new(),
             ticker,
             consensus: None,
+            subscribed_to_network: false,
         })
     }
 

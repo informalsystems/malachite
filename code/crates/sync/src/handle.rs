@@ -79,7 +79,7 @@ where
             let requested_range = match take_inflight_if_peer_matches(state, &request_id, peer_id) {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!("Failed taking inflight request with request: {e}");
+                    warn!("Failed taking inflight request: {e}");
 
                     // This peer sent a response for a request id that is not related to the peer, and
                     // hence we update the score of the peer accordingly.
@@ -172,7 +172,7 @@ where
                     match take_inflight_if_peer_matches(state, &request_id, peer_id) {
                         Ok(r) => r,
                         Err(e) => {
-                            warn!("Failed taking inflight request: {e}");
+                            error!("Failed taking inflight request: {e}");
                             return Ok(());
                         }
                     };
@@ -189,38 +189,16 @@ where
 
             state.peer_scorer.update_score(peer_id, SyncResult::Failure);
 
-            if let Some((request_id, stored_peer_id)) =
-                state.get_pending_consensus_request_id_by(height)
-            {
-                state.pending_consensus_requests.remove(&request_id);
-                warn!(
-                %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
-                "Received value at height failed consensus verification");
-            } else {
-                error!(%peer_id, %height, "Received height of invalid value for unknown request");
-            }
-
-            Ok(())
+            on_invalid_value(state, height, peer_id)
         }
 
         Input::ValueProcessingError(peer_id, height) => {
             error!(%peer_id, %height, "Error while processing value");
 
-            // NOTE: We do not update the peer score here, as this is an internal error
-            //       and not a failure from the peer's side.
+            // NOTE: In contrast to `Input::InvalidValue` we do not update the peer score here, as
+            // this is an internal error and not a failure from the peer's side.
 
-            if let Some((request_id, stored_peer_id)) =
-                state.get_pending_consensus_request_id_by(height)
-            {
-                state.pending_consensus_requests.remove(&request_id);
-                warn!(
-                %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
-                "Received value at height failed to be processed");
-            } else {
-                error!(%peer_id, %height, "Received height of invalid value for unknown request");
-            }
-
-            Ok(())
+            on_invalid_value(state, height, peer_id)
         }
     }
 }
@@ -413,6 +391,33 @@ where
     Ok(())
 }
 
+fn on_invalid_value<Ctx>(
+    state: &mut State<Ctx>,
+    height: Ctx::Height,
+    peer_id: PeerId,
+) -> Result<(), Error<Ctx>>
+where
+    Ctx: Context,
+{
+    let Some((request_id, stored_peer_id)) = state.get_pending_consensus_request_id_by(height)
+    else {
+        error!(%peer_id, %height, "Received height of invalid value for unknown request");
+        return Ok(());
+    };
+
+    if stored_peer_id != peer_id {
+        error!(%stored_peer_id, %peer_id, %request_id, "Received invalid value from wrong peer");
+        return Ok(());
+    }
+
+    state.pending_consensus_requests.remove(&request_id);
+    warn!(
+                %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
+                "Received value at height failed consensus verification");
+
+    Ok(())
+}
+
 // Returns the current number of heights we have requested (e.g., inflight requests) or that we
 // are currently processing (e.g.., pending consensus verification).
 fn current_number_of_heights<Ctx>(state: &State<Ctx>) -> u64
@@ -539,7 +544,7 @@ where
     Ctx: Context,
 {
     let tip = state.tip_height;
-    let batch = state.config.batch_size as u64;
+    let batch_size = state.config.batch_size as u64;
 
     let ranges: Vec<_> = state
         .inflight_requests
@@ -553,7 +558,7 @@ where
         )
         .collect();
 
-    compute_free_window(tip, up_to_height, batch, ranges)
+    compute_free_window(tip, up_to_height, batch_size, ranges)
 }
 
 /// Request multiple batches of values in parallel that are of height less than `up_to_height`.
@@ -579,7 +584,7 @@ where
     };
 
     // The maximum number of heights/values we can be waiting for at any point in time.
-    // Should be equal to the capacity of the `sync_input_queue` so that we do not overlow this queue.
+    // Should be equal to the capacity of the `sync_input_queue` so that we do not overflow this queue.
     let max_heights = state.config.batch_size as u64 * state.config.parallel_requests;
 
     loop {
@@ -640,7 +645,7 @@ where
 
     metrics.value_request_sent(range.start().as_u64());
 
-    // Store inflight request and move the sync height.
+    // Store inflight request
     debug!(%request_id, range = %DisplayRange::<Ctx>(&range), %peer, "Sent sync request to peer");
     state.inflight_requests.insert(request_id, (range, peer));
 
