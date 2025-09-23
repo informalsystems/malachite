@@ -79,7 +79,7 @@ where
             let requested_range = match take_inflight_if_peer_matches(state, &request_id, peer_id) {
                 Ok(r) => r,
                 Err(e) => {
-                    warn!("Failed taking inflight request: {e}");
+                    warn!("Failed taking inflight request with request: {e}");
 
                     // This peer sent a response for a request id that is not related to the peer, and
                     // hence we update the score of the peer accordingly.
@@ -413,23 +413,25 @@ where
     Ok(())
 }
 
-fn current_amount_of_values<Ctx>(state: &State<Ctx>) -> u64
+// Returns the current number of heights we have requested (e.g., inflight requests) or that we
+// are currently processing (e.g.., pending consensus verification).
+fn current_number_of_heights<Ctx>(state: &State<Ctx>) -> u64
 where
     Ctx: Context,
 {
-    let mut values = 0;
+    let mut heights = 0;
 
     for (_, (range, _)) in state.inflight_requests.iter() {
-        let requested_values = range.end().as_u64() - range.start().as_u64() + 1;
-        values += requested_values;
+        let requested_heights = range.end().as_u64() - range.start().as_u64() + 1;
+        heights += requested_heights;
     }
 
     for (_, (range, _)) in state.pending_consensus_requests.iter() {
-        let processed_values = range.end().as_u64() - range.start().as_u64() + 1;
-        values += processed_values;
+        let pending_consensus_heights = range.end().as_u64() - range.start().as_u64() + 1;
+        heights += pending_consensus_heights;
     }
 
-    values
+    heights
 }
 
 /// Finds the earliest free window `[a, b]` such that:
@@ -529,7 +531,7 @@ where
 /// crossing the next blocking range, the `inclusive_up_to_height` cap, or the `state.config.batch_size` limit.
 ///
 /// Returns `None` if no such window exists.
-fn find_range_of_values_to_request<Ctx>(
+fn find_range_of_heights_to_request<Ctx>(
     state: &State<Ctx>,
     up_to_height: Ctx::Height,
 ) -> Option<RangeInclusive<Ctx::Height>>
@@ -576,12 +578,12 @@ where
         return Ok(());
     };
 
-    // The maximum number of values we can be waiting for at any point in time.
-    // Should be equal to the capacity of the `sync_input_queue`.
-    let max_values = state.config.batch_size as u64 * state.config.parallel_requests;
+    // The maximum number of heights/values we can be waiting for at any point in time.
+    // Should be equal to the capacity of the `sync_input_queue` so that we do not overlow this queue.
+    let max_heights = state.config.batch_size as u64 * state.config.parallel_requests;
 
     loop {
-        let Some(range) = find_range_of_values_to_request(state, up_to_height) else {
+        let Some(range) = find_range_of_heights_to_request(state, up_to_height) else {
             return Ok(());
         };
 
@@ -591,9 +593,9 @@ where
 
         // Check that we can issue a request for the desired range without exceeding the `max_values`
         // and hence we won't overflow the consensus' `sync_input_queue`.
-        let current_amount_of_values = current_amount_of_values(state);
-        let asking_for_how_many_values = range.end().as_u64() - range.start().as_u64() + 1;
-        if current_amount_of_values + asking_for_how_many_values > max_values {
+        let current_number_of_heights = current_number_of_heights(state);
+        let asking_for_how_many_heights = range.end().as_u64() - range.start().as_u64() + 1;
+        if current_number_of_heights + asking_for_how_many_heights > max_heights {
             return Ok(());
         }
 
@@ -647,22 +649,20 @@ where
 
 #[derive(thiserror::Error, Debug)]
 pub enum InflightError {
-    #[error("received response from unknown request id")]
-    UnknownRequestId {
-        request_id: OutboundRequestId,
-        peer_id: PeerId,
-    },
+    #[error("received response from unknown {request_id}")]
+    UnknownRequestId { request_id: Box<OutboundRequestId> },
 
     #[error(
         "received response from wrong peer (expected {expected_peer_id}, got {actual_peer_id})"
     )]
     WrongPeer {
-        request_id: OutboundRequestId,
-        expected_peer_id: PeerId,
-        actual_peer_id: PeerId,
+        expected_peer_id: Box<PeerId>,
+        actual_peer_id: Box<PeerId>,
     },
 }
 
+// Deletes an inflight request if one exists under the provided `request_id` and stems from `peer_id`.
+// Returns the requested range of this inflight request and the peer that issues the request.
 fn take_inflight_if_peer_matches<Ctx>(
     state: &mut State<Ctx>,
     request_id: &OutboundRequestId,
@@ -674,16 +674,14 @@ where
     let Some((requested_range, stored_peer_id)) = state.inflight_requests.get(request_id).cloned()
     else {
         return Err(InflightError::UnknownRequestId {
-            request_id: request_id.clone(),
-            peer_id,
+            request_id: Box::new(request_id.clone()),
         });
     };
 
     if stored_peer_id != peer_id {
         return Err(InflightError::WrongPeer {
-            request_id: request_id.clone(),
-            expected_peer_id: stored_peer_id,
-            actual_peer_id: peer_id,
+            expected_peer_id: Box::new(stored_peer_id),
+            actual_peer_id: Box::new(peer_id),
         });
     }
 
@@ -724,7 +722,7 @@ mod tests {
         fn increment_by(&self, n: u64) -> H {
             H(self.0 + n)
         }
-        fn decrement_by(&self, n: u64) -> Option<Self> {
+        fn decrement_by(&self, _n: u64) -> Option<Self> {
             None
         }
 
@@ -798,8 +796,13 @@ mod tests {
 
     #[test]
     fn jumps_over_overlapping_blocks() {
-        let out =
-            compute_free_window(H(9), H(100), 3, vec![range(10, 12), range(11, 13), range(13, 14)]).unwrap();
+        let out = compute_free_window(
+            H(9),
+            H(100),
+            3,
+            vec![range(10, 12), range(11, 13), range(13, 14)],
+        )
+        .unwrap();
         assert_eq!(*out.start(), H(15));
         assert_eq!(*out.end(), H(17));
     }
