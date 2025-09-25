@@ -238,10 +238,18 @@ where
         {
             _metrics.queue_heights.set(self.input_queue.len() as i64);
             _metrics.queue_size.set(self.input_queue.size() as i64);
+            _metrics
+                .sync_queue_heights
+                .set(self.sync_input_queue.len() as i64);
+            _metrics
+                .sync_queue_size
+                .set(self.sync_input_queue.size() as i64);
         }
 
-        inputs.append(&mut sync_response_inputs);
-        inputs
+        // We first return the sync-related inputs because if we can successfully apply them, we will move
+        // to the next height, and therefore we can skip applying pending inputs for the just-committed height.
+        sync_response_inputs.append(&mut inputs);
+        sync_response_inputs
     }
 
     pub fn print_state(&self) {
