@@ -144,9 +144,7 @@ where
             );
 
             // Update peer's response time.
-            let start = response.start_height;
             debug!(start = %start, num_values = %response.values.len(), %peer_id, "Received response from peer");
-
             if let Some(response_time) = metrics.value_response_received(start.as_u64()) {
                 state.peer_scorer.update_score_with_metrics(
                     peer_id,
@@ -172,6 +170,8 @@ where
                     match take_inflight_if_peer_matches(state, &request_id, peer_id) {
                         Ok(r) => r,
                         Err(e) => {
+                            // This should NEVER happen because we should only be able to receive
+                            // a time out from a request that we send.
                             error!("Failed taking inflight request: {e}");
                             return Ok(());
                         }
