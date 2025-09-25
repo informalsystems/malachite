@@ -643,15 +643,7 @@ where
                         .process_sync_response(&myself, state, peer_id, height, value)
                         .await
                     {
-                        // At this point, `process_sync_response` has already sent a message
-                        // about an invalid value, etc. to the sync actor. The sync actor
-                        // will then re-request this range again from some peer.
-                        // Because of this, in case of failing to process the response, we need
-                        // to exit early this loop to avoid issuing multiple parallel requests
-                        // for the same range of values. There's also no benefit in processing
-                        // the rest of the values.
                         error!(%start_height, %height, %request_id, "Failed to process sync response:{e:?}");
-                        break;
                     }
 
                     height = height.increment();

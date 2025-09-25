@@ -140,7 +140,7 @@ where
                 .unwrap();
             state.pending_consensus_requests.insert(
                 request_id.clone(),
-                (RangeInclusive::new(start, actual_end), peer_id),
+                (vec![RangeInclusive::new(start, actual_end)], peer_id),
             );
 
             // Update peer's response time.
@@ -399,7 +399,8 @@ fn on_invalid_value<Ctx>(
 where
     Ctx: Context,
 {
-    let Some((request_id, stored_peer_id)) = state.get_pending_consensus_request_id_by(height)
+    let Some((request_id, stored_peer_id, ranges)) =
+        state.get_pending_consensus_request_id_by(height)
     else {
         error!(%peer_id, %height, "Received height of invalid value for unknown request");
         return Ok(());
@@ -410,10 +411,62 @@ where
         return Ok(());
     }
 
-    state.pending_consensus_requests.remove(&request_id);
     warn!(
                 %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
                 "Received value at height failed consensus verification");
+
+    // remove the height of the invalid value from cloned_ranges
+    let mut cloned_ranges = ranges.clone();
+    if let Err(msg) = excise_height(&mut cloned_ranges, height) {
+        error!(%msg, %request_id, %peer_id, %height, "Failed to break range");
+        return Ok(());
+    }
+
+    // update the pending requests for `request_id` after excising the height of the invalid value
+    if let Some((ranges, _)) = state.pending_consensus_requests.get_mut(&request_id) {
+        if ranges.is_empty() {
+            state.pending_consensus_requests.remove(&request_id);
+        } else {
+            state
+                .pending_consensus_requests
+                .insert(request_id, (cloned_ranges, peer_id));
+        }
+    }
+
+    Ok(())
+}
+
+/// Excise `height` from the first (and only) range in `ranges` that contains it and then append up to two ranges
+/// that exclude `height`. We assume that `ranges` does not contain a height more than once.
+/// Return `Err` if no range contains `height` or if `height - 1` underflows.
+fn excise_height<H>(ranges: &mut Vec<RangeInclusive<H>>, height: H) -> Result<(), String>
+where
+    H: Height,
+{
+    let Some(i) = ranges.iter_mut().position(|r| r.contains(&height)) else {
+        return Err(format!("cannot find range with this height {:?}", height));
+    };
+
+    let range = ranges[i].clone();
+    // always remove the range we want to "break" into two ranges and then re-push desired ranges
+    ranges.remove(i);
+
+    if range.start() != range.end() {
+        if *range.start() == height {
+            ranges.push(range.start().increment()..=*range.end());
+        } else if *range.end() == height {
+            let Some(new_end) = range.end().decrement() else {
+                return Err(format!("cannot decrement {:?}", range.end()));
+            };
+            ranges.push(*range.start()..=new_end);
+        } else {
+            let Some(new_end) = height.decrement() else {
+                return Err(format!("cannot decrement {:?}", height));
+            };
+            ranges.push(*range.start()..=new_end);
+            ranges.push(height.increment()..=*range.end());
+        }
+    }
 
     Ok(())
 }
@@ -431,8 +484,13 @@ where
         heights += requested_heights;
     }
 
-    for (_, (range, _)) in state.pending_consensus_requests.iter() {
-        let pending_consensus_heights = range.end().as_u64() - range.start().as_u64() + 1;
+    for (_, (ranges, _)) in state.pending_consensus_requests.iter() {
+        let mut pending_consensus_heights = 0;
+
+        for range in ranges {
+            pending_consensus_heights += range.end().as_u64() - range.start().as_u64() + 1;
+        }
+
         heights += pending_consensus_heights;
     }
 
@@ -554,7 +612,7 @@ where
             state
                 .pending_consensus_requests
                 .values()
-                .map(|(r, _)| r.clone()),
+                .flat_map(|(ranges, _)| ranges.iter().cloned()),
         )
         .collect();
 
@@ -831,5 +889,65 @@ mod tests {
         let out = compute_free_window(H(0), H(100), 10, vec![range(1, 3), range(9, 20)]).unwrap();
         assert_eq!(*out.start(), H(4));
         assert_eq!(*out.end(), H(8));
+    }
+
+    // helper to normalize `Vec<RangeInclusive<H>>` for easy equality checks
+    fn as_pairs(v: &[RangeInclusive<H>]) -> Vec<(u64, u64)> {
+        let mut pairs: Vec<_> = v
+            .iter()
+            .map(|r| (r.start().as_u64(), r.end().as_u64()))
+            .collect();
+        pairs.sort_unstable();
+        pairs
+    }
+
+    #[test]
+    fn not_found_returns_err() {
+        let mut v = vec![range(5, 7), range(9, 12)];
+        let err = excise_height(&mut v, H(8)).unwrap_err();
+        assert!(err.contains("cannot find range"), "got: {}", err);
+        assert_eq!(as_pairs(&v), vec![(5, 7), (9, 12)]);
+    }
+
+    #[test]
+    fn singleton_range_removed() {
+        let mut v = vec![range(5, 5)];
+        excise_height(&mut v, H(5)).unwrap();
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn singleton_range_removed_with_other_ranges() {
+        let mut v = vec![range(1, 3), range(5, 5), range(9, 11)];
+        excise_height(&mut v, H(5)).unwrap();
+        assert_eq!(as_pairs(&v), vec![(1, 3), (9, 11)]);
+    }
+
+    #[test]
+    fn height_at_left_edge_trims_left() {
+        let mut v = vec![range(5, 10)];
+        excise_height(&mut v, H(5)).unwrap();
+        assert_eq!(as_pairs(&v), vec![(6, 10)]);
+    }
+
+    #[test]
+    fn height_at_right_edge_trims_right() {
+        let mut v = vec![range(5, 10)];
+        excise_height(&mut v, H(10)).unwrap();
+        assert_eq!(as_pairs(&v), vec![(5, 9)]);
+    }
+
+    #[test]
+    fn height_inside_splits_into_two() {
+        let mut v = vec![range(5, 10)];
+        excise_height(&mut v, H(7)).unwrap();
+        assert_eq!(as_pairs(&v), vec![(5, 6), (8, 10)]);
+    }
+
+    #[test]
+    fn multiple_ranges_only_first_matching_is_changed() {
+        let mut v = vec![range(1, 3), range(5, 7), range(9, 11)];
+        excise_height(&mut v, H(6)).unwrap();
+        assert_eq!(as_pairs(&v), vec![(1, 3), (5, 5), (7, 7), (9, 11)]);
     }
 }
