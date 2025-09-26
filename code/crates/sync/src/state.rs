@@ -6,6 +6,7 @@ use std::ops::RangeInclusive;
 
 use crate::scoring::{ema, PeerScorer, Strategy};
 use crate::{Config, OutboundRequestId, Status};
+use crate::handle::excise_height;
 
 pub struct State<Ctx>
 where
@@ -173,9 +174,13 @@ where
         start..=*range.end()
     }
 
-    /// Prunes the ranges of pending-consensus requests which end is <= `up_to_height`
+    /// Prunes all the heights that are <= `up_to_height` from all the pending_consensus_requests
     pub fn prune_pending_consensus_requests(&mut self, up_to_height: &Ctx::Height) {
         self.pending_consensus_requests.retain(|_, (ranges, _)| {
+            // We first excise the `up_to_height` from the `ranges` and as a result, all the `ranges`
+            // are going to be `[a, b]` with `b < up_to_height` or `a > up_to_height`.
+            // We then retain all the ranges `a > up_to_height`, conversely, we remove all the ranges with `b < up_to_height`.
+            let _ = excise_height(ranges, *up_to_height);
             ranges.retain(|range| range.end() > up_to_height);
             !ranges.is_empty()
         });

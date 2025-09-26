@@ -436,7 +436,7 @@ where
 /// Excise `height` from the first (and only) range in `ranges` that contains it and then append up to two ranges
 /// that exclude `height`. We assume that `ranges` does not contain a height more than once.
 /// Return `Err` if no range contains `height` or if `height - 1` underflows.
-fn excise_height<H>(ranges: &mut Vec<RangeInclusive<H>>, height: H) -> Result<(), String>
+pub fn excise_height<H>(ranges: &mut Vec<RangeInclusive<H>>, height: H) -> Result<(), String>
 where
     H: Height,
 {
