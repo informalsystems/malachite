@@ -264,19 +264,16 @@ where
                 value_response,
                 r,
             ) => {
-                match consensus_actor {
-                    Some(consensus) => {
-                        consensus.cast(ConsensusMsg::ProcessSyncResponse(
-                            request_id,
-                            peer_id,
-                            ValueResponse(value_response),
-                        ))?;
-                    }
-                    None => {
-                        // This should NEVER happen because we only send requests to peers and hence
-                        // receive responses if the consensus actor is set.
-                        error!(%request_id, %peer_id, "Received sync response before consensus actor was set.");
-                    }
+                if let Some(consensus) = consensus_actor {
+                    consensus.cast(ConsensusMsg::ProcessSyncResponse(
+                        request_id,
+                        peer_id,
+                        ValueResponse(value_response),
+                    ))?;
+                } else {
+                    // This should NEVER happen because we only send requests to peers and hence
+                    // receive responses if the consensus actor is set.
+                    error!(%request_id, %peer_id, "Received sync response before consensus actor was set.");
                 }
 
                 Ok(r.resume_with(()))

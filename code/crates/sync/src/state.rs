@@ -4,9 +4,9 @@ use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::RangeInclusive;
 
+use crate::handle::excise_height;
 use crate::scoring::{ema, PeerScorer, Strategy};
 use crate::{Config, OutboundRequestId, Status};
-use crate::handle::excise_height;
 
 pub struct State<Ctx>
 where
