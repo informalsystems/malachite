@@ -280,19 +280,15 @@ where
 
     state.started = true;
 
+    // In case of a start, core-consensus should have "consumed" everything from the `sync_input_queue`
+    // up to the `height` height, so we remove those pending consensus requests.
+    state.prune_pending_consensus_requests(&height);
+
     // The tip is the last decided value.
     state.tip_height = height.decrement().unwrap_or_default();
 
-    // Garbage collect fully-validated requests.
-    state.remove_fully_validated_requests();
-
-    if start_type.is_restart() {
-        // Clear pending and inflight requests, as we are restarting the height.
-        state.pending_consensus_requests.clear();
-        state.inflight_requests.clear();
-    }
-
-    // Trigger potential requests if possible.
+    // Trigger potential requests if possible. Consensus just started for height `height` and
+    // hence it makes sense to request this height in case some peer already has it.
     request_values(co, state, height, metrics).await?;
 
     Ok(())
@@ -310,8 +306,9 @@ where
 
     state.tip_height = height;
 
-    // Garbage collect fully-validated requests.
-    state.remove_fully_validated_requests();
+    // In case of decision, core-consensus should have "consumed" everything from the `sync_input_queue`
+    // up to the `tip_height = height` height, so we remove those pending consensus requests.
+    state.prune_pending_consensus_requests(&height);
 
     Ok(())
 }

@@ -173,11 +173,10 @@ where
         start..=*range.end()
     }
 
-    /// When the tip height is higher than the requested range, then the request
-    /// has been fully validated and it can be removed.
-    pub fn remove_fully_validated_requests(&mut self) {
+    /// Prunes the ranges of pending-consensus requests which end is <= `up_to_height`
+    pub fn prune_pending_consensus_requests(&mut self, up_to_height: &Ctx::Height) {
         self.pending_consensus_requests.retain(|_, (ranges, _)| {
-            ranges.retain(|range| range.end() > &self.tip_height);
+            ranges.retain(|range| range.end() > up_to_height);
             !ranges.is_empty()
         });
     }

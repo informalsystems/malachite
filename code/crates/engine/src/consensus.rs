@@ -401,15 +401,6 @@ where
                     state.set_phase(Phase::Recovering);
                 }
 
-                // Notify the sync actor that we have started a new height
-                if let Some(sync) = &self.sync {
-                    let start_type = HeightStartType::from_is_restart(is_restart);
-
-                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height, start_type)) {
-                        error!(%height, "Error when notifying sync of started height: {e}")
-                    }
-                }
-
                 // Start consensus for the given height
                 let result = self
                     .process_input(
@@ -421,6 +412,15 @@ where
 
                 if let Err(e) = result {
                     error!(%height, "Error when starting height: {e}");
+                }
+
+                // Notify the sync actor that we have started a new height
+                if let Some(sync) = &self.sync {
+                    let start_type = HeightStartType::from_is_restart(is_restart);
+
+                    if let Err(e) = sync.cast(SyncMsg::StartedHeight(height, start_type)) {
+                        error!(%height, "Error when notifying sync of started height: {e}")
+                    }
                 }
 
                 if !wal_entries.is_empty() {
