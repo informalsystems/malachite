@@ -764,6 +764,7 @@ impl<'a, Ctx: Context> core::fmt::Display for DisplayRange<'a, Ctx> {
 mod tests {
     use super::*;
     use core::fmt;
+    use rstest::rstest;
 
     /// fake height for tests that raps an u64 and provides the `Height` methods
     #[derive(Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -808,84 +809,40 @@ mod tests {
         H(a)..=H(b)
     }
 
-    #[test]
-    fn empty_maps_no_blocks_fits_entire_batch() {
-        let out = compute_free_window(H(10), H(100), 5, vec![]).unwrap();
-        assert_eq!(*out.start(), H(11));
-        assert_eq!(*out.end(), H(15));
-    }
-
-    #[test]
-    fn capped_by_peer_height() {
-        let out = compute_free_window(H(10), H(12), 10, vec![]).unwrap();
-        assert_eq!(*out.start(), H(11));
-        assert_eq!(*out.end(), H(12));
-    }
-
-    #[test]
-    fn batch_size_one_returns_singleton() {
-        let out = compute_free_window(H(7), H(100), 1, vec![]).unwrap();
-        assert_eq!(*out.start(), H(8));
-        assert_eq!(*out.end(), H(8));
-    }
-
-    #[test]
-    fn batch_size_zero_yields_none() {
-        assert!(compute_free_window(H(7), H(100), 0, vec![]).is_none());
-    }
-
-    #[test]
-    fn peer_at_or_below_tip_none() {
-        assert!(compute_free_window(H(10), H(10), 5, vec![]).is_none());
-        assert!(compute_free_window(H(10), H(9), 5, vec![]).is_none());
-    }
-
-    #[test]
-    fn skips_exact_cover_at_a() {
-        let out = compute_free_window(H(9), H(100), 4, vec![range(10, 12)]).unwrap();
-        assert_eq!(*out.start(), H(13));
-        assert_eq!(*out.end(), H(16));
-    }
-
-    #[test]
-    fn stops_before_next_blocking_range() {
-        let out = compute_free_window(H(9), H(100), 10, vec![range(15, 20)]).unwrap();
-        assert_eq!(*out.start(), H(10));
-        assert_eq!(*out.end(), H(14));
-    }
-
-    #[test]
-    fn jumps_over_overlapping_blocks() {
-        let out = compute_free_window(
-            H(9),
-            H(100),
-            3,
-            vec![range(10, 12), range(11, 13), range(13, 14)],
-        )
-        .unwrap();
-        assert_eq!(*out.start(), H(15));
-        assert_eq!(*out.end(), H(17));
-    }
-
-    #[test]
-    fn peer_cap_hits_inside_growth() {
-        let out = compute_free_window(H(0), H(5), 100, vec![]).unwrap();
-        assert_eq!(*out.start(), H(1));
-        assert_eq!(*out.end(), H(5));
-    }
-
-    #[test]
-    fn hole_between_blocks_fills_up_to_batch_limit() {
-        let out = compute_free_window(H(0), H(100), 4, vec![range(1, 3), range(10, 99)]).unwrap();
-        assert_eq!(*out.start(), H(4));
-        assert_eq!(*out.end(), H(7));
-    }
-
-    #[test]
-    fn hole_smaller_than_batch_stops_at_block() {
-        let out = compute_free_window(H(0), H(100), 10, vec![range(1, 3), range(9, 20)]).unwrap();
-        assert_eq!(*out.start(), H(4));
-        assert_eq!(*out.end(), H(8));
+    #[rstest]
+    #[case(H(10), H(100), 5,  vec![],                                   Some((11, 15)))] // empty ranges fits an entire window
+    #[case(H(10), H(12),  10, vec![],                                   Some((11, 12)))] // capped by `inclusive_up_to_height`
+    #[case(H(7),  H(100), 1,  vec![],                                   Some((8,  8 )))] // window size of 1 returns a single-element range
+    #[case(H(7),  H(100), 0,  vec![],                                   None           )] // window size of 0 returns `None`
+    #[case(H(10), H(10),  5,  vec![],                                   None           )] // `exclusive_start_height == inclusive_up_to_height` returns `None`
+    #[case(H(10), H(9),   5,  vec![],                                   None           )] // `exclusive_start_height == inclusive_up_to_height` returns `None`
+    #[case(H(9),  H(100), 4,  vec![range(10, 12)],                       Some((13, 16)))] // skips range [10, 12]
+    #[case(H(9),  H(100), 10, vec![range(15, 20)],                       Some((10, 14)))] // stops at 14 before the next blocking range [15, 20]
+    #[case(H(9),  H(100), 3,  vec![range(10,12), range(11,13), range(13,14)], Some((15, 17)))] // jumps over overlapping ranges
+    #[case(H(0),  H(5),   100,vec![],                                   Some((1,  5 )))] // hits the `inclusive_up_to_height`
+    #[case(H(0), H(100), 4,  vec![range(1,3), range(10,99)],           Some((4,  7 )))] // hole between `ranges`
+    #[case(H(0), H(100), 10, vec![range(1,3), range(9,20)],            Some((4,  8 )))] // hole between `ranges` that is smaller than `window_size`
+    fn compute_free_window_param(
+        #[case] exclusive_start_height: H,
+        #[case] inclusive_up_to_height: H,
+        #[case] window_size: u64,
+        #[case] ranges: Vec<RangeInclusive<H>>,
+        #[case] expected: Option<(u64, u64)>,
+    ) {
+        let actual = compute_free_window(
+            exclusive_start_height,
+            inclusive_up_to_height,
+            window_size,
+            ranges,
+        );
+        match (actual, expected) {
+            (None, None) => {}
+            (Some(r), Some((s, e))) => {
+                assert_eq!(*r.start(), H(s));
+                assert_eq!(*r.end(), H(e));
+            }
+            (g, e) => panic!("mismatch\n  got: {:?}\n  exp: {:?}", g, e),
+        }
     }
 
     // helper to normalize `Vec<RangeInclusive<H>>` for easy equality checks
@@ -898,53 +855,31 @@ mod tests {
         pairs
     }
 
-    #[test]
-    fn not_found_returns_err() {
-        let mut v = vec![range(5, 7), range(9, 12)];
-        let err = excise_height(&mut v, H(8)).unwrap_err();
+    #[rstest]
+    #[case(vec![range(5,5)],                          H(5),  vec![])] // single singleton range removed
+    #[case(vec![range(1,3), range(5,5), range(9,11)], H(5),  vec![(1,3), (9,11)])] // singleton range removed but other ranges are kept
+    #[case(vec![range(5,10)],                         H(5),  vec![(6,10)])] // height at the left edge trims left
+    #[case(vec![range(5,10)],                         H(10), vec![(5,9)])] // height at the right edge trims right
+    #[case(vec![range(5,10)],                         H(7),  vec![(5,6), (8,10)])] // height inside a range splits the range
+    #[case(vec![range(1,3), range(5,7), range(9,11)], H(6),  vec![(1,3), (5,5), (7,7), (9,11)])] // multiple ranges, only the first matching is changed
+    fn excise_height_ok(
+        #[case] mut ranges: Vec<RangeInclusive<H>>,
+        #[case] height: H,
+        #[case] expected_pairs: Vec<(u64, u64)>,
+    ) {
+        excise_height(&mut ranges, height).unwrap();
+        assert_eq!(as_pairs(&ranges), expected_pairs);
+    }
+
+    #[rstest]
+    #[case(vec![range(5,7), range(9,12)], H(8), vec![(5,7), (9,12)])] // not found returns an `Error`
+    fn excise_height_err(
+        #[case] mut ranges: Vec<RangeInclusive<H>>,
+        #[case] height: H,
+        #[case] expected_pairs: Vec<(u64, u64)>,
+    ) {
+        let err = excise_height(&mut ranges, height).unwrap_err();
         assert!(err.contains("cannot find range"), "got: {}", err);
-        assert_eq!(as_pairs(&v), vec![(5, 7), (9, 12)]);
-    }
-
-    #[test]
-    fn singleton_range_removed() {
-        let mut v = vec![range(5, 5)];
-        excise_height(&mut v, H(5)).unwrap();
-        assert!(v.is_empty());
-    }
-
-    #[test]
-    fn singleton_range_removed_with_other_ranges() {
-        let mut v = vec![range(1, 3), range(5, 5), range(9, 11)];
-        excise_height(&mut v, H(5)).unwrap();
-        assert_eq!(as_pairs(&v), vec![(1, 3), (9, 11)]);
-    }
-
-    #[test]
-    fn height_at_left_edge_trims_left() {
-        let mut v = vec![range(5, 10)];
-        excise_height(&mut v, H(5)).unwrap();
-        assert_eq!(as_pairs(&v), vec![(6, 10)]);
-    }
-
-    #[test]
-    fn height_at_right_edge_trims_right() {
-        let mut v = vec![range(5, 10)];
-        excise_height(&mut v, H(10)).unwrap();
-        assert_eq!(as_pairs(&v), vec![(5, 9)]);
-    }
-
-    #[test]
-    fn height_inside_splits_into_two() {
-        let mut v = vec![range(5, 10)];
-        excise_height(&mut v, H(7)).unwrap();
-        assert_eq!(as_pairs(&v), vec![(5, 6), (8, 10)]);
-    }
-
-    #[test]
-    fn multiple_ranges_only_first_matching_is_changed() {
-        let mut v = vec![range(1, 3), range(5, 7), range(9, 11)];
-        excise_height(&mut v, H(6)).unwrap();
-        assert_eq!(as_pairs(&v), vec![(1, 3), (5, 5), (7, 7), (9, 11)]);
+        assert_eq!(as_pairs(&ranges), expected_pairs);
     }
 }
