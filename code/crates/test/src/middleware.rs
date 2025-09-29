@@ -3,9 +3,14 @@ use core::fmt;
 use malachitebft_core_consensus::{LocallyProposedValue, ProposedValue};
 use malachitebft_core_types::{CommitCertificate, NilOrVal, Round};
 
+use crate::decided_value::DecidedValue;
 use crate::{Address, Genesis, Height, Proposal, TestContext, ValidatorSet, Value, ValueId, Vote};
 
 pub trait Middleware: fmt::Debug + Send + Sync {
+    fn get_decided_value(&self, _height: Height) -> Option<DecidedValue> {
+        None
+    }
+
     fn get_validator_set(
         &self,
         _ctx: &TestContext,

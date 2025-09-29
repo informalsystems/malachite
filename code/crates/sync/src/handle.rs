@@ -102,6 +102,21 @@ where
             let end = response.end_height().unwrap_or(start);
             let range_len = end.as_u64() - start.as_u64() + 1;
 
+            // verify that the heights of the certificates are also correct
+            let mut current_height = start;
+            for value in response.values.iter() {
+                if value.certificate.height != current_height {
+                    warn!(%request_id, %peer_id, "Received response with wrong certificate heights: expected {}, got {}",
+                        current_height, value.certificate.height);
+
+                    // Received a value with invalid range of heights from this peer and hence update the peer's score accordingly.
+                    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                    return Ok(());
+                }
+                current_height = current_height.increment();
+            }
+
             // Check if the response is valid. A valid response starts at the requested start height,
             // has at least one value, and no more than the requested range.
             let is_valid = start.as_u64() == requested_range.start().as_u64()
@@ -110,7 +125,7 @@ where
                 && response.values.len() as u64 == range_len;
 
             if !is_valid {
-                warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
+                warn!(%request_id, %peer_id, "Received response for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
                         requested_range.start().as_u64(), requested_range.end().as_u64(), range_len,
                         start.as_u64(), end.as_u64(), response.values.len() as u64);
 
@@ -670,10 +685,20 @@ where
 
     loop {
         let Some(range) = find_range_of_heights_to_request(state, up_to_height) else {
+            info!(
+                    %up_to_height,
+                "Could not find a range to request"
+            );
             return Ok(());
         };
 
         let Some((peer_id, _)) = state.random_peer_with(&range) else {
+            info!(
+                range_start = range.start().to_string(),
+                range_end = range.end().to_string(),
+                "Could not find a peer with the desired range"
+            );
+
             return Ok(());
         };
 
@@ -682,6 +707,13 @@ where
         let current_number_of_heights = current_number_of_heights(state);
         let asking_for_how_many_heights = range.end().as_u64() - range.start().as_u64() + 1;
         if current_number_of_heights + asking_for_how_many_heights > max_heights {
+            info!(
+                %current_number_of_heights,
+                    %asking_for_how_many_heights,
+                    %max_heights,
+
+                "Maximum number of heights reached, skipping request for values"
+            );
             return Ok(());
         }
 
