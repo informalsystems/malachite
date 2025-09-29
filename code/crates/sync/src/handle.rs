@@ -206,7 +206,7 @@ where
 pub async fn on_tick<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -226,6 +226,17 @@ where
     }
 
     debug!("Peer scores: {:#?}", state.peer_scorer.get_scores());
+
+    // In the exceptional case where we stop getting `Status` updates from other peers, we initiate
+    // the request of values from here up to the maximum `tip_height` we have seen so far.
+    // See https://github.com/informalsystems/malachite/pull/15#pullrequestreview-3262021218
+    let max_tip_height = state
+        .peers
+        .values()
+        .map(|s| s.tip_height)
+        .max()
+        .unwrap_or(state.tip_height);
+    request_values(co, state, max_tip_height, metrics).await?;
 
     Ok(())
 }
