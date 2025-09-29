@@ -494,7 +494,7 @@ where
     heights
 }
 
-/// Finds the earliest free window `[a, b]` such that:
+/// Finds the earliest window `[a, b]` such that the window is "free" from overlaps with ranges, meaning:
 /// - `a > exclusive_start_height`
 /// - every x in `[a, b]` is not covered by any range in `ranges`
 /// - `b` does not exceed `inclusive_up_to_height`
@@ -524,56 +524,71 @@ where
         n => n - 1,
     };
 
-    // order ranges by first `start()` and then `end()` and where overlaps are fine
+    // order ranges by first `start()` and then `end()`
     ranges.sort_by(|a, b| match a.start().cmp(b.start()) {
         Ordering::Equal => a.end().cmp(b.end()),
         other => other,
     });
 
+    // The desired free window corresponds to `a..b` where `a` is the start and `b` (declared later on) the end.
+    // We do not yet know what `a` is, but we know that `a >= exclusive_start_height + 1` so we start from there.
     let mut a = exclusive_start_height.increment_by(1);
     if a > inclusive_up_to_height {
+        // if `a` already exceeds `inclusive_up_to_height`, then there's no free window
         return None;
     }
 
+    // we loop through all the ranges until we find the first `a` that is not covered by any of the `ranges`
     let mut i = 0;
     while i < ranges.len() {
         let r = &ranges[i];
 
         if a < *r.start() {
-            // `a` lies strictly before this interval; no later interval can cover `a`
+            // `a` lies strictly before this range; no later range can cover `a` and hence we can break
             break;
         } else if a <= *r.end() {
-            // `a` is covered; jump to just after this interval and keep going **from here**
+            // `a` is covered by a range; jump to just after this range and keep going **from here**
             a = r.end().increment();
             if a > inclusive_up_to_height {
+                // if `a` exceeds `inclusive_up_to_height`, then there's no free window
                 return None;
             }
             i += 1;
             continue;
         } else {
-            // a > r.end(): this interval is behind us; advance.
+            // a > r.end(): this range is behind us; advance.
             i += 1;
         }
     }
 
-    // determine the start of the next blocking interval (if any)
-    let next_block_start = ranges.iter().find(|r| *r.start() >= a).map(|r| *r.start());
+    // determine the start of the first range after `a`: any range that `compute_free_window` returns
+    // should not exceed that start
+    let next_range_start = ranges.iter().find(|r| *r.start() >= a).map(|r| *r.start());
+
+    // the end of the free window is `b` and we know it can be `a`, we then increment `b` as far as
+    // possible to get the maximum possible free window
     let mut b = a;
 
-    // grow `b` from `a` without crossing the next range, the `inclusive_up_to_height`, or the window size
+    // increment `b` from `a` without crossing the next range, the `inclusive_up_to_height`, or the window size
     while remaining_increments > 0 {
         let next = b.increment_by(1);
 
         if next > inclusive_up_to_height {
+            // we're about to exceed `inclusive_up_to_height`, so we cannot go any further
             break;
         }
 
-        if let Some(s) = &next_block_start {
+        if let Some(s) = &next_range_start {
             if next >= *s {
+                // we reached the next range, so we cannot go any further
                 break;
             }
         }
+        // if `next_range_start` is `None`, then we can keep incrementing `b` a `remaining_increments` times
+        // and up to `inclusive_up_to_height`
 
+        // the range `[a, next]` does not overlap any other range, so we can increment `b` and keep
+        // trying to increment `b`
         b = next;
         remaining_increments -= 1;
     }
