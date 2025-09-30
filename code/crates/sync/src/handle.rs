@@ -65,9 +65,7 @@ where
 
         Input::Status(status) => on_status(co, state, metrics, status).await,
 
-        Input::StartedHeight(height, restart) => {
-            on_started_height(co, state, metrics, height, restart).await
-        }
+        Input::StartedHeight(height, restart) => on_started_height(state, height, restart).await,
 
         Input::Decided(height) => on_decided(state, metrics, height).await,
 
@@ -297,9 +295,7 @@ where
 }
 
 pub async fn on_started_height<Ctx>(
-    co: Co<Ctx>,
     state: &mut State<Ctx>,
-    metrics: &Metrics,
     height: Ctx::Height,
     start_type: HeightStartType,
 ) -> Result<(), Error<Ctx>>
@@ -316,10 +312,6 @@ where
 
     // The tip is the last decided value.
     state.tip_height = height.decrement().unwrap_or_default();
-
-    // Trigger potential requests if possible. Consensus just started for height `height` and
-    // hence it makes sense to request this height in case some peer already has it.
-    request_values(co, state, height, metrics).await?;
 
     Ok(())
 }
