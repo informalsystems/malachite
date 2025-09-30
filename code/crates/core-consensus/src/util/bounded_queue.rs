@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use tracing::warn;
 
 /// A data structure that maintains a queue of values associated with monotonically increasing indices.
 ///
@@ -46,6 +47,8 @@ where
             if &index < max_index {
                 let max_index = max_index.clone();
 
+                warn!("Bounded queue is full, dropping value");
+
                 // Remove the highest index
                 self.queue.remove(&max_index);
 
@@ -56,6 +59,7 @@ where
             }
         }
 
+        warn!("Bounded queue is full, no value is inserted");
         false
     }
 
@@ -81,6 +85,21 @@ where
     /// Whether the queue is full
     pub fn is_full(&self) -> bool {
         self.queue.len() >= self.capacity
+    }
+
+    /// Returns true if the queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    /// Returns the current number of unique indices in the queue.
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Returns the total number of values stored in the queue across all indices.
+    pub fn size(&self) -> usize {
+        self.queue.values().map(|v| v.len()).sum()
     }
 }
 
