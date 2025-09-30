@@ -150,18 +150,22 @@ where
     ///
     /// Assumes a height cannot be in multiple pending requests.
     pub fn get_pending_consensus_request_id_by(
-        &self,
+        &mut self,
         height: Ctx::Height,
-    ) -> Option<(OutboundRequestId, PeerId, Vec<RangeInclusive<Ctx::Height>>)> {
-        self.pending_consensus_requests
-            .iter()
-            .find_map(|(request_id, (ranges, stored_peer_id))| {
+    ) -> Option<(
+        OutboundRequestId,
+        PeerId,
+        &mut Vec<RangeInclusive<Ctx::Height>>,
+    )> {
+        self.pending_consensus_requests.iter_mut().find_map(
+            |(request_id, (ranges, stored_peer_id))| {
                 if ranges.iter().any(|range| range.contains(&height)) {
-                    Some((request_id.clone(), *stored_peer_id, ranges.clone()))
+                    Some((request_id.clone(), *stored_peer_id, ranges))
                 } else {
                     None
                 }
-            })
+            },
+        )
     }
 
     /// Return a new range of heights, trimming from the beginning any height

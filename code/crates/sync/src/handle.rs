@@ -251,7 +251,11 @@ where
         .map(|s| s.tip_height)
         .max()
         .unwrap_or(state.tip_height);
-    request_values(co, state, max_tip_height, metrics).await?;
+
+    // Only request values in case we're lagging behind.
+    if state.tip_height < max_tip_height {
+        request_values(co, state, max_tip_height, metrics).await?;
+    }
 
     Ok(())
 }
@@ -438,22 +442,15 @@ where
                 %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
                 "Received value at height failed consensus verification");
 
-    // remove the height of the invalid value from cloned_ranges
-    let mut cloned_ranges = ranges.clone();
-    if let Err(msg) = excise_height(&mut cloned_ranges, height) {
+    // remove the height of the invalid value from the ranges
+    if let Err(msg) = excise_height(ranges, height) {
         error!(%msg, %request_id, %peer_id, %height, "Failed to break range");
         return Ok(());
     }
 
-    // update the pending requests for `request_id` after excising the height of the invalid value
-    if let Some((ranges, _)) = state.pending_consensus_requests.get_mut(&request_id) {
-        if ranges.is_empty() {
-            state.pending_consensus_requests.remove(&request_id);
-        } else {
-            state
-                .pending_consensus_requests
-                .insert(request_id, (cloned_ranges, peer_id));
-        }
+    // in case the ranges are now empty, remove the pending request altogether
+    if ranges.is_empty() {
+        state.pending_consensus_requests.remove(&request_id);
     }
 
     Ok(())
@@ -693,7 +690,7 @@ where
         };
 
         let Some((peer_id, _)) = state.random_peer_with(&range) else {
-            info!(
+            warn!(
                 range_start = range.start().to_string(),
                 range_end = range.end().to_string(),
                 "Could not find a peer with the desired range"
