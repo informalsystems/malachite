@@ -682,10 +682,22 @@ where
         };
 
         let Some((peer_id, _)) = state.random_peer_with(&range) else {
-            warn!(
+            // Normally we expect to always find a peer covering `range` because `request_values` is
+            // only called from `on_tick` and `on_status` and `request_values` is always invoked
+            // with an `up_to_height` argument (that we pass to `find_range_of_heights_to_request`)
+            // that we know at least one peer has seen.
+            // However, we still might fail to find a peer with the desired range if peers have
+            // already garbage-collected older values and increased their `status.history_min_height`.
+            // When this happens, value sync cannot proceed. Recovery may require switching to
+            // state sync or to connecting to additional peers that still have this range.
+            error!(
                 range_start = range.start().to_string(),
                 range_end = range.end().to_string(),
-                "Could not find a peer with the desired range"
+                peers = ?state.peers
+                    .iter()
+                    .map(|(peer_id, status)| format!("{peer_id}: {status:?}"))
+                    .collect::<Vec<_>>(),
+                "Could not find a peer with the desired range. State sync or more peers maybe be needed."
             );
 
             return Ok(());
