@@ -23,8 +23,9 @@ use malachitebft_test::{
 };
 
 use crate::config::Config;
-use crate::store::{DecidedValue, Store};
+use crate::store::Store;
 use crate::streaming::{PartStreamsMap, ProposalParts};
+use malachitebft_test::decided_value::DecidedValue;
 
 /// Number of historical values to keep in the store
 const HISTORY_LENGTH: u64 = 500;
@@ -269,7 +270,14 @@ impl State {
 
     /// Retrieves a decided block at the given height
     pub async fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
-        self.store.get_decided_value(height).await.ok().flatten()
+        let value = self.store.get_decided_value(height).await.ok().flatten();
+
+        // if middleware contains a value, return the middleware's value
+        if let Some(dv) = self.ctx.middleware().get_decided_value(height) {
+            return Some(dv);
+        }
+
+        value
     }
 
     /// Commits a value with the given certificate, updating internal state

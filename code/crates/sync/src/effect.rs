@@ -77,6 +77,14 @@ pub enum Effect<Ctx: Context> {
         RangeInclusive<Ctx::Height>,
         resume::Continue,
     ),
+
+    /// Notify consensus to process a sync response.
+    NotifyConsensusToProcessSyncResponse(
+        OutboundRequestId,
+        PeerId,
+        ValueResponse<Ctx>,
+        resume::Continue,
+    ),
 }
 
 pub mod resume {

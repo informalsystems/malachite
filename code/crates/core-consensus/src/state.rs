@@ -27,6 +27,9 @@ where
     /// A queue of inputs that were received before the driver started.
     pub input_queue: BoundedQueue<Ctx::Height, Input<Ctx>>,
 
+    /// A queue specifically for `SyncValueResponse`s inputs that were received at a higher height.
+    pub sync_input_queue: BoundedQueue<Ctx::Height, Input<Ctx>>,
+
     /// The proposals to decide on.
     pub full_proposal_keeper: FullProposalKeeper<Ctx>,
 
@@ -55,6 +58,7 @@ where
             driver,
             params,
             input_queue: BoundedQueue::new(queue_capacity),
+            sync_input_queue: BoundedQueue::new(queue_capacity),
             full_proposal_keeper: Default::default(),
             last_signed_prevote: None,
             last_signed_precommit: None,
@@ -195,13 +199,38 @@ where
         }
     }
 
+    /// Queue a sync input for later processing, only keep inputs for the highest height seen so far.
+    pub fn buffer_sync_input(
+        &mut self,
+        height: Ctx::Height,
+        input: Input<Ctx>,
+        _metrics: &Metrics,
+    ) {
+        self.sync_input_queue.push(height, input);
+
+        #[cfg(feature = "metrics")]
+        {
+            _metrics
+                .sync_queue_heights
+                .set(self.sync_input_queue.len() as i64);
+            _metrics
+                .sync_queue_size
+                .set(self.sync_input_queue.size() as i64);
+        }
+    }
+
     /// Take all inputs that are pending for the specified height and remove from the input queue.
     pub fn take_pending_inputs(&mut self, _metrics: &Metrics) -> Vec<Input<Ctx>>
     where
         Ctx: Context,
     {
-        let inputs = self
+        let mut inputs = self
             .input_queue
+            .shift_and_take(&self.height())
+            .collect::<Vec<_>>();
+
+        let mut sync_response_inputs = self
+            .sync_input_queue
             .shift_and_take(&self.height())
             .collect::<Vec<_>>();
 
@@ -209,9 +238,18 @@ where
         {
             _metrics.queue_heights.set(self.input_queue.len() as i64);
             _metrics.queue_size.set(self.input_queue.size() as i64);
+            _metrics
+                .sync_queue_heights
+                .set(self.sync_input_queue.len() as i64);
+            _metrics
+                .sync_queue_size
+                .set(self.sync_input_queue.size() as i64);
         }
 
-        inputs
+        // We first return the sync-related inputs because if we can successfully apply them, we will move
+        // to the next height, and therefore we can skip applying pending inputs for the just-committed height.
+        sync_response_inputs.append(&mut inputs);
+        sync_response_inputs
     }
 
     pub fn print_state(&self) {

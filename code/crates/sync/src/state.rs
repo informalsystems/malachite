@@ -1,10 +1,10 @@
+use malachitebft_core_types::{Context, Height};
+use malachitebft_peer::PeerId;
 use std::cmp::max;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::RangeInclusive;
 
-use malachitebft_core_types::{Context, Height};
-use malachitebft_peer::PeerId;
-
+use crate::handle::excise_height;
 use crate::scoring::{ema, PeerScorer, Strategy};
 use crate::{Config, OutboundRequestId, Status};
 
@@ -23,12 +23,19 @@ where
     /// Height of last decided value
     pub tip_height: Ctx::Height,
 
-    /// Next height to send a sync request.
-    /// Invariant: `sync_height > tip_height`
-    pub sync_height: Ctx::Height,
+    /// Requests that are still inflight (i.e., we have not received a response yet).
+    pub inflight_requests: BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
 
-    /// The requested range of heights.
-    pub pending_requests: BTreeMap<OutboundRequestId, (RangeInclusive<Ctx::Height>, PeerId)>,
+    /// The requested heights that we have received and are waiting for consensus verification.
+    /// Note that even though a peer requests a range of values as a whole, the consensus verifies each
+    /// value on its own. As a result, the consensus informs the sync actor per value (e.g., see
+    /// `InvalidValue` and `ValueProcessingError` messages).
+    /// For example, we can have a scenario where a request `r` for [10..20] gets an invalid value
+    /// for height 15. In such a scenario, `r` might still be waiting for consensus verification
+    /// for heights [10..14] and [16..20].
+    /// To tackle the above, we store a vec of ranges instead of a single range of heights.
+    pub pending_consensus_requests:
+        BTreeMap<OutboundRequestId, (Vec<RangeInclusive<Ctx::Height>>, PeerId)>,
 
     /// The set of peers we are connected to in order to get values, certificates and votes.
     pub peers: BTreeMap<PeerId, Status<Ctx>>,
@@ -56,8 +63,8 @@ where
             config,
             started: false,
             tip_height: Ctx::Height::ZERO,
-            sync_height: Ctx::Height::ZERO,
-            pending_requests: BTreeMap::new(),
+            inflight_requests: BTreeMap::new(),
+            pending_consensus_requests: BTreeMap::new(),
             peers: BTreeMap::new(),
             peer_scorer,
         }
@@ -71,15 +78,6 @@ where
 
     pub fn update_status(&mut self, status: Status<Ctx>) {
         self.peers.insert(status.peer_id, status);
-    }
-
-    pub fn update_request(
-        &mut self,
-        request_id: OutboundRequestId,
-        peer_id: PeerId,
-        range: RangeInclusive<Ctx::Height>,
-    ) {
-        self.pending_requests.insert(request_id, (range, peer_id));
     }
 
     /// Filter peers to only include those that can provide the given range of values, or at least a prefix of the range.
@@ -151,11 +149,23 @@ where
     /// Get the request that contains the given height.
     ///
     /// Assumes a height cannot be in multiple pending requests.
-    pub fn get_request_id_by(&self, height: Ctx::Height) -> Option<(OutboundRequestId, PeerId)> {
-        self.pending_requests
-            .iter()
-            .find(|(_, (range, _))| range.contains(&height))
-            .map(|(request_id, (_, stored_peer_id))| (request_id.clone(), *stored_peer_id))
+    pub fn get_pending_consensus_request_id_by(
+        &mut self,
+        height: Ctx::Height,
+    ) -> Option<(
+        OutboundRequestId,
+        PeerId,
+        &mut Vec<RangeInclusive<Ctx::Height>>,
+    )> {
+        self.pending_consensus_requests.iter_mut().find_map(
+            |(request_id, (ranges, stored_peer_id))| {
+                if ranges.iter().any(|range| range.contains(&height)) {
+                    Some((request_id.clone(), *stored_peer_id, ranges))
+                } else {
+                    None
+                }
+            },
+        )
     }
 
     /// Return a new range of heights, trimming from the beginning any height
@@ -168,10 +178,15 @@ where
         start..=*range.end()
     }
 
-    /// When the tip height is higher than the requested range, then the request
-    /// has been fully validated and it can be removed.
-    pub fn remove_fully_validated_requests(&mut self) {
-        self.pending_requests
-            .retain(|_, (range, _)| range.end() > &self.tip_height);
+    /// Prunes all the heights that are <= `up_to_height` from all the pending_consensus_requests
+    pub fn prune_pending_consensus_requests(&mut self, up_to_height: &Ctx::Height) {
+        self.pending_consensus_requests.retain(|_, (ranges, _)| {
+            // We first excise the `up_to_height` from the `ranges` and as a result, all the `ranges`
+            // are going to be `[a, b]` with `b < up_to_height` or `a > up_to_height`.
+            // We then retain all the ranges `a > up_to_height`, conversely, we remove all the ranges with `b < up_to_height`.
+            let _ = excise_height(ranges, *up_to_height);
+            ranges.retain(|range| range.end() > up_to_height);
+            !ranges.is_empty()
+        });
     }
 }

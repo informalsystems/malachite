@@ -1,11 +1,14 @@
 use crate::{TestBuilder, TestParams};
+use bytes::Bytes;
 use bytesize::ByteSize;
 use eyre::bail;
+use informalsystems_malachitebft_test::decided_value::DecidedValue;
 use informalsystems_malachitebft_test::middleware::{Middleware, RotateEpochValidators};
 use informalsystems_malachitebft_test::TestContext;
+use informalsystems_malachitebft_test::{Height, Value, ValueId};
 use malachitebft_config::ValuePayload;
 use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::CommitCertificate;
+use malachitebft_core_types::{CommitCertificate, Round};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -470,4 +473,97 @@ pub async fn response_size_limit_exceeded() {
             },
         )
         .await
+}
+
+#[derive(Debug)]
+struct InvalidDecidedValue {
+    heights: Vec<Height>,
+}
+
+impl InvalidDecidedValue {
+    // returns invalid values for the provided heights
+    fn new(heights: Vec<Height>) -> Self {
+        Self { heights }
+    }
+}
+
+impl Middleware for InvalidDecidedValue {
+    fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
+        if self.heights.contains(&height) {
+            Some(DecidedValue {
+                value: Value {
+                    value: 1,
+                    extensions: Bytes::new(),
+                },
+                certificate: CommitCertificate::new(
+                    Height::new(1),
+                    Round::new(1),
+                    ValueId::new(1),
+                    vec![],
+                ),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[tokio::test]
+pub async fn invalid_values() {
+    const HEIGHT: u64 = 10;
+    let mut test = TestBuilder::<()>::new();
+
+    // simple helper function
+    fn numbers_to_heights(numbers: Vec<u64>) -> Vec<Height> {
+        numbers.into_iter().map(Height::new).collect()
+    }
+
+    // first node returns invalid values for heights 1, 3, ...
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(InvalidDecidedValue::new(numbers_to_heights(vec![
+            1, 3, 5, 7, 9,
+        ])))
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    // second node returns invalid values for heights 2, 4, ...
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(InvalidDecidedValue::new(numbers_to_heights(vec![
+            2, 4, 6, 8, 10,
+        ])))
+        .start()
+        .wait_until(HEIGHT * 2)
+        .success();
+
+    // third node will restart after reaching height 10, and hence would need to sync the first
+    // 10 values from the first 2 nodes
+    test.add_node()
+        .with_voting_power(0)
+        .start()
+        // Wait until the node reaches height 10
+        .wait_until(HEIGHT)
+        // ...and then kill it
+        .crash()
+        // Reset the database so that the node has to do Sync from height 1
+        .reset_db()
+        // After that, it waits 5 seconds before restarting the node
+        .restart_after(Duration::from_secs(5))
+        // Wait until the node reached the expected height
+        .wait_until(HEIGHT * 2)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(45),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 1,
+                batch_size: 1,
+                ..Default::default()
+            },
+        )
+        .await;
 }

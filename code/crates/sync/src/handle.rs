@@ -1,4 +1,4 @@
-use std::cmp::max;
+use std::cmp::Ordering;
 use std::ops::RangeInclusive;
 
 use derive_where::derive_where;
@@ -65,9 +65,7 @@ where
 
         Input::Status(status) => on_status(co, state, metrics, status).await,
 
-        Input::StartedHeight(height, restart) => {
-            on_started_height(co, state, metrics, height, restart).await
-        }
+        Input::StartedHeight(height, restart) => on_started_height(state, height, restart).await,
 
         Input::Decided(height) => on_decided(state, metrics, height).await,
 
@@ -75,48 +73,100 @@ where
             on_value_request(co, state, metrics, request_id, peer_id, request).await
         }
 
-        Input::ValueResponse(request_id, peer_id, Some(response)) => {
+        Input::ValueResponse(request_id, peer_id, response) => {
+            let requested_range = match take_inflight_if_peer_matches(state, &request_id, peer_id) {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!("Failed taking inflight request: {e}");
+
+                    // This peer sent a response for a request id that is not related to the peer, and
+                    // hence we update the score of the peer accordingly.
+                    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                    return Ok(());
+                }
+            };
+
+            let Some(response) = response else {
+                debug!(%request_id, %peer_id, "Received invalid response");
+
+                // Received an invalid value from this peer and hence update the peer's score accordingly.
+                state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                return Ok(());
+            };
+
             let start = response.start_height;
             let end = response.end_height().unwrap_or(start);
             let range_len = end.as_u64() - start.as_u64() + 1;
 
-            // Check if the response is valid. A valid response starts at the
-            // requested start height, has at least one value, and no more than
-            // the requested range.
-            if let Some((requested_range, stored_peer_id)) = state.pending_requests.get(&request_id)
-            {
-                if stored_peer_id != &peer_id {
-                    warn!(
-                        %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
-                        "Received response from different peer than expected"
-                    );
-                    return on_invalid_value_response(co, state, metrics, request_id, peer_id)
-                        .await;
-                }
+            // verify that the heights of the certificates are also correct
+            let mut current_height = start;
+            for value in response.values.iter() {
+                if value.certificate.height != current_height {
+                    warn!(%request_id, %peer_id, "Received response with wrong certificate heights: expected {}, got {}",
+                        current_height, value.certificate.height);
 
-                let is_valid = start.as_u64() == requested_range.start().as_u64()
-                    && start.as_u64() <= end.as_u64()
-                    && end.as_u64() <= requested_range.end().as_u64()
-                    && response.values.len() as u64 == range_len;
-                if is_valid {
-                    return on_value_response(co, state, metrics, request_id, peer_id, response)
-                        .await;
-                } else {
-                    warn!(%request_id, %peer_id, "Received request for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
+                    // Received a value with invalid range of heights from this peer and hence update the peer's score accordingly.
+                    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                    return Ok(());
+                }
+                current_height = current_height.increment();
+            }
+
+            // Check if the response is valid. A valid response starts at the requested start height,
+            // has at least one value, and no more than the requested range.
+            let is_valid = start.as_u64() == requested_range.start().as_u64()
+                && start.as_u64() <= end.as_u64()
+                && end.as_u64() <= requested_range.end().as_u64()
+                && response.values.len() as u64 == range_len;
+
+            if !is_valid {
+                warn!(%request_id, %peer_id, "Received response for wrong range of heights: expected {}..={} ({} values), got {}..={} ({} values)",
                         requested_range.start().as_u64(), requested_range.end().as_u64(), range_len,
                         start.as_u64(), end.as_u64(), response.values.len() as u64);
-                    return on_invalid_value_response(co, state, metrics, request_id, peer_id)
-                        .await;
-                }
-            } else {
-                warn!(%request_id, %peer_id, "Received response for unknown request ID");
+
+                // Received a value with invalid range of heights from this peer and hence update the peer's score accordingly.
+                state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+                return Ok(());
+            }
+
+            // Only notify consensus to start processing the response after we've performed sanity checks on the response.
+            perform!(
+                co,
+                Effect::NotifyConsensusToProcessSyncResponse(
+                    request_id.clone(),
+                    peer_id,
+                    response.clone(),
+                    Default::default()
+                )
+            );
+
+            // The peer might have sent us a partial response, so we compute what the actual `end` of
+            // the returned values is and update `pending_consensus_requests` accordingly.
+            let actual_end = requested_range
+                .start()
+                .increment_by(response.values.len() as u64)
+                .decrement()
+                .unwrap();
+            state.pending_consensus_requests.insert(
+                request_id.clone(),
+                (vec![RangeInclusive::new(start, actual_end)], peer_id),
+            );
+
+            // Update peer's response time.
+            debug!(start = %start, num_values = %response.values.len(), %peer_id, "Received response from peer");
+            if let Some(response_time) = metrics.value_response_received(start.as_u64()) {
+                state.peer_scorer.update_score_with_metrics(
+                    peer_id,
+                    SyncResult::Success(response_time),
+                    &metrics.scoring,
+                );
             }
 
             Ok(())
-        }
-
-        Input::ValueResponse(request_id, peer_id, None) => {
-            on_invalid_value_response(co, state, metrics, request_id, peer_id).await
         }
 
         Input::GotDecidedValues(request_id, range, values) => {
@@ -124,13 +174,44 @@ where
         }
 
         Input::SyncRequestTimedOut(request_id, peer_id, request) => {
-            on_sync_request_timed_out(co, state, metrics, request_id, peer_id, request).await
+            match request {
+                Request::ValueRequest(value_request) => {
+                    warn!(%peer_id, range = %DisplayRange::<Ctx>(&value_request.range), "Sync request timed out");
+
+                    state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
+
+                    match take_inflight_if_peer_matches(state, &request_id, peer_id) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            // This should NEVER happen because we should only be able to receive
+                            // a time out from a request that we send.
+                            error!("Failed taking inflight request: {e}");
+                            return Ok(());
+                        }
+                    };
+
+                    metrics.value_request_timed_out(value_request.range.start().as_u64());
+                }
+            };
+
+            Ok(())
         }
 
-        Input::InvalidValue(peer, value) => on_invalid_value(co, state, metrics, peer, value).await,
+        Input::InvalidValue(peer_id, height) => {
+            error!(%peer_id, %height, "Received invalid value");
 
-        Input::ValueProcessingError(peer, height) => {
-            on_value_processing_error(co, state, metrics, peer, height).await
+            state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+
+            on_invalid_value(state, height, peer_id)
+        }
+
+        Input::ValueProcessingError(peer_id, height) => {
+            error!(%peer_id, %height, "Error while processing value");
+
+            // NOTE: In contrast to `Input::InvalidValue` we do not update the peer score here, as
+            // this is an internal error and not a failure from the peer's side.
+
+            on_invalid_value(state, height, peer_id)
         }
     }
 }
@@ -138,7 +219,7 @@ where
 pub async fn on_tick<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
-    _metrics: &Metrics,
+    metrics: &Metrics,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -158,6 +239,21 @@ where
     }
 
     debug!("Peer scores: {:#?}", state.peer_scorer.get_scores());
+
+    // In the exceptional case where we stop getting `Status` updates from other peers, we initiate
+    // the request of values from here up to the maximum `tip_height` we have seen so far.
+    // See https://github.com/informalsystems/malachite/pull/15#pullrequestreview-3262021218
+    let max_tip_height = state
+        .peers
+        .values()
+        .map(|s| s.tip_height)
+        .max()
+        .unwrap_or(state.tip_height);
+
+    // Only request values in case we're lagging behind.
+    if state.tip_height < max_tip_height {
+        request_values(co, state, max_tip_height, metrics).await?;
+    }
 
     Ok(())
 }
@@ -183,26 +279,23 @@ where
         return Ok(());
     }
 
-    if peer_height >= state.sync_height {
+    if peer_height > state.tip_height {
         warn!(
             height.tip = %state.tip_height,
-            height.sync = %state.sync_height,
             height.peer = %peer_height,
             "SYNC REQUIRED: Falling behind"
         );
 
         // We are lagging behind on one of our peers at least.
         // Request values from any peer already at or above that peer's height.
-        request_values(co, state, metrics).await?;
+        request_values(co, state, peer_height, metrics).await?;
     }
 
     Ok(())
 }
 
 pub async fn on_started_height<Ctx>(
-    co: Co<Ctx>,
     state: &mut State<Ctx>,
-    metrics: &Metrics,
     height: Ctx::Height,
     start_type: HeightStartType,
 ) -> Result<(), Error<Ctx>>
@@ -213,24 +306,12 @@ where
 
     state.started = true;
 
+    // In case of a start, core-consensus should have "consumed" everything from the `sync_input_queue`
+    // up to the `height` height, so we remove those pending consensus requests.
+    state.prune_pending_consensus_requests(&height);
+
     // The tip is the last decided value.
     state.tip_height = height.decrement().unwrap_or_default();
-
-    // Garbage collect fully-validated requests.
-    state.remove_fully_validated_requests();
-
-    if start_type.is_restart() {
-        // Consensus is retrying the height, so we should sync starting from it.
-        state.sync_height = height;
-        // Clear pending requests, as we are restarting the height.
-        state.pending_requests.clear();
-    } else {
-        // If consensus is voting on a height that is currently being synced from a peer, do not update the sync height.
-        state.sync_height = max(state.sync_height, height);
-    }
-
-    // Trigger potential requests if possible.
-    request_values(co, state, metrics).await?;
 
     Ok(())
 }
@@ -247,13 +328,9 @@ where
 
     state.tip_height = height;
 
-    // Garbage collect fully-validated requests.
-    state.remove_fully_validated_requests();
-
-    // The next height to sync should always be higher than the tip.
-    if state.sync_height == state.tip_height {
-        state.sync_height = state.sync_height.increment();
-    }
+    // In case of decision, core-consensus should have "consumed" everything from the `sync_input_queue`
+    // up to the `tip_height = height` height, so we remove those pending consensus requests.
+    state.prune_pending_consensus_requests(&height);
 
     Ok(())
 }
@@ -277,96 +354,6 @@ where
         co,
         Effect::GetDecidedValues(request_id, request.range, Default::default())
     );
-
-    Ok(())
-}
-
-pub async fn on_value_response<Ctx>(
-    co: Co<Ctx>,
-    state: &mut State<Ctx>,
-    metrics: &Metrics,
-    request_id: OutboundRequestId,
-    peer_id: PeerId,
-    response: ValueResponse<Ctx>,
-) -> Result<(), Error<Ctx>>
-where
-    Ctx: Context,
-{
-    let start = response.start_height;
-    debug!(start = %start, num_values = %response.values.len(), %peer_id, "Received response from peer");
-
-    if let Some(response_time) = metrics.value_response_received(start.as_u64()) {
-        state.peer_scorer.update_score_with_metrics(
-            peer_id,
-            SyncResult::Success(response_time),
-            &metrics.scoring,
-        );
-    }
-
-    // If the response contains a prefix of the requested values, re-request the remaining values.
-    if let Some((requested_range, stored_peer_id)) = state.pending_requests.get(&request_id) {
-        if stored_peer_id != &peer_id {
-            // Defensive check: This should never happen because this check is already performed in
-            // the handler of `Input::ValueResponse`.
-            error!(
-                %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
-                "Received response from different peer than expected"
-            );
-            return on_invalid_value_response(co, state, metrics, request_id, peer_id).await;
-        }
-
-        let range_len = requested_range.end().as_u64() - requested_range.start().as_u64() + 1;
-
-        if response.values.len() < range_len as usize {
-            // NOTE: We cannot simply call `re_request_values_from_peer_except` here.
-            // Although we received some values from the peer, these values have not yet been processed
-            // by the consensus engine. If we called `re_request_values_from_peer_except`, we would
-            // end up re-requesting the entire original range (including values we already received),
-            // causing the syncing peer to repeatedly send multiple requests until the already-received
-            // values are fully processed.
-            // To tackle this, we first update the current pending request with the range of values
-            // it provides we received, and then issue a new request with the remaining values.
-            let new_start = requested_range
-                .start()
-                .increment_by(response.values.len() as u64);
-
-            let end = *requested_range.end();
-
-            if response.values.is_empty() {
-                error!(%request_id, %peer_id, "Received response contains no values");
-            } else {
-                // The response of this request only provided `response.values.len()` values,
-                // so update the pending request accordingly
-                let updated_range = *requested_range.start()..=new_start.decrement().unwrap();
-                state.update_request(request_id, peer_id, updated_range);
-            }
-
-            // Issue a new request to any peer, not necessarily the same one, for the remaining values
-            let new_range = new_start..=end;
-            request_values_range(co, state, metrics, new_range).await?;
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn on_invalid_value_response<Ctx>(
-    co: Co<Ctx>,
-    state: &mut State<Ctx>,
-    metrics: &Metrics,
-    request_id: OutboundRequestId,
-    peer_id: PeerId,
-) -> Result<(), Error<Ctx>>
-where
-    Ctx: Context,
-{
-    debug!(%request_id, %peer_id, "Received invalid response");
-
-    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
-
-    // We do not trust the response, so we remove the pending request and re-request
-    // the whole range from another peer.
-    re_request_values_from_peer_except(co, state, metrics, request_id, Some(peer_id)).await?;
 
     Ok(())
 }
@@ -423,91 +410,247 @@ where
     Ok(())
 }
 
-pub async fn on_sync_request_timed_out<Ctx>(
-    co: Co<Ctx>,
+fn on_invalid_value<Ctx>(
     state: &mut State<Ctx>,
-    metrics: &Metrics,
-    request_id: OutboundRequestId,
+    height: Ctx::Height,
     peer_id: PeerId,
-    request: Request<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    match request {
-        Request::ValueRequest(value_request) => {
-            warn!(%peer_id, range = %DisplayRange::<Ctx>(&value_request.range), "Sync request timed out");
-
-            state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
-
-            metrics.value_request_timed_out(value_request.range.start().as_u64());
-
-            re_request_values_from_peer_except(co, state, metrics, request_id, Some(peer_id))
-                .await?;
-        }
+    let Some((request_id, stored_peer_id, ranges)) =
+        state.get_pending_consensus_request_id_by(height)
+    else {
+        error!(%peer_id, %height, "Received height of invalid value for unknown request");
+        return Ok(());
     };
 
+    if stored_peer_id != peer_id {
+        error!(%stored_peer_id, %peer_id, %request_id, "Received invalid value from wrong peer");
+        return Ok(());
+    }
+
+    warn!(
+                %request_id, peer_id = %peer_id, stored_peer_id = %stored_peer_id, %height,
+                "Received value at height failed consensus verification");
+
+    // remove the height of the invalid value from the ranges
+    if let Err(msg) = excise_height(ranges, height) {
+        error!(%msg, %request_id, %peer_id, %height, "Failed to break range");
+        return Ok(());
+    }
+
+    // in case the ranges are now empty, remove the pending request altogether
+    if ranges.is_empty() {
+        state.pending_consensus_requests.remove(&request_id);
+    }
+
     Ok(())
 }
 
-// When receiving an invalid value, re-request the whole batch from another peer.
-async fn on_invalid_value<Ctx>(
-    co: Co<Ctx>,
-    state: &mut State<Ctx>,
-    metrics: &Metrics,
-    peer_id: PeerId,
-    height: Ctx::Height,
-) -> Result<(), Error<Ctx>>
+/// Excise `height` from the first (and only) range in `ranges` that contains it and then append up to two ranges
+/// that exclude `height`. We assume that `ranges` does not contain a height more than once.
+/// Return `Err` if no range contains `height` or if `height - 1` underflows.
+pub fn excise_height<H>(ranges: &mut Vec<RangeInclusive<H>>, height: H) -> Result<(), String>
 where
-    Ctx: Context,
+    H: Height,
 {
-    error!(%peer_id, %height, "Received invalid value");
+    let Some(i) = ranges.iter_mut().position(|r| r.contains(&height)) else {
+        return Err(format!("cannot find range with this height {:?}", height));
+    };
 
-    state.peer_scorer.update_score(peer_id, SyncResult::Failure);
+    let range = ranges[i].clone();
+    // always remove the range we want to "break" into two ranges and then re-push desired ranges
+    ranges.remove(i);
 
-    if let Some((request_id, stored_peer_id)) = state.get_request_id_by(height) {
-        if stored_peer_id != peer_id {
-            warn!(
-                %request_id, peer.actual = %peer_id, peer.expected = %stored_peer_id,
-                "Received response from different peer than expected"
-            );
+    if range.start() != range.end() {
+        if *range.start() == height {
+            ranges.push(range.start().increment()..=*range.end());
+        } else if *range.end() == height {
+            let Some(new_end) = range.end().decrement() else {
+                return Err(format!("cannot decrement {:?}", range.end()));
+            };
+            ranges.push(*range.start()..=new_end);
+        } else {
+            let Some(new_end) = height.decrement() else {
+                return Err(format!("cannot decrement {:?}", height));
+            };
+            ranges.push(*range.start()..=new_end);
+            ranges.push(height.increment()..=*range.end());
         }
-        re_request_values_from_peer_except(co, state, metrics, request_id, Some(peer_id)).await?;
-    } else {
-        error!(%peer_id, %height, "Received height of invalid value for unknown request");
     }
 
     Ok(())
 }
 
-async fn on_value_processing_error<Ctx>(
-    co: Co<Ctx>,
-    state: &mut State<Ctx>,
-    metrics: &Metrics,
-    peer_id: PeerId,
-    height: Ctx::Height,
-) -> Result<(), Error<Ctx>>
+// Returns the current number of heights we have requested (e.g., inflight requests) or that we
+// are currently processing (e.g.., pending consensus verification).
+fn current_number_of_heights<Ctx>(state: &State<Ctx>) -> u64
 where
     Ctx: Context,
 {
-    error!(%peer_id, %height, "Error while processing value");
+    let mut heights = 0;
 
-    // NOTE: We do not update the peer score here, as this is an internal error
-    //       and not a failure from the peer's side.
-
-    if let Some((request_id, _)) = state.get_request_id_by(height) {
-        re_request_values_from_peer_except(co, state, metrics, request_id, None).await?;
-    } else {
-        error!(%peer_id, %height, "Received height of invalid value for unknown request");
+    for (_, (range, _)) in state.inflight_requests.iter() {
+        let requested_heights = range.end().as_u64() - range.start().as_u64() + 1;
+        heights += requested_heights;
     }
 
-    Ok(())
+    for (_, (ranges, _)) in state.pending_consensus_requests.iter() {
+        let mut pending_consensus_heights = 0;
+
+        for range in ranges {
+            pending_consensus_heights += range.end().as_u64() - range.start().as_u64() + 1;
+        }
+
+        heights += pending_consensus_heights;
+    }
+
+    heights
 }
 
-/// Request multiple batches of values in parallel.
+/// Finds the earliest window `[a, b]` such that the window is "free" from overlaps with ranges, meaning:
+/// - `a > exclusive_start_height`
+/// - every x in `[a, b]` is not covered by any range in `ranges`
+/// - `b` does not exceed `inclusive_up_to_height`
+/// - the window length (number of elements) is ≤ `window_size`
+///
+/// "Earliest" means we pick the smallest valid `a`, then extend `b` as far as possible without
+/// crossing the next blocking range, the `inclusive_up_to_height` cap, or the `window_size` limit.
+///
+/// Returns `None` if no such window exists.
+///
+/// Examples:
+/// - If `window_size == 0`, there is no valid window.
+/// - If `window_size == 1`, the window is a single element `[a, a]`.
+fn compute_free_window<H>(
+    exclusive_start_height: H,
+    inclusive_up_to_height: H,
+    window_size: u64,
+    mut ranges: Vec<RangeInclusive<H>>,
+) -> Option<RangeInclusive<H>>
+where
+    H: Height,
+{
+    // we can include at most `window_size` elements: grow from `a` by at most `n - 1` increments.
+    let mut remaining_increments = match window_size {
+        0 => return None,
+        1 => 0,
+        n => n - 1,
+    };
+
+    // order ranges by first `start()` and then `end()`
+    ranges.sort_by(|a, b| match a.start().cmp(b.start()) {
+        Ordering::Equal => a.end().cmp(b.end()),
+        other => other,
+    });
+
+    // The desired free window corresponds to `a..b` where `a` is the start and `b` (declared later on) the end.
+    // We do not yet know what `a` is, but we know that `a >= exclusive_start_height + 1` so we start from there.
+    let mut a = exclusive_start_height.increment_by(1);
+    if a > inclusive_up_to_height {
+        // if `a` already exceeds `inclusive_up_to_height`, then there's no free window
+        return None;
+    }
+
+    // we loop through all the ranges until we find the first `a` that is not covered by any of the `ranges`
+    let mut i = 0;
+    while i < ranges.len() {
+        let r = &ranges[i];
+
+        if a < *r.start() {
+            // `a` lies strictly before this range; no later range can cover `a` and hence we can break
+            break;
+        } else if a <= *r.end() {
+            // `a` is covered by a range; jump to just after this range and keep going **from here**
+            a = r.end().increment();
+            if a > inclusive_up_to_height {
+                // if `a` exceeds `inclusive_up_to_height`, then there's no free window
+                return None;
+            }
+            i += 1;
+            continue;
+        } else {
+            // a > r.end(): this range is behind us; advance.
+            i += 1;
+        }
+    }
+
+    // determine the start of the first range after `a`: any range that `compute_free_window` returns
+    // should not exceed that start
+    let next_range_start = ranges.iter().find(|r| *r.start() >= a).map(|r| *r.start());
+
+    // the end of the free window is `b` and we know it can be `a`, we then increment `b` as far as
+    // possible to get the maximum possible free window
+    let mut b = a;
+
+    // increment `b` from `a` without crossing the next range, the `inclusive_up_to_height`, or the window size
+    while remaining_increments > 0 {
+        let next = b.increment_by(1);
+
+        if next > inclusive_up_to_height {
+            // we're about to exceed `inclusive_up_to_height`, so we cannot go any further
+            break;
+        }
+
+        if let Some(s) = &next_range_start {
+            if next >= *s {
+                // we reached the next range, so we cannot go any further
+                break;
+            }
+        }
+        // if `next_range_start` is `None`, then we can keep incrementing `b` a `remaining_increments` times
+        // and up to `inclusive_up_to_height`
+
+        // the range `[a, next]` does not overlap any other range, so we can increment `b` and keep
+        // trying to increment `b`
+        b = next;
+        remaining_increments -= 1;
+    }
+
+    Some(a..=b)
+}
+
+/// Find the earliest "free" range of height `[a, b]` that the node can request for such that:
+/// - `a > exclusive_start_height`
+/// - every x in `[a, b]` is not covered by any height in `state.pending_consensus_requests` and `state.inflight_requests`
+/// - `b` does not exceed `inclusive_up_to_height`
+/// - the return range length (number of elements) is ≤ `state.config.batch_size`
+///
+/// "Earliest" means we pick the smallest valid `a`, then extend `b` as far as possible without
+/// crossing the next blocking range, the `inclusive_up_to_height` cap, or the `state.config.batch_size` limit.
+///
+/// Returns `None` if no such window exists.
+fn find_range_of_heights_to_request<Ctx>(
+    state: &State<Ctx>,
+    up_to_height: Ctx::Height,
+) -> Option<RangeInclusive<Ctx::Height>>
+where
+    Ctx: Context,
+{
+    let tip = state.tip_height;
+    let batch_size = state.config.batch_size as u64;
+
+    let ranges: Vec<_> = state
+        .inflight_requests
+        .values()
+        .map(|(r, _)| r.clone())
+        .chain(
+            state
+                .pending_consensus_requests
+                .values()
+                .flat_map(|(ranges, _)| ranges.iter().cloned()),
+        )
+        .collect();
+
+    compute_free_window(tip, up_to_height, batch_size, ranges)
+}
+
+/// Request multiple batches of values in parallel that are of height less than `up_to_height`.
 async fn request_values<Ctx>(
     co: Co<Ctx>,
     state: &mut State<Ctx>,
+    up_to_height: Ctx::Height,
     metrics: &Metrics,
 ) -> Result<(), Error<Ctx>>
 where
@@ -515,71 +658,68 @@ where
 {
     let max_parallel_requests = state.max_parallel_requests();
 
-    if state.pending_requests.len() as u64 >= max_parallel_requests {
+    if state.inflight_requests.len() as u64 >= max_parallel_requests {
         info!(
             %max_parallel_requests,
-            pending_requests = %state.pending_requests.len(),
-            "Maximum number of parallel requests reached, skipping request for values"
+            inflight_requests = %state.inflight_requests.len(),
+            "Maximum number of parallel inflight requests reached, skipping request for values"
         );
 
         return Ok(());
     };
 
-    while (state.pending_requests.len() as u64) < max_parallel_requests {
-        // Build the next range of heights to request from a peer.
-        let start_height = state.sync_height;
-        let batch_size = max(1, state.config.batch_size as u64);
-        let end_height = start_height.increment_by(batch_size - 1);
-        let range = start_height..=end_height;
+    // The maximum number of heights/values we can be waiting for at any point in time.
+    // Should be equal to the capacity of the `sync_input_queue` so that we do not overflow this queue.
+    let max_heights = state.config.batch_size as u64 * state.config.parallel_requests;
 
-        // Get a random peer that can provide the values in the range.
-        let Some((peer, range)) = state.random_peer_with(&range) else {
-            debug!("No peer to request sync from");
-            // No connected peer reached this height yet, we can stop syncing here.
-            break;
+    loop {
+        let Some(range) = find_range_of_heights_to_request(state, up_to_height) else {
+            info!(
+                    %up_to_height,
+                "Could not find a range to request"
+            );
+            return Ok(());
         };
 
-        request_values_from_peer(&co, state, metrics, range, peer).await?;
+        let Some((peer_id, _)) = state.random_peer_with(&range) else {
+            // Normally we expect to always find a peer covering `range` because `request_values` is
+            // only called from `on_tick` and `on_status` and `request_values` is always invoked
+            // with an `up_to_height` argument (that we pass to `find_range_of_heights_to_request`)
+            // that we know at least one peer has seen.
+            // However, we still might fail to find a peer with the desired range if peers have
+            // already garbage-collected older values and increased their `status.history_min_height`.
+            // When this happens, value sync cannot proceed. Recovery may require switching to
+            // state sync or to connecting to additional peers that still have this range.
+            error!(
+                range_start = range.start().to_string(),
+                range_end = range.end().to_string(),
+                peers = ?state.peers
+                    .iter()
+                    .map(|(peer_id, status)| format!("{peer_id}: {status:?}"))
+                    .collect::<Vec<_>>(),
+                "Could not find a peer with the desired range. State sync or more peers maybe be needed."
+            );
+
+            return Ok(());
+        };
+
+        // Check that we can issue a request for the desired range without exceeding the `max_values`
+        // and hence we won't overflow the consensus' `sync_input_queue`.
+        let current_number_of_heights = current_number_of_heights(state);
+        let asking_for_how_many_heights = range.end().as_u64() - range.start().as_u64() + 1;
+        if current_number_of_heights + asking_for_how_many_heights > max_heights {
+            info!(
+                %current_number_of_heights,
+                    %asking_for_how_many_heights,
+                    %max_heights,
+
+                "Maximum number of heights reached, skipping request for values"
+            );
+            return Ok(());
+        }
+
+        request_values_from_peer(&co, state, metrics, range.clone(), peer_id).await?;
     }
-
-    Ok(())
-}
-
-/// Request values for this specific range from a peer.
-/// Should only be used when re-requesting a partial range of values from a peer.
-async fn request_values_range<Ctx>(
-    co: Co<Ctx>,
-    state: &mut State<Ctx>,
-    metrics: &Metrics,
-    range: RangeInclusive<Ctx::Height>,
-) -> Result<(), Error<Ctx>>
-where
-    Ctx: Context,
-{
-    // NOTE: We do not perform a `max_parallel_requests` check and return here in contrast to what is done, for
-    // example, in `request_values`. This is because `request_values_range` is only called for retrieving
-    // partial responses, which means the original request is not on the wire anymore. Nevertheless,
-    // we log here because seeing this log frequently implies that we keep getting partial responses
-    // from peers and hints to potential reconfiguration.
-    let max_parallel_requests = state.max_parallel_requests();
-    if state.pending_requests.len() as u64 >= max_parallel_requests {
-        info!(
-            %max_parallel_requests,
-            pending_requests = %state.pending_requests.len(),
-            "Maximum number of pending requests reached when re-requesting a partial range of values"
-        );
-    };
-
-    // Get a random peer that can provide the values in the range.
-    let Some((peer, range)) = state.random_peer_with(&range) else {
-        // No connected peer reached this height yet, we can stop syncing here.
-        debug!(range = %DisplayRange::<Ctx>(&range), "No peer to request sync from");
-        return Ok(());
-    };
-
-    request_values_from_peer(&co, state, metrics, range, peer).await?;
-
-    Ok(())
 }
 
 async fn request_values_from_peer<Ctx>(
@@ -619,74 +759,56 @@ where
 
     metrics.value_request_sent(range.start().as_u64());
 
-    // Store pending request and move the sync height.
+    // Store inflight request
     debug!(%request_id, range = %DisplayRange::<Ctx>(&range), %peer, "Sent sync request to peer");
-    state.sync_height = max(state.sync_height, range.end().increment());
-    state.pending_requests.insert(request_id, (range, peer));
+    state.inflight_requests.insert(request_id, (range, peer));
 
     Ok(())
 }
 
-/// Remove the pending request and re-request the batch from another peer.
-/// If `except_peer_id` is provided, the request will be re-sent to a different peer than the one that sent the original request.
-async fn re_request_values_from_peer_except<Ctx>(
-    co: Co<Ctx>,
+#[derive(thiserror::Error, Debug)]
+pub enum InflightError {
+    #[error("received response from unknown {request_id}")]
+    UnknownRequestId { request_id: Box<OutboundRequestId> },
+
+    #[error(
+        "received response from wrong peer (expected {expected_peer_id}, got {actual_peer_id})"
+    )]
+    WrongPeer {
+        expected_peer_id: Box<PeerId>,
+        actual_peer_id: Box<PeerId>,
+    },
+}
+
+// Deletes an inflight request if one exists under the provided `request_id` and stems from `peer_id`.
+// Returns the requested range of this inflight request and the peer that issues the request.
+fn take_inflight_if_peer_matches<Ctx>(
     state: &mut State<Ctx>,
-    metrics: &Metrics,
-    request_id: OutboundRequestId,
-    except_peer_id: Option<PeerId>,
-) -> Result<(), Error<Ctx>>
+    request_id: &OutboundRequestId,
+    peer_id: PeerId,
+) -> Result<RangeInclusive<Ctx::Height>, InflightError>
 where
     Ctx: Context,
 {
-    info!(%request_id, except_peer_id = ?except_peer_id, "Re-requesting values from peer");
-
-    let Some((range, stored_peer_id)) = state.pending_requests.remove(&request_id.clone()) else {
-        warn!(%request_id, "Unknown request ID when re-requesting values");
-        return Ok(());
+    let Some((requested_range, stored_peer_id)) = state.inflight_requests.get(request_id).cloned()
+    else {
+        return Err(InflightError::UnknownRequestId {
+            request_id: Box::new(request_id.clone()),
+        });
     };
 
-    // It is possible that a prefix or the whole range of values has been validated via consensus.
-    // Then, request only the missing values.
-    let range = state.trim_validated_heights(&range);
-
-    if range.is_empty() {
-        warn!(
-            %request_id,
-            "All values in range {} have been validated, skipping re-request",
-            DisplayRange::<Ctx>(&range)
-        );
-
-        return Ok(());
+    if stored_peer_id != peer_id {
+        return Err(InflightError::WrongPeer {
+            expected_peer_id: Box::new(stored_peer_id),
+            actual_peer_id: Box::new(peer_id),
+        });
     }
 
-    let except_peer_id = match except_peer_id {
-        Some(peer_id) if stored_peer_id == peer_id => Some(peer_id),
-        Some(peer_id) => {
-            warn!(
-                %request_id,
-                peer.actual = %peer_id,
-                peer.expected = %stored_peer_id,
-                "Received response from different peer than expected"
-            );
+    // We received a response to a sync request from the corresponding peer, and hence this request
+    // is not in flight anymore.
+    state.inflight_requests.remove(request_id);
 
-            Some(stored_peer_id)
-        }
-        None => None,
-    };
-
-    let Some((peer, peer_range)) = state.random_peer_with_except(&range, except_peer_id) else {
-        error!(
-            range.sync = %DisplayRange::<Ctx>(&range),
-            "No peer to request sync from"
-        );
-
-        return Ok(());
-    };
-
-    request_values_from_peer(&co, state, metrics, peer_range, peer).await?;
-
-    Ok(())
+    Ok(requested_range)
 }
 
 struct DisplayRange<'a, Ctx: Context>(&'a RangeInclusive<Ctx::Height>);
@@ -694,5 +816,129 @@ struct DisplayRange<'a, Ctx: Context>(&'a RangeInclusive<Ctx::Height>);
 impl<'a, Ctx: Context> core::fmt::Display for DisplayRange<'a, Ctx> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}..={}", self.0.start(), self.0.end())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::fmt;
+    use rstest::rstest;
+
+    /// fake height for tests that raps an u64 and provides the `Height` methods
+    #[derive(Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    struct H(u64);
+
+    impl Height for H {
+        const ZERO: Self = H(0);
+        const INITIAL: Self = H(0);
+        fn increment(&self) -> H {
+            H(self.0 + 1)
+        }
+        fn decrement(&self) -> Option<H> {
+            self.0.checked_sub(1).map(H)
+        }
+
+        fn increment_by(&self, n: u64) -> H {
+            H(self.0 + n)
+        }
+        fn decrement_by(&self, _n: u64) -> Option<Self> {
+            None
+        }
+
+        fn as_u64(&self) -> u64 {
+            self.0
+        }
+    }
+
+    impl fmt::Display for H {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "H({})", self.0)
+        }
+    }
+
+    impl fmt::Debug for H {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "H({})", self.0)
+        }
+    }
+
+    // helper to make a range quickly
+    fn range(a: u64, b: u64) -> core::ops::RangeInclusive<H> {
+        H(a)..=H(b)
+    }
+
+    #[rstest]
+    #[case(H(10), H(100), 5,  vec![],                                   Some((11, 15)))] // empty ranges fits an entire window
+    #[case(H(10), H(12),  10, vec![],                                   Some((11, 12)))] // capped by `inclusive_up_to_height`
+    #[case(H(7),  H(100), 1,  vec![],                                   Some((8,  8 )))] // window size of 1 returns a single-element range
+    #[case(H(7),  H(100), 0,  vec![],                                   None           )] // window size of 0 returns `None`
+    #[case(H(10), H(10),  5,  vec![],                                   None           )] // `exclusive_start_height == inclusive_up_to_height` returns `None`
+    #[case(H(10), H(9),   5,  vec![],                                   None           )] // `exclusive_start_height == inclusive_up_to_height` returns `None`
+    #[case(H(9),  H(100), 4,  vec![range(10, 12)],                       Some((13, 16)))] // skips range [10, 12]
+    #[case(H(9),  H(100), 10, vec![range(15, 20)],                       Some((10, 14)))] // stops at 14 before the next blocking range [15, 20]
+    #[case(H(9),  H(100), 3,  vec![range(10,12), range(11,13), range(13,14)], Some((15, 17)))] // jumps over overlapping ranges
+    #[case(H(0),  H(5),   100,vec![],                                   Some((1,  5 )))] // hits the `inclusive_up_to_height`
+    #[case(H(0), H(100), 4,  vec![range(1,3), range(10,99)],           Some((4,  7 )))] // hole between `ranges`
+    #[case(H(0), H(100), 10, vec![range(1,3), range(9,20)],            Some((4,  8 )))] // hole between `ranges` that is smaller than `window_size`
+    fn compute_free_window_param(
+        #[case] exclusive_start_height: H,
+        #[case] inclusive_up_to_height: H,
+        #[case] window_size: u64,
+        #[case] ranges: Vec<RangeInclusive<H>>,
+        #[case] expected: Option<(u64, u64)>,
+    ) {
+        let actual = compute_free_window(
+            exclusive_start_height,
+            inclusive_up_to_height,
+            window_size,
+            ranges,
+        );
+        match (actual, expected) {
+            (None, None) => {}
+            (Some(r), Some((s, e))) => {
+                assert_eq!(*r.start(), H(s));
+                assert_eq!(*r.end(), H(e));
+            }
+            (g, e) => panic!("mismatch\n  got: {:?}\n  exp: {:?}", g, e),
+        }
+    }
+
+    // helper to normalize `Vec<RangeInclusive<H>>` for easy equality checks
+    fn as_pairs(v: &[RangeInclusive<H>]) -> Vec<(u64, u64)> {
+        let mut pairs: Vec<_> = v
+            .iter()
+            .map(|r| (r.start().as_u64(), r.end().as_u64()))
+            .collect();
+        pairs.sort_unstable();
+        pairs
+    }
+
+    #[rstest]
+    #[case(vec![range(5,5)],                          H(5),  vec![])] // single singleton range removed
+    #[case(vec![range(1,3), range(5,5), range(9,11)], H(5),  vec![(1,3), (9,11)])] // singleton range removed but other ranges are kept
+    #[case(vec![range(5,10)],                         H(5),  vec![(6,10)])] // height at the left edge trims left
+    #[case(vec![range(5,10)],                         H(10), vec![(5,9)])] // height at the right edge trims right
+    #[case(vec![range(5,10)],                         H(7),  vec![(5,6), (8,10)])] // height inside a range splits the range
+    #[case(vec![range(1,3), range(5,7), range(9,11)], H(6),  vec![(1,3), (5,5), (7,7), (9,11)])] // multiple ranges, only the first matching is changed
+    fn excise_height_ok(
+        #[case] mut ranges: Vec<RangeInclusive<H>>,
+        #[case] height: H,
+        #[case] expected_pairs: Vec<(u64, u64)>,
+    ) {
+        excise_height(&mut ranges, height).unwrap();
+        assert_eq!(as_pairs(&ranges), expected_pairs);
+    }
+
+    #[rstest]
+    #[case(vec![range(5,7), range(9,12)], H(8), vec![(5,7), (9,12)])] // not found returns an `Error`
+    fn excise_height_err(
+        #[case] mut ranges: Vec<RangeInclusive<H>>,
+        #[case] height: H,
+        #[case] expected_pairs: Vec<(u64, u64)>,
+    ) {
+        let err = excise_height(&mut ranges, height).unwrap_err();
+        assert!(err.contains("cannot find range"), "got: {}", err);
+        assert_eq!(as_pairs(&ranges), expected_pairs);
     }
 }
