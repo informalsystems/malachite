@@ -156,7 +156,9 @@ async fn verify_vote_extension<Ctx>(
 where
     Ctx: Context,
 {
-    let VoteType::Precommit = vote.vote_type() else {
+    // FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
+    // Changed from Precommit to Prevote
+    let VoteType::Prevote = vote.vote_type() else {
         return Ok(true);
     };
 

@@ -45,10 +45,12 @@ pub enum VoteType {
 }
 
 impl VoteType {
+    // FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
+    // Map Precommit to Prevote
     pub fn to_common(&self) -> malachitebft_core_types::VoteType {
         match self {
             VoteType::Prevote => malachitebft_core_types::VoteType::Prevote,
-            VoteType::Precommit => malachitebft_core_types::VoteType::Precommit,
+            VoteType::Precommit => malachitebft_core_types::VoteType::Prevote, // FaB: Map to Prevote
         }
     }
 }
@@ -109,11 +111,13 @@ pub enum Timeout {
 }
 
 impl Timeout {
+    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
+    // Map Precommit to Prevote
     pub fn to_common(&self) -> malachitebft_core_types::TimeoutKind {
         match self {
             Timeout::Propose => malachitebft_core_types::TimeoutKind::Propose,
             Timeout::Prevote => malachitebft_core_types::TimeoutKind::Prevote,
-            Timeout::Precommit => malachitebft_core_types::TimeoutKind::Precommit,
+            Timeout::Precommit => malachitebft_core_types::TimeoutKind::Prevote, // FaB: Map to Prevote
         }
     }
 }

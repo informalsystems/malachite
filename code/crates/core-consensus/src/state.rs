@@ -88,9 +88,9 @@ where
     }
 
     pub fn set_last_vote(&mut self, vote: SignedVote<Ctx>) {
+        // FaB: Only PREVOTE in FaB-a-la-Tendermint-bounded-square
         match vote.vote_type() {
             VoteType::Prevote => self.last_signed_prevote = Some(vote),
-            VoteType::Precommit => self.last_signed_precommit = Some(vote),
         }
     }
 
@@ -102,13 +102,13 @@ where
     ) -> Vec<SignedVote<Ctx>> {
         assert_eq!(height, self.driver.height());
 
-        // Get the commits for the height and round.
+        // FaB: Get prevotes (not precommits) for the height and round.
         if let Some(per_round) = self.driver.votes().per_round(round) {
             per_round
                 .received_votes()
                 .iter()
                 .filter(|vote| {
-                    vote.vote_type() == VoteType::Precommit
+                    vote.vote_type() == VoteType::Prevote
                         && vote.value() == &NilOrVal::Val(value.id())
                 })
                 .cloned()
@@ -280,19 +280,16 @@ where
                     .votes()
                     .get_weight(VoteType::Prevote, &NilOrVal::Nil)
             );
+            // FaB: Only prevotes in FaB-a-la-Tendermint-bounded-square
             warn!(
-                "Total voting power of validators having precommited nil: {}",
+                "Total voting power of validators having prevoted nil: {}",
                 per_round
                     .votes()
-                    .get_weight(VoteType::Precommit, &NilOrVal::Nil)
+                    .get_weight(VoteType::Prevote, &NilOrVal::Nil)
             );
             warn!(
                 "Total weight of prevotes: {}",
                 per_round.votes().weight_sum(VoteType::Prevote)
-            );
-            warn!(
-                "Total weight of precommits: {}",
-                per_round.votes().weight_sum(VoteType::Precommit)
             );
         }
     }

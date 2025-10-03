@@ -354,12 +354,9 @@ fn threshold_to_output<Value>(typ: VoteType, threshold: Threshold<Value>) -> Opt
     match (typ, threshold) {
         (_, Threshold::Unreached) => None,
 
+        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
         (VoteType::Prevote, Threshold::Any) => Some(Output::PolkaAny),
         (VoteType::Prevote, Threshold::Nil) => Some(Output::PolkaNil),
         (VoteType::Prevote, Threshold::Value(v)) => Some(Output::PolkaValue(v)),
-
-        (VoteType::Precommit, Threshold::Any) => Some(Output::PrecommitAny),
-        (VoteType::Precommit, Threshold::Nil) => Some(Output::PrecommitAny),
-        (VoteType::Precommit, Threshold::Value(v)) => Some(Output::PrecommitValue(v)),
     }
 }

@@ -45,12 +45,13 @@ impl<Ctx: Context> CommitCertificate<Ctx> {
         value_id: ValueId<Ctx>,
         commits: Vec<SignedVote<Ctx>>,
     ) -> Self {
-        // Collect all commit signatures from the signed votes
+        // FaB: Collect all commit signatures from the signed votes
+        // In FaB-a-la-Tendermint-bounded-square, decisions are based on 4f+1 PREVOTE messages
         let commit_signatures = commits
             .into_iter()
             .filter(|vote| {
                 matches!(vote.value(), NilOrVal::Val(id) if id == &value_id)
-                    && vote.vote_type() == VoteType::Precommit
+                    && vote.vote_type() == VoteType::Prevote
                     && vote.round() == round
                     && vote.height() == height
             })

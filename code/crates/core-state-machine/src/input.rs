@@ -1,10 +1,15 @@
 //! Inputs to the round state machine.
+//! FaB: Updated for FaB-a-la-Tendermint-bounded-square algorithm
 
 use derive_where::derive_where;
 
 use malachitebft_core_types::{Context, Round};
 
+/// A certificate is a set of prevote messages that justify a transition
+pub type Certificate<Ctx> = alloc::vec::Vec<<Ctx as Context>::Vote>;
+
 /// Input to the round state machine.
+/// FaB: Based on ConsensusInput from Quint spec
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum Input<Ctx>
 where
@@ -14,62 +19,67 @@ where
     NoInput,
 
     /// Start a new round, either as proposer or not.
-    /// L14/L20
+    /// FaB: Maps to StartInput / StartRound
     NewRound(Round),
 
-    /// Propose a value.
-    /// L14
-    ProposeValue(Ctx::Value),
+    /// FaB: Leader (proposer) can propose after receiving 4f+1 prevotes WITH 2f+1 for same value
+    /// Maps to: LeaderProposeWithLockInput
+    /// Contains: (value, certificate of 4f+1 prevotes, round of prevotes)
+    LeaderProposeWithLock {
+        value: Ctx::Value,
+        certificate: Certificate<Ctx>,
+        certificate_round: Round,
+    },
 
-    /// Receive a proposal.
-    /// L22 + L23 (valid)
+    /// FaB: Leader (proposer) can propose after receiving 4f+1 prevotes WITHOUT a 2f+1 lock
+    /// Maps to: LeaderProposeWithoutLockInput
+    /// Contains: certificate of 4f+1 prevotes
+    LeaderProposeWithoutLock {
+        certificate: Certificate<Ctx>,
+    },
+
+    /// Receive a proposal from the proposer.
+    /// FaB: Maps to FollowerReceiveProposalInput
+    /// Follower validates SafeProposal and prevotes
     Proposal(Ctx::Proposal),
 
-    /// Receive an invalid proposal.
-    /// L26 + L32 (invalid)
-    InvalidProposal,
+    /// FaB: Received 4f+1 prevotes for current round (max_round = round_p)
+    /// Maps to: EnoughPrevotesForRoundInput
+    /// Triggers scheduling of prevote timeout
+    EnoughPrevotesForRound,
 
-    /// Received a proposal and a polka value from a previous round.
-    /// L28 + L29 (valid)
-    ProposalAndPolkaPrevious(Ctx::Proposal),
+    /// FaB: Have proposal + 4f+1 matching prevotes for same value → DECIDE!
+    /// Maps to: CanDecideInput
+    /// Contains: (proposal, certificate of 4f+1 prevotes for that value)
+    CanDecide {
+        proposal: Ctx::Proposal,
+        certificate: Certificate<Ctx>,
+    },
 
-    /// Received a proposal and a polka value from a previous round.
-    /// L28 + L29 (invalid)
-    InvalidProposalAndPolkaPrevious(Ctx::Proposal),
+    /// FaB: Received a DECISION message from another node
+    /// Maps to: ReceiveDecisionInput
+    /// Contains: (value decided, certificate)
+    ReceiveDecision {
+        value: Ctx::Value,
+        certificate: Certificate<Ctx>,
+    },
 
-    /// Receive +2/3 prevotes for anything.
-    /// L34
-    PolkaAny,
-
-    /// Receive +2/3 prevotes for nil.
-    /// L44
-    PolkaNil,
-
-    /// Receive +2/3 prevotes for a value in current round.
-    /// L36
-    ProposalAndPolkaCurrent(Ctx::Proposal),
-
-    /// Receive +2/3 precommits for anything.
-    /// L47
-    PrecommitAny,
-
-    /// Receive +2/3 precommits for a value.
-    /// L49
-    ProposalAndPrecommitValue(Ctx::Proposal),
-
-    /// Receive +1/3 messages from a higher round. OneCorrectProcessInHigherRound.
-    /// L55
-    SkipRound(Round),
+    /// FaB: Received f+1 prevotes from a higher round → skip to that round
+    /// Maps to: CanSkipRoundInput
+    /// Contains: (new round, certificate of f+1 prevotes)
+    SkipRound {
+        round: Round,
+        certificate: Certificate<Ctx>,
+    },
 
     /// Timeout waiting for proposal.
-    /// L57
+    /// FaB: Maps to TimeoutProposeInput
     TimeoutPropose,
 
-    /// Timeout waiting for prevotes.
-    /// L61
-    TimeoutPrevote,
-
-    /// Timeout waiting for precommits.
-    /// L65
-    TimeoutPrecommit,
+    /// Timeout waiting for prevotes (to move to next round).
+    /// FaB: Maps to TimeoutPrevoteInput
+    /// Contains: certificate of prevotes seen so far
+    TimeoutPrevote {
+        certificate: Certificate<Ctx>,
+    },
 }

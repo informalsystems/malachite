@@ -37,8 +37,9 @@ impl Vote {
         value: NilOrVal<BlockHash>,
         address: Address,
     ) -> Self {
+        // FaB: Changed to Prevote (no Precommit in FaB-a-la-Tendermint-bounded-square)
         Self {
-            vote_type: VoteType::Precommit,
+            vote_type: VoteType::Prevote,
             height,
             round,
             block_hash: value,
@@ -91,15 +92,17 @@ impl proto::Protobuf for Vote {
 }
 
 fn common_to_proto_vote_type(vote_type: VoteType) -> malachitebft_starknet_p2p_proto::VoteType {
+    // FaB: Only PREVOTE in FaB-a-la-Tendermint-bounded-square
     match vote_type {
         VoteType::Prevote => p2p_proto::VoteType::Prevote,
-        VoteType::Precommit => p2p_proto::VoteType::Precommit,
     }
 }
 
 fn proto_to_common_vote_type(vote_type: p2p_proto::VoteType) -> VoteType {
+    // FaB: Only PREVOTE in FaB-a-la-Tendermint-bounded-square
+    // Map any Precommit to Prevote for compatibility
     match vote_type {
         p2p_proto::VoteType::Prevote => VoteType::Prevote,
-        p2p_proto::VoteType::Precommit => VoteType::Precommit,
+        p2p_proto::VoteType::Precommit => VoteType::Prevote, // FaB: Map to Prevote
     }
 }

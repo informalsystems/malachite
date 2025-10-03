@@ -303,7 +303,8 @@ where
             // Importantly, this mechanism does not need to be enabled from round 0,
             // as it is expensive; it can be activated from any round as a last-resort
             // backup to guarantee liveness.
-            if let (VoteType::Precommit, NilOrVal::Val(value_id)) = (vote.vote_type(), vote.value())
+            // FaB: Changed from Precommit to Prevote (only prevotes in FaB)
+            if let (VoteType::Prevote, NilOrVal::Val(value_id)) = (vote.vote_type(), vote.value())
             {
                 // Prune all votes and certificates for the previous rounds as we know we are not going to use them anymore.
                 state.driver.prune_votes_and_certificates(vote.round());
@@ -435,7 +436,8 @@ where
 }
 
 async fn extend_vote<Ctx: Context>(co: &Co<Ctx>, vote: Ctx::Vote) -> Result<Ctx::Vote, Error<Ctx>> {
-    let VoteType::Precommit = vote.vote_type() else {
+    // FaB: Changed from Precommit to Prevote (only prevotes in FaB)
+    let VoteType::Prevote = vote.vote_type() else {
         return Ok(vote);
     };
 

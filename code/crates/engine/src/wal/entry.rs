@@ -116,10 +116,10 @@ where
 fn encode_timeout(tag: u8, timeout: &Timeout, mut buf: impl Write) -> io::Result<()> {
     use malachitebft_core_types::TimeoutKind;
 
+    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
     let step = match timeout.kind {
         TimeoutKind::Propose => 1,
         TimeoutKind::Prevote => 2,
-        TimeoutKind::Precommit => 3,
 
         // NOTE: Commit, prevote and precommit time limit timeouts have been removed.
 
@@ -138,10 +138,11 @@ fn encode_timeout(tag: u8, timeout: &Timeout, mut buf: impl Write) -> io::Result
 fn decode_timeout(mut buf: impl Read) -> io::Result<Timeout> {
     use malachitebft_core_types::TimeoutKind;
 
+    // FaB: Map Precommit (3) to Prevote for backward compatibility with old WAL entries
     let step = match buf.read_u8()? {
         1 => TimeoutKind::Propose,
         2 => TimeoutKind::Prevote,
-        3 => TimeoutKind::Precommit,
+        3 => TimeoutKind::Prevote, // FaB: Map old Precommit to Prevote
 
         // Commit timeouts have been removed in PR #976,
         // but we still need to handle them here in order to decode old WAL entries.

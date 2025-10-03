@@ -348,10 +348,10 @@ pub(crate) fn encode_round_certificate(
                     NilOrVal::Nil => None,
                     NilOrVal::Val(value_id) => Some(value_id.to_proto()?),
                 };
+                // FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
                 Ok(proto::RoundSignature {
                     vote_type: match sig.vote_type {
                         VoteType::Prevote => proto::VoteType::Prevote.into(),
-                        VoteType::Precommit => proto::VoteType::Precommit.into(),
                     },
                     validator_address: Some(address),
                     signature: Some(signature),
@@ -390,11 +390,13 @@ pub(crate) fn decode_round_certificate(
                     None => NilOrVal::Nil,
                     Some(block_hash) => NilOrVal::Val(BlockHash::from_proto(block_hash)?),
                 };
+                // FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
+                // Map any Precommit to Prevote for compatibility
                 let vote_type = match proto::VoteType::try_from(sig.vote_type)
                     .map_err(|_| ProtoError::Other("Invalid vote type".to_string()))?
                 {
                     proto::VoteType::Prevote => VoteType::Prevote,
-                    proto::VoteType::Precommit => VoteType::Precommit,
+                    proto::VoteType::Precommit => VoteType::Prevote, // FaB: Map to Prevote
                 };
                 Ok(RoundSignature::new(vote_type, value_id, address, signature))
             })

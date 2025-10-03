@@ -350,15 +350,10 @@ where
         signature: &RoundSignature<Ctx>,
         validator: &Ctx::Validator,
     ) -> Result<VotingPower, CertificateError<Ctx>> {
+        // FaB: In FaB-a-la-Tendermint-bounded-square, we only have PREVOTE messages
         let vote_type = signature.vote_type;
         let vote = match vote_type {
             VoteType::Prevote => ctx.new_prevote(
-                certificate.height,
-                certificate.round,
-                signature.value_id.clone(),
-                validator.address().clone(),
-            ),
-            VoteType::Precommit => ctx.new_precommit(
                 certificate.height,
                 certificate.round,
                 signature.value_id.clone(),

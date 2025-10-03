@@ -134,9 +134,10 @@ where
             return Some(RoundInput::ProposalAndPrecommitValue(proposal));
         }
 
+        // FaB: Use Prevote instead of Precommit (4f+1 prevotes for decision in FaB)
         if self.vote_keeper.is_threshold_met(
             &proposal.round(),
-            VoteType::Precommit,
+            VoteType::Prevote,
             Threshold::Value(proposal.value().id()),
         ) && self.round_state.decision.is_none()
         {
@@ -444,10 +445,12 @@ where
     votekeeper.is_threshold_met(&round, VoteType::Prevote, Threshold::Any)
 }
 
-/// Check if we have a quorum of precommits for any
+/// FaB: Changed to check prevotes instead (no precommit in FaB)
+/// Check if we have a quorum of prevotes for any
 fn has_precommit_any<Ctx>(votekeeper: &VoteKeeper<Ctx>, round: Round) -> bool
 where
     Ctx: Context,
 {
-    votekeeper.is_threshold_met(&round, VoteType::Precommit, Threshold::Any)
+    // FaB: Use Prevote instead of Precommit
+    votekeeper.is_threshold_met(&round, VoteType::Prevote, Threshold::Any)
 }

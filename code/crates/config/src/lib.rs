@@ -602,21 +602,22 @@ pub struct TimeoutConfig {
 
 impl TimeoutConfig {
     pub fn timeout_duration(&self, step: TimeoutKind) -> Duration {
+        // FaB: No precommit step in FaB-a-la-Tendermint-bounded-square
         match step {
             TimeoutKind::Propose => self.timeout_propose,
             TimeoutKind::Prevote => self.timeout_prevote,
-            TimeoutKind::Precommit => self.timeout_precommit,
             TimeoutKind::Rebroadcast => {
-                self.timeout_propose + self.timeout_prevote + self.timeout_precommit
+                // FaB: Adjusted for no precommit timeout
+                self.timeout_propose + self.timeout_prevote
             }
         }
     }
 
     pub fn delta_duration(&self, step: TimeoutKind) -> Option<Duration> {
+        // FaB: No precommit step in FaB-a-la-Tendermint-bounded-square
         match step {
             TimeoutKind::Propose => Some(self.timeout_propose_delta),
             TimeoutKind::Prevote => Some(self.timeout_prevote_delta),
-            TimeoutKind::Precommit => Some(self.timeout_precommit_delta),
             TimeoutKind::Rebroadcast => None,
         }
     }

@@ -34,9 +34,10 @@ where
         "Timeout elapsed"
     );
 
+    // FaB: Only Propose and Prevote timeouts in FaB-a-la-Tendermint-bounded-square
     if matches!(
         timeout.kind,
-        TimeoutKind::Propose | TimeoutKind::Prevote | TimeoutKind::Precommit
+        TimeoutKind::Propose | TimeoutKind::Prevote
     ) {
         // Persist the timeout in the Write-ahead Log.
         // Time-limit and rebroadcast timeouts are not persisted because they only occur when consensus is stuck.

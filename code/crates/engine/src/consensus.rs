@@ -197,28 +197,27 @@ impl Timeouts {
         self.config = config;
     }
 
+    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
     fn duration_for(&self, step: TimeoutKind) -> Duration {
         match step {
             TimeoutKind::Propose => self.config.timeout_propose,
             TimeoutKind::Prevote => self.config.timeout_prevote,
-            TimeoutKind::Precommit => self.config.timeout_precommit,
             TimeoutKind::Rebroadcast => {
                 self.config.timeout_propose
                     + self.config.timeout_prevote
-                    + self.config.timeout_precommit
             }
         }
     }
 
+    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
     fn increase_timeout(&mut self, step: TimeoutKind) {
         let c = &mut self.config;
         match step {
             TimeoutKind::Propose => c.timeout_propose += c.timeout_propose_delta,
             TimeoutKind::Prevote => c.timeout_prevote += c.timeout_prevote_delta,
-            TimeoutKind::Precommit => c.timeout_precommit += c.timeout_precommit_delta,
             TimeoutKind::Rebroadcast => {
                 c.timeout_rebroadcast +=
-                    c.timeout_propose_delta + c.timeout_prevote_delta + c.timeout_precommit_delta
+                    c.timeout_propose_delta + c.timeout_prevote_delta
             }
         };
     }
@@ -693,10 +692,10 @@ where
         // Increase the timeout for the next round
         state.timeouts.increase_timeout(timeout.kind);
 
-        // Print debug information if the timeout is for a prevote or precommit
+        // FaB: Print debug information if the timeout is for a prevote (no precommit in FaB)
         if matches!(
             timeout.kind,
-            TimeoutKind::Prevote | TimeoutKind::Precommit | TimeoutKind::Rebroadcast
+            TimeoutKind::Prevote | TimeoutKind::Rebroadcast
         ) {
             warn!(step = ?timeout.kind, "Timeout elapsed");
             state.consensus.print_state();

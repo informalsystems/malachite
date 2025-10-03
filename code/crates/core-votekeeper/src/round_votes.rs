@@ -38,9 +38,9 @@ impl<Ctx: Context> RoundVotes<Ctx> {
     /// Add a vote to the round, of the given type, from the given address,
     /// with the given value and weight.
     pub fn add_vote(&mut self, vote: &Ctx::Vote, weight: Weight) -> Weight {
+        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
         match vote.vote_type() {
             VoteType::Prevote => self.prevotes.add(vote, weight),
-            VoteType::Precommit => self.precommits.add(vote, weight),
         }
     }
 
@@ -48,17 +48,17 @@ impl<Ctx: Context> RoundVotes<Ctx> {
     ///
     /// If there is no vote for that value, return 0.
     pub fn get_weight(&self, vote_type: VoteType, value: &NilOrVal<ValueId<Ctx>>) -> Weight {
+        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
         match vote_type {
             VoteType::Prevote => self.prevotes.get(value),
-            VoteType::Precommit => self.precommits.get(value),
         }
     }
 
     /// Get the sum of the weights of the votes of the given type.
     pub fn weight_sum(&self, vote_type: VoteType) -> Weight {
+        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
         match vote_type {
             VoteType::Prevote => self.prevotes.sum(),
-            VoteType::Precommit => self.precommits.sum(),
         }
     }
 
@@ -75,13 +75,10 @@ impl<Ctx: Context> RoundVotes<Ctx> {
         param: ThresholdParam,
         total_weight: Weight,
     ) -> bool {
+        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
         match vote_type {
             VoteType::Prevote => self
                 .prevotes
-                .is_threshold_met(threshold, param, total_weight),
-
-            VoteType::Precommit => self
-                .precommits
                 .is_threshold_met(threshold, param, total_weight),
         }
     }

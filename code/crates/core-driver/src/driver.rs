@@ -265,10 +265,10 @@ where
     fn set_last_vote_cast(&mut self, vote: &Ctx::Vote) {
         assert_eq!(vote.height(), self.height());
 
+        // FaB: Only PREVOTE in FaB-a-la-Tendermint-bounded-square
         if vote.round() == self.round() {
             match vote.vote_type() {
                 VoteType::Prevote => self.last_prevote = Some(vote.clone()),
-                VoteType::Precommit => self.last_precommit = Some(vote.clone()),
             }
         }
     }
@@ -327,25 +327,12 @@ where
         // - We have not voted yet
         // - That vote is for a higher height than our last vote
         // - That vote is for a higher round than our last vote
+        // FaB: Only PREVOTE in FaB-a-la-Tendermint-bounded-square
         // - That vote is the same as our last vote
-        // Precommits have the additional constraint that the value must match the valid value
         let can_vote = match vote.vote_type() {
             VoteType::Prevote => self.last_prevote.as_ref().is_none_or(|prev| {
                 prev.height() < vote.height() || prev.round() < vote.round() || prev == &vote
             }),
-            VoteType::Precommit => {
-                let good_precommit = self.last_precommit.as_ref().is_none_or(|prev| {
-                    prev.height() < vote.height() || prev.round() < vote.round() || prev == &vote
-                });
-                let match_valid = self.round_state.valid.as_ref().is_none_or(|valid| {
-                    if let NilOrVal::Val(value_id) = vote.value() {
-                        &valid.value.id() == value_id
-                    } else {
-                        true
-                    }
-                });
-                good_precommit && match_valid
-            }
         };
 
         if can_vote {
@@ -539,10 +526,11 @@ where
             panic!("Missing the PrecommitAny votes for round {vote_round}");
         };
 
-        let precommits: Vec<SignedVote<Ctx>> = per_round
+        // FaB: Use prevotes instead of precommits
+        let prevotes: Vec<SignedVote<Ctx>> = per_round
             .received_votes()
             .iter()
-            .filter(|v| v.vote_type() == VoteType::Precommit)
+            .filter(|v| v.vote_type() == VoteType::Prevote)
             .cloned()
             .collect();
 
@@ -550,8 +538,8 @@ where
             self.height(),
             vote_round.increment(),
             vote_round,
-            RoundCertificateType::Precommit,
-            precommits,
+            RoundCertificateType::Skip, // FaB: Changed from Precommit to Skip
+            prevotes,
         ));
     }
 
@@ -577,11 +565,11 @@ where
         ));
     }
 
+    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
     fn apply_timeout(&mut self, timeout: Timeout) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
         let input = match timeout.kind {
             TimeoutKind::Propose => RoundInput::TimeoutPropose,
             TimeoutKind::Prevote => RoundInput::TimeoutPrevote,
-            TimeoutKind::Precommit => RoundInput::TimeoutPrecommit,
 
             // The driver never receives these events, so we can just ignore them.
             TimeoutKind::Rebroadcast => return Ok(None),

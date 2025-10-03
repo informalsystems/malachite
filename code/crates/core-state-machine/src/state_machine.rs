@@ -1,12 +1,15 @@
 //! The consensus state machine.
+//! FaB: Rewritten for FaB-a-la-Tendermint-bounded-square algorithm
 
 use malachitebft_core_types::{Context, NilOrVal, Proposal, Round, TimeoutKind, Value};
 
-use crate::debug_trace;
 use crate::input::Input;
 use crate::output::Output;
 use crate::state::{State, Step};
 use crate::transition::Transition;
+
+#[cfg(feature = "debug")]
+use crate::traces::*;
 
 /// Immutable information about the input and our node:
 /// - Address of our node
@@ -52,22 +55,33 @@ where
     }
 }
 
-/// Check that a proposal has a valid Proof-Of-Lock round
-fn is_valid_pol_round<Ctx>(state: &State<Ctx>, pol_round: Round) -> bool
+/// Helper function to start a new round
+/// FaB pseudocode lines 29-37
+fn start_round<Ctx>(
+    mut state: State<Ctx>,
+    round: Round,
+    is_proposer: bool,
+) -> (State<Ctx>, Step)
 where
     Ctx: Context,
 {
-    pol_round.is_defined() && pol_round < state.round
+    state.round = round;
+
+    // Determine step based on whether we're proposer and round number
+    let step = if is_proposer && round > Round::ZERO {
+        Step::Prepropose
+    } else {
+        Step::Propose
+    };
+
+    state.step = step;
+    (state, step)
 }
 
-/// Apply an input to the current state at the current round.
+/// Apply an input to the current state for FaB algorithm.
 ///
-/// This function takes the current state and round, and an input,
-/// and returns the next state and an optional message for the driver to act on.
-///
-/// Valid transitions result in at least a change to the state and/or an output.
-///
-/// Commented numbers refer to line numbers in the spec paper.
+/// FaB transitions based on pseudocode from important_files/FaB-a-la-Tendermint-bounded-square.md
+/// and Quint spec from important_files/tendermint5f_algorithm.qnt
 pub fn apply<Ctx>(
     ctx: &Ctx,
     mut state: State<Ctx>,
@@ -81,496 +95,211 @@ where
 
     match (state.step, input) {
         //
-        // From NewRound.
+        // StartRound - FaB pseudocode line 29-37
         //
 
-        // L11/L14
-        (Step::Unstarted, Input::NewRound(round)) if info.is_proposer() => {
-            // Update the round
-            state.round = round;
-
-            debug_trace!(state, Line::L11Proposer);
-
-            // We are the proposer
-            propose_valid_or_get_value(ctx, state, info.address)
-        }
-
-        // L11/L20
+        // StartRound - FaB pseudocode lines 29-37
         (Step::Unstarted, Input::NewRound(round)) => {
-            // Update the round
-            state.round = round;
+            let (new_state, _step) = start_round(state, round, info.is_proposer());
+            state = new_state;
 
-            debug_trace!(state, Line::L11NonProposer);
+            // Schedule propose timeout
+            let timeout = Output::schedule_timeout(round, TimeoutKind::Propose);
 
-            // We are not the proposer
-            schedule_timeout_propose(state)
+            // Special case: At round 0, proposer immediately gets value and proposes
+            if info.is_proposer() && round == Round::ZERO {
+                let get_value = Output::get_value_and_schedule_timeout(
+                    state.height,
+                    round,
+                    TimeoutKind::Propose,
+                );
+
+                Transition::to(state)
+                    .with_output(timeout)
+                    .with_output(get_value)
+            } else {
+                Transition::to(state).with_output(timeout)
+            }
         }
 
         //
-        // From Propose. Input must be for current round.
+        // PrePropose step - FaB-specific, proposer waits for 4f+1 prevotes
+        // FaB pseudocode lines 39-49
         //
 
-        // L18
-        (Step::Propose, Input::ProposeValue(value)) if this_round => {
-            debug_assert!(info.is_proposer());
-
-            propose(ctx, state, value, info.address)
-        }
-
-        // L22 with valid proposal
-        (Step::Propose, Input::Proposal(proposal))
-            if this_round && proposal.pol_round().is_nil() =>
+        // Leader received 4f+1 prevotes WITH 2f+1 for same value v
+        (Step::Prepropose, Input::LeaderProposeWithLock { value, certificate: _, certificate_round })
+            if this_round && info.is_proposer() =>
         {
-            debug_trace!(state, Line::L22);
+            state.step = Step::Propose;
 
-            prevote(ctx, state, info.address, &proposal)
-        }
-
-        // L22 with invalid proposal
-        (Step::Propose, Input::InvalidProposal) if this_round => {
-            prevote_nil(ctx, state, info.address)
-        }
-
-        // L28 with valid proposal
-        (Step::Propose, Input::ProposalAndPolkaPrevious(proposal))
-            if this_round && is_valid_pol_round(&state, proposal.pol_round()) =>
-        {
-            debug_trace!(state, Line::L28ValidProposal);
-            prevote_previous(ctx, state, info.address, &proposal)
-        }
-
-        // L28 with invalid proposal
-        (Step::Propose, Input::InvalidProposalAndPolkaPrevious(proposal))
-            if this_round && is_valid_pol_round(&state, proposal.pol_round()) =>
-        {
-            debug_trace!(state, Line::L28InvalidProposal);
-            debug_trace!(state, Line::L32InvalidValue);
-
-            prevote_nil(ctx, state, info.address)
-        }
-
-        // L57
-        // We are the proposer.
-        (Step::Propose, Input::TimeoutPropose) if this_round && info.is_proposer() => {
-            debug_trace!(state, Line::L59Proposer);
-
-            prevote_nil(ctx, state, info.address)
-        }
-
-        // L57
-        // We are not the proposer.
-        (Step::Propose, Input::TimeoutPropose) if this_round => {
-            debug_trace!(state, Line::L59NonProposer);
-
-            prevote_nil(ctx, state, info.address)
-        }
-
-        //
-        // From Prevote. Input must be for current round.
-        //
-
-        // L34
-        (Step::Prevote, Input::PolkaAny) if this_round => {
-            debug_trace!(state, Line::L34);
-            debug_trace!(state, Line::L35);
-
-            schedule_timeout_prevote(state)
-        }
-
-        // L45
-        (Step::Prevote, Input::PolkaNil) if this_round => {
-            debug_trace!(state, Line::L45);
-
-            precommit_nil(ctx, state, info.address)
-        }
-
-        // L36/L37
-        // NOTE: Only executed the first time, as the votekeeper will only emit this threshold once.
-        (Step::Prevote, Input::ProposalAndPolkaCurrent(proposal)) if this_round => {
-            debug_trace!(state, Line::L36ValidProposal);
-
-            precommit(ctx, state, info.address, proposal)
-        }
-
-        // L61
-        (Step::Prevote, Input::TimeoutPrevote) if this_round => {
-            debug_trace!(state, Line::L61);
-
-            precommit_nil(ctx, state, info.address)
-        }
-
-        //
-        // From Precommit
-        //
-
-        // L36/L42
-        // NOTE: Only executed the first time, as the votekeeper will only emit this threshold once.
-        (Step::Precommit, Input::ProposalAndPolkaCurrent(proposal)) if this_round => {
-            debug_trace!(state, Line::L36ValidProposal);
-            set_valid_value(state, &proposal)
-        }
-
-        //
-        // From Commit. No more state transitions.
-        //
-        (Step::Commit, _) => Transition::invalid(state),
-
-        //
-        // From all (except Commit). Various round guards.
-        //
-
-        // L47
-        (_, Input::PrecommitAny) if this_round => {
-            debug_trace!(state, Line::L48);
-            schedule_timeout_precommit(state)
-        }
-
-        // L65
-        (_, Input::TimeoutPrecommit) if this_round => {
-            debug_trace!(state, Line::L67);
-            round_skip(state, info.input_round.increment())
-        }
-
-        // L55
-        (_, Input::SkipRound(round)) if state.round < round => {
-            debug_trace!(state, Line::L55);
-            round_skip(state, round)
-        }
-
-        // L49
-        (_, Input::ProposalAndPrecommitValue(proposal)) => {
-            let round = state.round;
-            debug_trace!(state, Line::L49);
-            commit(state, round, proposal)
-        }
-
-        // Invalid transition.
-        _ => Transition::invalid(state),
-    }
-}
-
-//---------------------------------------------------------------------
-// Propose
-//---------------------------------------------------------------------
-
-/// We are the proposer. Propose the valid value if present, otherwise schedule timeout propose
-/// and ask for a value.
-///
-/// Ref: L13-L16, L19
-pub fn propose_valid_or_get_value<Ctx>(
-    ctx: &Ctx,
-    mut state: State<Ctx>,
-    address: &Ctx::Address,
-) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    debug_trace!(state, Line::L14);
-
-    match &state.valid {
-        Some(round_value) => {
-            // L16
-            let pol_round = round_value.round;
-            let proposal = Output::proposal(
-                ctx,
+            // Broadcast PROPOSAL with value v and certificate S
+            let proposal = ctx.new_proposal(
                 state.height,
                 state.round,
-                round_value.value.clone(),
-                pol_round,
-                address.clone(),
+                value,
+                certificate_round, // pol_round in the proposal
+                info.address.clone(),
             );
-            debug_trace!(state, Line::L16);
-            debug_trace!(state, Line::L19);
 
-            Transition::to(state.with_step(Step::Propose)).with_output(proposal)
+            Transition::to(state).with_output(Output::Proposal(proposal))
         }
-        None => {
-            // L18
-            let output = Output::get_value_and_schedule_timeout(
+
+        // Leader received 4f+1 prevotes WITHOUT a 2f+1 lock
+        (Step::Prepropose, Input::LeaderProposeWithoutLock { certificate: _ })
+            if this_round && info.is_proposer() =>
+        {
+            state.step = Step::Propose;
+
+            // Get a new value and broadcast PROPOSAL with certificate
+            let get_value = Output::get_value_and_schedule_timeout(
                 state.height,
                 state.round,
                 TimeoutKind::Propose,
             );
-            debug_trace!(state, Line::L18);
 
-            Transition::to(state.with_step(Step::Propose)).with_output(output)
+            Transition::to(state).with_output(get_value)
         }
-    }
-}
 
-/// We are the proposer; propose the valid value if it exists,
-/// otherwise propose the given value.
-///
-/// Ref: L13, L17-18
-pub fn propose<Ctx>(
-    ctx: &Ctx,
-    mut state: State<Ctx>,
-    value: Ctx::Value,
-    address: &Ctx::Address,
-) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let proposal = Output::proposal(
-        ctx,
-        state.height,
-        state.round,
-        value,
-        Round::Nil,
-        address.clone(),
-    );
+        //
+        // Propose step - Receiving and validating proposals
+        // FaB pseudocode lines 51-59
+        //
 
-    debug_trace!(state, Line::L19);
-    Transition::to(state.with_step(Step::Propose)).with_output(proposal)
-}
+        // Follower receives PROPOSAL from proposer (SafeProposal validation happens in driver)
+        // If SafeProposal is true, driver will provide the proposal
+        (Step::Propose, Input::Proposal(proposal)) if this_round => {
+            state.step = Step::Prevote;
 
-//---------------------------------------------------------------------
-// Prevote
-//---------------------------------------------------------------------
+            // Broadcast PREVOTE for the proposal value (FaB lines 56-59)
+            let prevote = ctx.new_prevote(
+                state.height,
+                state.round,
+                NilOrVal::Val(proposal.value().id()),
+                info.address.clone(),
+            );
 
-/// Received a complete proposal; prevote the value,
-/// unless we are locked on something else.
-///
-/// Ref: L22 with valid proposal
-pub fn prevote<Ctx>(
-    ctx: &Ctx,
-    mut state: State<Ctx>,
-    address: &Ctx::Address,
-    proposal: &Ctx::Proposal,
-) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let vr = proposal.pol_round();
-    assert_eq!(vr, Round::Nil);
-    let proposed = proposal.value().id();
-    let value = match &state.locked {
-        Some(locked) if locked.value.id() == proposed => {
-            // already locked on value
-            debug_trace!(state, Line::L24ValidAndLockedValue);
-            NilOrVal::Val(proposed)
+            // Update prevoted state and last prevote
+            state = state
+                .set_prevoted_value(proposal.value().clone())
+                .set_prevoted_proposal_msg(proposal.clone())
+                .set_last_prevote(prevote.clone());
+
+            Transition::to(state).with_output(Output::Vote(prevote))
         }
-        Some(_) => {
-            // locked on a different value
-            debug_trace!(state, Line::L26ValidAndLockedValue);
-            NilOrVal::Nil
+
+        //
+        // EnoughPrevotesForRound - Schedule prevote timeout
+        // FaB pseudocode lines 69-70
+        //
+
+        // max_round = round_p for the first time
+        (_, Input::EnoughPrevotesForRound) if this_round => {
+            let timeout = Output::schedule_timeout(state.round, TimeoutKind::Prevote);
+            Transition::to(state).with_output(timeout)
         }
-        None => {
-            // not locked, prevote the value
-            debug_trace!(state, Line::L24ValidNoLockedRound);
-            NilOrVal::Val(proposed)
+
+        //
+        // Decision - Have proposal + 4f+1 matching prevotes
+        // FaB pseudocode lines 72-74
+        //
+
+        // Decide when we have proposal + 4f+1 PREVOTE for same value
+        (_, Input::CanDecide { proposal, certificate })
+            if state.decision.is_none() =>
+        {
+            state = state.set_decision(proposal.round(), proposal.value().clone());
+            state.step = Step::Commit;
+
+            let decision = Output::decision(proposal.round(), proposal, certificate);
+
+            Transition::to(state).with_output(decision)
         }
-    };
 
-    let output = Output::prevote(ctx, state.height, state.round, value, address.clone());
-    Transition::to(state.with_step(Step::Prevote)).with_output(output)
-}
+        // Receive DECISION message from another node
+        (_, Input::ReceiveDecision { value, certificate: _ })
+            if state.decision.is_none() =>
+        {
+            // FaB: Set decision and move to Commit step
+            // The round in the decision is the round of the proposal that was decided
+            // For now, we use the current round (driver should provide the correct round from certificate)
+            let round = state.round;
+            state = state.set_decision(round, value);
+            state.step = Step::Commit;
 
-/// Received a proposal for a previously seen value and a polka from a previous round; prevote the value,
-/// unless we are locked on a different value at a higher round.
-///
-/// Ref: L28
-pub fn prevote_previous<Ctx>(
-    ctx: &Ctx,
-    mut state: State<Ctx>,
-    address: &Ctx::Address,
-    proposal: &Ctx::Proposal,
-) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let vr = proposal.pol_round();
-    assert!(vr >= Round::Some(0));
-    assert!(vr < proposal.round());
-
-    let proposed = proposal.value().id();
-    let value = match &state.locked {
-        Some(locked) if locked.round <= vr => {
-            // locked on lower or equal round, maybe on different value
-            debug_trace!(state, Line::L30ValidLockedRound);
-            NilOrVal::Val(proposed)
+            // Note: In full implementation, driver should also output the Decision with certificate
+            // for now, we just update state
+            Transition::to(state)
         }
-        Some(locked) if locked.value.id() == proposed => {
-            // already locked same value
-            debug_trace!(state, Line::L30ValidLockedValue);
-            NilOrVal::Val(proposed)
+
+        //
+        // Skip round - Received f+1 prevotes from higher round
+        // FaB pseudocode lines 95-96
+        //
+
+        (_, Input::SkipRound { round, certificate: _ }) if round > state.round => {
+            // FaB: Skip to higher round using StartRound logic
+            let (new_state, _step) = start_round(state, round, info.is_proposer());
+            state = new_state;
+
+            let timeout = Output::schedule_timeout(round, TimeoutKind::Propose);
+            let new_round = Output::NewRound(round);
+
+            Transition::to(state)
+                .with_output(new_round)
+                .with_output(timeout)
         }
-        Some(_) => {
-            // we're locked on a different value in a higher round, prevote nil
-            debug_trace!(state, Line::L32InvalidValue);
-            NilOrVal::Nil
+
+        //
+        // Timeouts
+        // FaB pseudocode lines 98-106
+        //
+
+        // TimeoutPropose - prevote for prevotedValue_p (nil if haven't prevoted)
+        // FaB pseudocode lines 98-102
+        (Step::Propose, Input::TimeoutPropose) | (Step::Prepropose, Input::TimeoutPropose)
+            if this_round =>
+        {
+            state.step = Step::Prevote;
+
+            let value_id = state.prevoted_value
+                .as_ref()
+                .map(|v| NilOrVal::Val(v.id()))
+                .unwrap_or(NilOrVal::Nil);
+
+            // Create and broadcast prevote (FaB lines 101-102)
+            let prevote = ctx.new_prevote(
+                state.height,
+                state.round,
+                value_id,
+                info.address.clone(),
+            );
+
+            // Update last prevote
+            state = state.set_last_prevote(prevote.clone());
+
+            Transition::to(state).with_output(Output::Vote(prevote))
         }
-        None => {
-            // not locked, prevote the value
-            debug_trace!(state, Line::L30ValidNoLockedRound);
-            NilOrVal::Val(proposed)
+
+        // TimeoutPrevote - move to next round
+        (_, Input::TimeoutPrevote { certificate: _ }) if this_round => {
+            let next_round = state.round.increment();
+
+            // FaB: Move to next round using StartRound logic
+            let (new_state, _step) = start_round(state, next_round, info.is_proposer());
+            state = new_state;
+
+            let timeout = Output::schedule_timeout(next_round, TimeoutKind::Propose);
+            let new_round = Output::NewRound(next_round);
+
+            Transition::to(state)
+                .with_output(new_round)
+                .with_output(timeout)
         }
-    };
 
-    let output = Output::Vote(ctx.new_prevote(state.height, state.round, value, address.clone()));
-    Transition::to(state.with_step(Step::Prevote)).with_output(output)
-}
-
-/// Received a complete proposal for an empty or invalid value, or timed out; prevote nil.
-///
-/// Ref: L22/L25, L28/L31, L57
-pub fn prevote_nil<Ctx>(ctx: &Ctx, state: State<Ctx>, address: &Ctx::Address) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let output =
-        Output::Vote(ctx.new_prevote(state.height, state.round, NilOrVal::Nil, address.clone()));
-
-    Transition::to(state.with_step(Step::Prevote)).with_output(output)
-}
-
-// ---------------------------------------------------------------------
-// Precommit
-// ---------------------------------------------------------------------
-
-/// Received a polka for a value; precommit the value.
-///
-/// Ref: L36
-///
-/// NOTE: Only one of this and set_valid_value should be called once in a round
-///       How do we enforce this?
-pub fn precommit<Ctx>(
-    ctx: &Ctx,
-    state: State<Ctx>,
-    address: &Ctx::Address,
-    proposal: Ctx::Proposal,
-) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    if state.step != Step::Prevote {
-        return Transition::to(state);
-    }
-
-    let value = proposal.value();
-    let output = Output::precommit(
-        ctx,
-        state.height,
-        state.round,
-        NilOrVal::Val(value.id()),
-        address.clone(),
-    );
-
-    let next = state
-        .set_locked(value.clone())
-        .set_valid(value.clone())
-        .with_step(Step::Precommit);
-
-    Transition::to(next).with_output(output)
-}
-
-/// Received a polka for nil or timed out of prevote; precommit nil.
-///
-/// Ref: L44, L61
-pub fn precommit_nil<Ctx>(ctx: &Ctx, state: State<Ctx>, address: &Ctx::Address) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let output =
-        Output::Vote(ctx.new_precommit(state.height, state.round, NilOrVal::Nil, address.clone()));
-
-    Transition::to(state.with_step(Step::Precommit)).with_output(output)
-}
-
-// ---------------------------------------------------------------------
-// Schedule timeouts
-// ---------------------------------------------------------------------
-
-/// We're not the proposer; schedule timeout propose.
-///
-/// Ref: L11, L20
-pub fn schedule_timeout_propose<Ctx>(mut state: State<Ctx>) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    debug_trace!(state, Line::L21ProposeTimeoutScheduled);
-
-    let timeout = Output::schedule_timeout(state.round, TimeoutKind::Propose);
-    Transition::to(state.with_step(Step::Propose)).with_output(timeout)
-}
-
-/// We received a polka for any; schedule timeout prevote.
-///
-/// Ref: L34
-///
-/// NOTE: This should only be called once in a round, per the spec,
-///       but it's harmless to schedule more timeouts
-pub fn schedule_timeout_prevote<Ctx>(state: State<Ctx>) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let output = Output::schedule_timeout(state.round, TimeoutKind::Prevote);
-    Transition::to(state).with_output(output)
-}
-
-/// We received +2/3 precommits for any; schedule timeout precommit.
-///
-/// Ref: L47
-pub fn schedule_timeout_precommit<Ctx>(state: State<Ctx>) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let output = Output::schedule_timeout(state.round, TimeoutKind::Precommit);
-    Transition::to(state).with_output(output)
-}
-
-//---------------------------------------------------------------------
-// Set the valid value.
-//---------------------------------------------------------------------
-
-/// We received a polka for a value after we already precommitted.
-/// Set the valid value and current round.
-///
-/// Ref: L36/L42
-///
-/// NOTE: only one of this and precommit should be called once in a round
-pub fn set_valid_value<Ctx>(state: State<Ctx>, proposal: &Ctx::Proposal) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    Transition::to(state.set_valid(proposal.value().clone()))
-}
-
-//---------------------------------------------------------------------
-// New round or height
-//---------------------------------------------------------------------
-
-/// We finished a round (timeout precommit) or received +1/3 votes
-/// from a higher round. Move to the higher round.
-///
-/// Ref: L65
-pub fn round_skip<Ctx>(state: State<Ctx>, round: Round) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    let new_state = state.with_round(round).with_step(Step::Unstarted);
-    Transition::to(new_state).with_output(Output::NewRound(round))
-}
-
-/// We received +2/3 precommits for a value - commit and decide that value!
-///
-/// Ref: L49
-pub fn commit<Ctx>(state: State<Ctx>, round: Round, proposal: Ctx::Proposal) -> Transition<Ctx>
-where
-    Ctx: Context,
-{
-    match &state.decision {
-        // We already decided the same value
-        Some(decision) if decision.value.id() == proposal.value().id() => Transition::to(state),
-        // We decided a different value
-        Some(_) => Transition::invalid(state),
-        // First time we see a decision
-        None => {
-            let new_state = state
-                .set_decision(proposal.round(), proposal.value().clone())
-                .with_step(Step::Commit);
-            let output = Output::decision(round, proposal.clone());
-            Transition::to(new_state).with_output(output)
-        }
+        //
+        // No transition - ignore invalid inputs
+        //
+        _ => Transition::invalid(state),
     }
 }

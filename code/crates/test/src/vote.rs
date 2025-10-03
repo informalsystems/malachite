@@ -41,8 +41,9 @@ impl Vote {
         value: NilOrVal<ValueId>,
         address: Address,
     ) -> Self {
+        // FaB: Changed to Prevote (no Precommit in FaB)
         Self {
-            typ: VoteType::Precommit,
+            typ: VoteType::Prevote,
             height,
             round,
             value,
@@ -143,18 +144,20 @@ impl Protobuf for Vote {
     }
 }
 
+// FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub fn encode_votetype(vote_type: VoteType) -> proto::VoteType {
     match vote_type {
         VoteType::Prevote => proto::VoteType::Prevote,
-        VoteType::Precommit => proto::VoteType::Precommit,
     }
 }
 
+// FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
+// Map any Precommit to Prevote for compatibility
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub fn decode_votetype(vote_type: proto::VoteType) -> VoteType {
     match vote_type {
         proto::VoteType::Prevote => VoteType::Prevote,
-        proto::VoteType::Precommit => VoteType::Precommit,
+        proto::VoteType::Precommit => VoteType::Prevote, // FaB: Map to Prevote
     }
 }

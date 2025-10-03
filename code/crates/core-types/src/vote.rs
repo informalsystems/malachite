@@ -3,6 +3,7 @@ use core::fmt::Debug;
 use crate::{Context, NilOrVal, Round, SignedExtension, Value};
 
 /// A type of vote.
+/// FaB-a-la-Tendermint-bounded-square only uses PREVOTE messages (no PRECOMMIT).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -12,9 +13,6 @@ use crate::{Context, NilOrVal, Round, SignedExtension, Value};
 pub enum VoteType {
     /// Votes for values which validators observe are valid for a given round.
     Prevote,
-
-    /// Votes to commit to a particular value for a given round.
-    Precommit,
 }
 
 /// Defines the requirements for a vote.

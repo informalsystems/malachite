@@ -173,13 +173,8 @@ where
     for signature in certificate.round_signatures {
         let vote = {
             let vote_msg = match signature.vote_type {
+                // FaB: Only Prevote in FaB-a-la-Tendermint-bounded-square
                 VoteType::Prevote => state.ctx.new_prevote(
-                    certificate.height,
-                    certificate.round,
-                    signature.value_id,
-                    signature.address,
-                ),
-                VoteType::Precommit => state.ctx.new_precommit(
                     certificate.height,
                     certificate.round,
                     signature.value_id,
