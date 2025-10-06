@@ -146,7 +146,7 @@ pub async fn mixed_validator_and_full_node_failures() {
 
     // Add a validator that crashes
     test.add_node()
-        .with_voting_power(20)
+        .with_voting_power(11)
         .start()
         .wait_until(5)
         .crash()

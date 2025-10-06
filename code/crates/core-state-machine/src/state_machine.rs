@@ -99,6 +99,7 @@ where
         //
 
         // StartRound - FaB pseudocode lines 29-37
+        // Only accept NewRound when in Unstarted step (Malachite pattern)
         (Step::Unstarted, Input::NewRound(round)) => {
             let (new_state, _step) = start_round(state, round, info.is_proposer());
             state = new_state;
@@ -165,7 +166,9 @@ where
 
                 Transition::to(state).with_output(Output::Proposal(proposal))
             } else {
-                // Get a new value and broadcast PROPOSAL with certificate
+                // FaB: Round > 0 - request a new value
+                // When value arrives via ProposeValue, driver will rebuild the certificate
+                // and send it along with the value
                 let get_value = Output::get_value_and_schedule_timeout(
                     state.height,
                     state.round,
@@ -191,6 +194,26 @@ where
                 state.round,
                 v,
                 Round::Nil, // No pol_round for round 0
+                info.address.clone(),
+            );
+
+            Transition::to(state).with_output(Output::Proposal(proposal))
+        }
+
+        // Proposer at round > 0 receives value from app after storing certificate
+        // FaB pseudocode lines 45-49: broadcast PROPOSAL with certificate when no 2f+1 lock
+        (Step::Propose, Input::LeaderProposeWithoutLock { value: Some(v), certificate })
+            if this_round && info.is_proposer() && state.round > Round::ZERO =>
+        {
+            // FaB: Round > 0 - use the certificate provided by the driver
+            // The certificate is built from prevotes in rounds >= previous round
+            // TODO: For now, we ignore the certificate in the proposal creation
+            // The certificate should be attached during proposal streaming/gossip
+            let proposal = ctx.new_proposal(
+                state.height,
+                state.round,
+                v,
+                Round::Nil, // pol_round from certificate will be handled separately
                 info.address.clone(),
             );
 
@@ -274,16 +297,12 @@ where
         //
 
         (_, Input::SkipRound { round, certificate: _ }) if round > state.round => {
-            // FaB: Skip to higher round using StartRound logic
-            let (new_state, _step) = start_round(state, round, info.is_proposer());
-            state = new_state;
+            // FaB: Follow Malachite pattern - set Unstarted, update round, output NewRound
+            // FaB: The NewRound handler will perform the actual round start logic
+            state.round = round;
+            state.step = Step::Unstarted;
 
-            let timeout = Output::schedule_timeout(round, TimeoutKind::Propose);
-            let new_round = Output::NewRound(round);
-
-            Transition::to(state)
-                .with_output(new_round)
-                .with_output(timeout)
+            Transition::to(state).with_output(Output::NewRound(round))
         }
 
         //
@@ -321,16 +340,12 @@ where
         (_, Input::TimeoutPrevote { certificate: _ }) if this_round => {
             let next_round = state.round.increment();
 
-            // FaB: Move to next round using StartRound logic
-            let (new_state, _step) = start_round(state, next_round, info.is_proposer());
-            state = new_state;
+            // FaB: Follow Malachite pattern - set Unstarted, update round, output NewRound
+            // FaB: The NewRound handler will perform the actual round start logic
+            state.round = next_round;
+            state.step = Step::Unstarted;
 
-            let timeout = Output::schedule_timeout(next_round, TimeoutKind::Propose);
-            let new_round = Output::NewRound(next_round);
-
-            Transition::to(state)
-                .with_output(new_round)
-                .with_output(timeout)
+            Transition::to(state).with_output(Output::NewRound(next_round))
         }
 
         //

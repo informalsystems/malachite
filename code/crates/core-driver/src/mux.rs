@@ -128,6 +128,55 @@ where
             // FaB: Signal state machine that we have enough prevotes for this round (line 69-70)
             // FaB: Only at prevote step
             VKOutput::CertificateAny => {
+                // FaB: Special case - proposer at Prepropose step waiting for 4f+1 prevotes from prev round
+                // FaB: Lines 39-49: proposer needs certificate from rounds >= previous round to propose
+                let prev_round = Round::new(self.round().as_i64().saturating_sub(1) as u32);
+                if self.round_state.step == Step::Prepropose && threshold_round >= prev_round {
+                    // FaB: Proposer has 4f+1 prevotes from rounds >= previous round
+                    // FaB: Build certificate from rounds >= prev_round (Lines 39, 45: "r >= round_p-1")
+                    if let Some((certificate, cert_round)) = self.vote_keeper.build_certificate_from_rounds_gte(prev_round) {
+                        let current_round = self.round();
+
+                        // FaB: Check if certificate contains 2f+1 lock on any value
+                        if let Some(value_id) = self.vote_keeper.find_lock_in_certificate(&certificate) {
+                            // FaB: Has 2f+1 lock on value_id → LeaderProposeWithLock (line 40-43)
+                            // FaB: Need to find the locked value from cached proposals
+                            // FaB: Search in all rounds from prev_round to cert_round
+                            for search_round in prev_round.as_i64()..=cert_round.as_i64() {
+                                if let Some((signed_proposal, validity)) =
+                                    self.proposal_and_validity_for_round_and_value(Round::new(search_round as u32), value_id.clone())
+                                {
+                                    if validity.is_valid() {
+                                        // FaB: Found the locked value → propose with lock
+                                        return Some((
+                                            current_round,
+                                            RoundInput::LeaderProposeWithLock {
+                                                value: signed_proposal.message.value().clone(),
+                                                certificate,
+                                                certificate_round: Round::new(search_round as u32),
+                                            },
+                                        ));
+                                    }
+                                }
+                            }
+
+                            // FaB: TODO: If we don't have the locked value cached, we should request it
+                            // FaB: For now, fall through to no-lock case (safety violation risk!)
+                            // warn!("Proposer has 2f+1 lock on value_id {:?} but doesn't have the value cached!", value_id);
+                        }
+
+                        // FaB: No 2f+1 lock (or couldn't find locked value) → LeaderProposeWithoutLock (line 45-49)
+                        // FaB: Pass value=None to trigger GetValue request
+                        return Some((
+                            current_round,
+                            RoundInput::LeaderProposeWithoutLock {
+                                value: None,
+                                certificate,
+                            },
+                        ));
+                    }
+                }
+
                 // FaB: Check if we're at prevote step (line 69-70 condition)
                 if threshold_round == self.round() && self.round_state.step == Step::Prevote {
                     Some((threshold_round, RoundInput::EnoughPrevotesForRound))
@@ -173,8 +222,9 @@ where
             // FaB: f+1 prevotes from higher round → skip to that round (lines 95-96)
             // FaB: No step restriction
             VKOutput::SkipRound(new_round) => {
-                // FaB: Build a certificate of prevotes justifying the skip
-                if let Some(certificate) = self.vote_keeper.build_certificate_any(new_round) {
+                // FaB Lines 92-96: Build f+1 certificate (not 4f+1!) justifying the skip
+                // max_round+ requires f+1 voting power, NOT 4f+1
+                if let Some(certificate) = self.vote_keeper.build_skip_round_certificate(new_round) {
                     Some((
                         new_round,
                         RoundInput::SkipRound {
@@ -190,20 +240,65 @@ where
         }
     }
 
-    // FaB: After a step change, check for cached proposals that need reprocessing
+    // FaB: After a step change, check for cached proposals AND vote thresholds that need processing
     /// FaB: Simplified for FaB-a-la-Tendermint-bounded-square
     ///
-    /// In FaB, vote_keeper automatically emits outputs when thresholds are reached.
-    /// This method only needs to reprocess cached proposals after step changes.
+    /// When entering Prepropose step, proactively check if we already have 4f+1 prevotes from previous round
     pub(crate) fn multiplex_step_change(&mut self, round: Round) -> Vec<(Round, RoundInput<Ctx>)> {
         let mut result = Vec::new();
+
+        let step = self.round_state().step;
+
+        // FaB: Special case - proposer entering Prepropose step (round > 0)
+        // FaB: Proactively check if we already have 4f+1 prevotes from rounds >= previous round
+        if step == Step::Prepropose && round > Round::ZERO {
+            let prev_round = Round::new(round.as_i64().saturating_sub(1) as u32);
+
+            // FaB Lines 39, 45: Check if we have 4f+1 prevotes from rounds >= prev_round
+            if let Some((certificate, cert_round)) = self.vote_keeper.build_certificate_from_rounds_gte(prev_round) {
+                // Check if certificate contains 2f+1 lock on any value
+                if let Some(value_id) = self.vote_keeper.find_lock_in_certificate(&certificate) {
+                    // FaB: Has 2f+1 lock on value_id → LeaderProposeWithLock (line 40-43)
+                    // FaB: Need to find the locked value from cached proposals
+                    // FaB: Search in all rounds from prev_round to cert_round
+                    for search_round in prev_round.as_i64()..=cert_round.as_i64() {
+                        if let Some((signed_proposal, validity)) =
+                            self.proposal_and_validity_for_round_and_value(Round::new(search_round as u32), value_id.clone())
+                        {
+                            if validity.is_valid() {
+                                // FaB: Found the locked value → propose with lock
+                                result.push((
+                                    round,
+                                    RoundInput::LeaderProposeWithLock {
+                                        value: signed_proposal.message.value().clone(),
+                                        certificate,
+                                        certificate_round: Round::new(search_round as u32),
+                                    },
+                                ));
+                                return result; // Exit early, we have the input
+                            }
+                        }
+                    }
+                }
+
+                // FaB: No 2f+1 lock (or couldn't find locked value) → LeaderProposeWithoutLock
+                // FaB: Pass value=None to trigger GetValue request
+                result.push((
+                    round,
+                    RoundInput::LeaderProposeWithoutLock {
+                        value: None,
+                        certificate,
+                    },
+                ));
+                return result; // Exit early, we have the input
+            }
+        }
 
         // FaB: Check if we have cached proposals for this round that need reprocessing
         let proposals = self.proposals_and_validities_for_round(round).to_vec();
 
         for (signed_proposal, validity) in proposals {
             let proposal = &signed_proposal.message;
-            let step = self.round_state().step;
 
             // FaB: At propose step, reprocess proposals (line 51-59)
             if step == Step::Propose {
@@ -213,7 +308,6 @@ where
             }
 
             // FaB: No other step-specific processing needed
-            // FaB: Vote keeper handles threshold detection automatically
         }
 
         result

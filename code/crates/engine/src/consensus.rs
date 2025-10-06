@@ -1291,30 +1291,40 @@ where
                     return Ok(r.resume_with(()));
                 };
 
-                self.host.call_and_forward(
-                    |reply_to| HostMsg::ProcessSyncedValue {
-                        height: certificate_height,
-                        round: certificate_round,
-                        proposer,
-                        value_bytes: value.value_bytes,
-                        reply_to,
-                    },
-                    myself,
-                    move |proposed| {
-                        if proposed.validity == Validity::Invalid
-                            || proposed.value.id() != certificate_value_id
-                        {
-                            if let Err(e) =
-                                sync.cast(SyncMsg::InvalidValue(value.peer, certificate_height))
-                            {
-                                error!("Error when notifying sync of received proposed value: {e}");
-                            }
-                        }
+                let peer = value.peer;
 
-                        Msg::<Ctx>::ReceivedProposedValue(proposed, ValueOrigin::Sync)
-                    },
-                    None,
-                )?;
+                info!("Processing synced value with {} prevotes in certificate", value.certificate.len());
+
+                // FaB: Decode the value from the host to validate it matches the certificate
+                let proposed = ractor::call!(self.host, |reply_to| HostMsg::ProcessSyncedValue {
+                    height: certificate_height,
+                    round: certificate_round,
+                    proposer,
+                    value_bytes: value.value_bytes,
+                    reply_to,
+                })?;
+
+                if proposed.validity == Validity::Invalid || proposed.value.id() != certificate_value_id {
+                    warn!("Synced value is invalid or doesn't match certificate value_id");
+                    if let Err(e) = sync.cast(SyncMsg::InvalidValue(peer, certificate_height)) {
+                        error!("Error when notifying sync of invalid value: {e}");
+                    }
+                    return Ok(r.resume_with(()));
+                }
+
+                info!("Synced value is valid, deciding with certificate of {} prevotes", value.certificate.len());
+
+                // FaB: We have a valid certificate (4f+1 prevotes) for a valid value
+                // Send both the proposed value AND the votes from the certificate
+                // The full node needs both to decide (value + 4f+1 prevotes)
+                myself.cast(Msg::ReceivedProposedValue(proposed, ValueOrigin::Sync))?;
+
+                // Send the votes from the certificate to populate the vote keeper
+                // Without these, the node won't have enough votes to decide
+                for vote in value.certificate {
+                    myself.cast(Msg::NetworkEvent(NetworkEvent::Vote(peer, vote)))?;
+                }
+
                 Ok(r.resume_with(()))
             }
 

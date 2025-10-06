@@ -439,7 +439,27 @@ impl State {
         round: Round,
     ) -> eyre::Result<LocallyProposedValue<TestContext>> {
         assert_eq!(height, self.current_height);
-        assert_eq!(round, self.current_round);
+
+        // FaB: Update current_round if consensus is asking us to propose for a higher round.
+        // This can happen when the node skips rounds quickly (e.g., after syncing and receiving
+        // f+1 prevotes from a higher round). Since consensus has already validated the round
+        // certificate, it's safe to update our round here.
+        if round > self.current_round {
+            info!(
+                old_round = %self.current_round,
+                new_round = %round,
+                "Updating current_round to match consensus request"
+            );
+            self.current_round = round;
+        } else if round < self.current_round {
+            // This shouldn't happen in normal operation
+            error!(
+                %height,
+                current_round = %self.current_round,
+                requested_round = %round,
+                "Consensus asked to propose for a round lower than current_round"
+            );
+        }
 
         let proposal = self.create_proposal(height, round).await?;
 

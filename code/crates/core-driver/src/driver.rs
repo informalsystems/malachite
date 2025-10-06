@@ -166,6 +166,12 @@ where
         self.round_state.prevoted_value.as_ref()
     }
 
+    /// FaB: Return the proposal message we prevoted for (prevotedProposalMsg_p in spec)
+    /// Used for periodic rebroadcast as per FaB line 113
+    pub fn prevoted_proposal_msg(&self) -> Option<&Ctx::Proposal> {
+        self.round_state.prevoted_proposal_msg.as_ref()
+    }
+
     /// Return a reference to the votekeper
     pub fn votes(&self) -> &VoteKeeper<Ctx> {
         &self.vote_keeper
@@ -405,11 +411,12 @@ where
                 },
             )
         } else if let Some(certificate) = self.vote_keeper.build_certificate_any(prev_round) {
-            // FaB: We have 4f+1 prevotes but no lock → propose without lock (value=None means request new value)
+            // FaB: We have 4f+1 prevotes but no lock → propose without lock
+            // FaB: Pass the value so state machine can broadcast proposal
             self.apply_input(
                 round,
                 RoundInput::LeaderProposeWithoutLock {
-                    value: None,
+                    value: Some(value),
                     certificate,
                 },
             )
@@ -575,6 +582,18 @@ where
         let round_state = core::mem::take(&mut self.round_state);
 
         let previous_step = round_state.step;
+
+        // FaB: For SkipRound, we need to update the proposer BEFORE creating Info
+        // FaB: because Info needs the proposer for the NEW round, not the current round
+        // FaB: IMPORTANT: Use round_state.height, not self.height(), because we've already taken round_state!
+        if matches!(input, RoundInput::SkipRound { .. }) {
+            let proposer_address = self
+                .ctx
+                .select_proposer(&self.validator_set, round_state.height, input_round)
+                .address()
+                .clone();
+            self.proposer = Some(proposer_address);
+        }
 
         let proposer = self.get_proposer()?;
         let info = Info::new(input_round, &self.address, proposer.address());

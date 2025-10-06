@@ -384,6 +384,81 @@ where
         }
     }
 
+    /// Build an f+1 certificate from prevotes in the given round (for SkipRound).
+    /// FaB Lines 92-96: "max_round+ = max{r | ∃k. max_rounds[k] = r ∧ |{j | max_rounds[j] ≥ r}| ≥ f + 1}"
+    /// Returns the certificate if we have f+1 voting power from the round.
+    pub fn build_skip_round_certificate(&self, round: Round) -> Option<Vec<SignedVote<Ctx>>> {
+        let per_round = self.per_round.get(&round)?;
+
+        // FaB: Collect all prevotes from this round
+        let certificate: Vec<SignedVote<Ctx>> = per_round
+            .received_votes
+            .iter()
+            .filter(|vote| vote.vote_type() == VoteType::Prevote)
+            .cloned()
+            .collect();
+
+        // FaB: Check if we have f+1 votes total (honest threshold, not 4f+1!)
+        let weight: Weight = certificate
+            .iter()
+            .filter_map(|vote| self.validator_set.get_by_address(vote.validator_address()))
+            .map(|v| v.voting_power())
+            .sum();
+
+        if self
+            .threshold_params
+            .honest
+            .is_met(weight, self.total_weight())
+        {
+            Some(certificate)
+        } else {
+            None
+        }
+    }
+
+    /// Build a 4f+1 certificate from prevotes in rounds >= min_round.
+    /// FaB Lines 39, 45: "4f+1 <PREVOTE, h_p, r, *> while r >= round_p-1"
+    /// Returns the certificate and the round it was built from.
+    pub fn build_certificate_from_rounds_gte(&self, min_round: Round) -> Option<(Vec<SignedVote<Ctx>>, Round)> {
+        // FaB: Collect prevotes from all rounds >= min_round
+        let mut all_prevotes: Vec<SignedVote<Ctx>> = Vec::new();
+        let mut certificate_round = min_round;
+
+        for (round, per_round) in self.per_round.iter() {
+            if *round >= min_round {
+                let round_prevotes: Vec<SignedVote<Ctx>> = per_round
+                    .received_votes
+                    .iter()
+                    .filter(|vote| vote.vote_type() == VoteType::Prevote)
+                    .cloned()
+                    .collect();
+                all_prevotes.extend(round_prevotes);
+
+                // Track the highest round we collected from
+                if *round > certificate_round {
+                    certificate_round = *round;
+                }
+            }
+        }
+
+        // FaB: Check if we have 4f+1 votes total
+        let weight: Weight = all_prevotes
+            .iter()
+            .filter_map(|vote| self.validator_set.get_by_address(vote.validator_address()))
+            .map(|v| v.voting_power())
+            .sum();
+
+        if self
+            .threshold_params
+            .certificate_quorum
+            .is_met(weight, self.total_weight())
+        {
+            Some((all_prevotes, certificate_round))
+        } else {
+            None
+        }
+    }
+
     /// Find a 2f+1 lock within a certificate.
     /// FaB: Analyzes a certificate to find if there's a 2f+1 quorum for any specific value.
     /// Returns the locked value if found, None otherwise.

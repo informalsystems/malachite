@@ -2,7 +2,7 @@
 
 use derive_where::derive_where;
 
-use crate::input::Input;
+use crate::input::{Certificate, Input};
 use crate::state_machine::Info;
 use crate::transition::Transition;
 
