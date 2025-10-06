@@ -1,9 +1,8 @@
 use derive_where::derive_where;
 
-use malachitebft_core_types::{Context, Round, ValuePayload};
+use malachitebft_core_types::{Context, ValuePayload};
 
-/// The round from which we enable the hidden lock mitigation mechanism
-pub const HIDDEN_LOCK_ROUND: Round = Round::new(10);
+// FaB: Removed HIDDEN_LOCK_ROUND - Tendermint 3f+1 liveness mechanism not used in FaB
 
 #[doc(inline)]
 pub use malachitebft_core_driver::ThresholdParams;

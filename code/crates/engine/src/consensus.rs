@@ -17,8 +17,9 @@ use malachitebft_core_consensus::{
     Effect, LivenessMsg, PeerId, Resumable, Resume, SignedConsensusMsg, VoteExtensionError,
 };
 use malachitebft_core_types::{
-    Context, Height, Proposal, Round, SigningProvider, SigningProviderExt, Timeout, TimeoutKind,
-    ValidatorSet, Validity, Value, ValueId, ValueOrigin, ValueResponse as CoreValueResponse, Vote,
+    Context, Height, NilOrVal, Proposal, Round, SigningProvider, SigningProviderExt, Timeout,
+    TimeoutKind, ValidatorSet, Validity, Value, ValueId, ValueOrigin,
+    ValueResponse as CoreValueResponse, Vote,
 };
 use malachitebft_metrics::Metrics;
 use malachitebft_sync::{
@@ -519,18 +520,7 @@ where
                         }
                     }
 
-                    NetworkEvent::PolkaCertificate(from, certificate) => {
-                        if let Err(e) = self
-                            .process_input(
-                                &myself,
-                                state,
-                                ConsensusInput::PolkaCertificate(certificate),
-                            )
-                            .await
-                        {
-                            error!(%from, "Error when processing polka certificate: {e}");
-                        }
-                    }
+                    // FaB: Removed PolkaCertificate handler - Tendermint 2f+1 prevote concept not used in FaB
 
                     NetworkEvent::RoundCertificate(from, certificate) => {
                         info!(
@@ -1131,13 +1121,10 @@ where
             }
 
             Effect::PublishLivenessMsg(msg, r) => {
+                // FaB: Removed PolkaCertificate case - not used in FaB
                 match msg {
                     LivenessMsg::Vote(ref msg) => {
                         self.tx_event.send(|| Event::RepublishVote(msg.clone()));
-                    }
-                    LivenessMsg::PolkaCertificate(ref certificate) => {
-                        self.tx_event
-                            .send(|| Event::PolkaCertificate(certificate.clone()));
                     }
                     LivenessMsg::SkipRoundCertificate(ref certificate) => {
                         self.tx_event
@@ -1217,13 +1204,19 @@ where
             }
 
             Effect::Decide(certificate, extensions, r) => {
-                assert!(!certificate.commit_signatures.is_empty());
+                // FaB: Certificate is a Vec<SignedVote<Ctx>> containing 4f+1 prevotes
+                assert!(!certificate.is_empty(), "Certificate should not be empty");
 
                 self.wal_flush(state.phase).await?;
 
                 self.tx_event.send(|| Event::Decided(certificate.clone()));
 
-                let height = certificate.height;
+                // FaB: Extract height from the first vote in the certificate
+                // FaB: All votes in the certificate are for the same height
+                let height = certificate
+                    .first()
+                    .expect("Certificate should not be empty")
+                    .height();
 
                 self.host
                     .call_and_forward(
@@ -1278,8 +1271,20 @@ where
                 // NOTE: The state.height is not yet updated if this is an effect that is triggered by the
                 // Msg::StartHeight(height), with buffered sync value for height `height`.
 
-                let certificate_height = value.certificate.height;
-                let certificate_round = value.certificate.round;
+                // FaB: Extract height, round, and value_id from the first vote in the certificate
+                let first_vote = value
+                    .certificate
+                    .first()
+                    .expect("Certificate should not be empty");
+                let certificate_height = first_vote.message.height();
+                let certificate_round = first_vote.message.round();
+                let certificate_value_id = match first_vote.message.value() {
+                    NilOrVal::Val(v) => v.clone(),
+                    NilOrVal::Nil => {
+                        warn!("Certificate contains nil votes, ignoring");
+                        return Ok(r.resume_with(()));
+                    }
+                };
 
                 let Some(sync) = self.sync.clone() else {
                     warn!("Received sync response but sync actor is not available");
@@ -1297,7 +1302,7 @@ where
                     myself,
                     move |proposed| {
                         if proposed.validity == Validity::Invalid
-                            || proposed.value.id() != value.certificate.value_id
+                            || proposed.value.id() != certificate_value_id
                         {
                             if let Err(e) =
                                 sync.cast(SyncMsg::InvalidValue(value.peer, certificate_height))

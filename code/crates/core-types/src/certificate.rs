@@ -298,13 +298,13 @@ pub struct ValueResponse<Ctx: Context> {
     pub peer: PeerId,
     /// The raw bytes of the value
     pub value_bytes: Bytes,
-    /// The commit certificate proving the value was decided
-    pub certificate: CommitCertificate<Ctx>,
+    /// FaB: Certificate is now a Vec<SignedVote<Ctx>> containing 4f+1 prevotes
+    pub certificate: Vec<SignedVote<Ctx>>,
 }
 
 impl<Ctx: Context> ValueResponse<Ctx> {
-    /// Creates a new `ValueResponse` from the raw bytes of the value and the commit certificate.
-    pub fn new(peer: PeerId, value_bytes: Bytes, certificate: CommitCertificate<Ctx>) -> Self {
+    /// FaB: Creates a new `ValueResponse` from the raw bytes of the value and the certificate (4f+1 prevotes).
+    pub fn new(peer: PeerId, value_bytes: Bytes, certificate: Vec<SignedVote<Ctx>>) -> Self {
         Self {
             peer,
             value_bytes,

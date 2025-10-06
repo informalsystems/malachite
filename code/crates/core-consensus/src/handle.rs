@@ -12,7 +12,9 @@ mod timeout;
 mod validator_set;
 mod vote;
 
-use liveness::{on_polka_certificate, on_round_certificate};
+// FaB: Removed on_polka_certificate - no polka certificates in FaB
+use driver::apply_driver_input;
+use liveness::on_round_certificate;
 use proposal::on_proposal;
 use propose::on_propose;
 use proposed_value::on_proposed_value;
@@ -58,8 +60,16 @@ where
             on_proposed_value(co, state, metrics, value, origin).await
         }
         Input::SyncValueResponse(value) => on_value_response(co, state, metrics, value).await,
-        Input::PolkaCertificate(certificate) => {
-            on_polka_certificate(co, state, metrics, certificate).await
+        // FaB: Removed PolkaCertificate - no polka certificates in FaB
+        Input::ReceiveDecision(value, certificate) => {
+            // FaB: Apply decision to driver
+            apply_driver_input(
+                co,
+                state,
+                metrics,
+                DriverInput::ReceiveDecision(value, certificate),
+            )
+            .await
         }
         Input::RoundCertificate(certificate) => {
             on_round_certificate(co, state, metrics, certificate).await

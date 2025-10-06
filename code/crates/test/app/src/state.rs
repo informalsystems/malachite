@@ -14,8 +14,11 @@ use tracing::{debug, error, info};
 use malachitebft_app_channel::app::consensus::{ProposedValue, Role};
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
-use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_app_channel::app::types::core::{Round, Validity};
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_test::codec::json::JsonCodec;
 use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
@@ -282,12 +285,26 @@ impl State {
 
     /// Commits a value with the given certificate, updating internal state
     /// and moving to the next height
+    ///
+    /// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
     pub async fn commit(
         &mut self,
-        certificate: CommitCertificate<TestContext>,
+        certificate: Certificate<TestContext>,
     ) -> eyre::Result<()> {
-        let (height, round, value_id) =
-            (certificate.height, certificate.round, certificate.value_id);
+        // FaB: Extract height, round, and value_id from the first vote in the certificate
+        // FaB: All votes in the certificate are for the same height, round, and value
+        let first_vote = certificate
+            .first()
+            .ok_or_else(|| eyre!("Certificate is empty"))?;
+
+        let height = first_vote.message.height;
+        let round = first_vote.message.round;
+        let value_id = match &first_vote.message.value {
+            malachitebft_app_channel::app::types::core::NilOrVal::Val(v) => v.clone(),
+            malachitebft_app_channel::app::types::core::NilOrVal::Nil => {
+                return Err(eyre!("Certificate contains nil votes"));
+            }
+        };
 
         // Get the first proposal with the given value id. There may be multiple identical ones
         // if peers have restreamed at different rounds.

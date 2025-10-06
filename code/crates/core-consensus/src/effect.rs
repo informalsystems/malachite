@@ -1,5 +1,7 @@
 use derive_where::derive_where;
 
+// FaB: Import Certificate for FaB 4f+1 prevote certificates (from state machine)
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_core_types::*;
 
 use crate::types::{LivenessMsg, SignedConsensusMsg};
@@ -159,15 +161,15 @@ where
 
     /// Notifies the application that consensus has decided on a value.
     ///
-    /// This message includes a commit certificate containing the ID of
-    /// the value that was decided on, the height and round at which it was decided,
-    /// and the aggregated signatures of the validators that committed to it.
+    /// FaB: This message includes a certificate containing 4f+1 prevote messages
+    /// that justify the decision. The certificate contains the signed prevotes
+    /// from validators that voted for the decided value.
     ///
     /// It also includes the vote extensions that were received for this height.
     ///
     /// Resume with: [`resume::Continue`]
     Decide(
-        CommitCertificate<Ctx>,
+        Certificate<Ctx>,  // FaB: 4f+1 prevote certificate instead of CommitCertificate
         VoteExtensions<Ctx>,
         resume::Continue,
     ),

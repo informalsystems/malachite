@@ -5,7 +5,7 @@ use eyre::bail;
 use informalsystems_malachitebft_test::middleware::Middleware;
 use informalsystems_malachitebft_test::TestContext;
 use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::CommitCertificate;
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_test_framework::TestParams;
 
 use crate::TestBuilder;
@@ -58,12 +58,19 @@ impl Middleware for ResetHeight {
     fn on_commit(
         &self,
         _ctx: &TestContext,
-        certificate: &CommitCertificate<TestContext>,
+        certificate: &Certificate<TestContext>,
         proposal: &ProposedValue<TestContext>,
     ) -> Result<(), eyre::Report> {
-        assert_eq!(certificate.height, proposal.height);
+        // FaB: Extract height from the first vote in the certificate
+        let cert_height = certificate
+            .first()
+            .expect("Certificate should not be empty")
+            .message
+            .height;
 
-        if certificate.height.as_u64() == self.reset_height
+        assert_eq!(cert_height, proposal.height);
+
+        if cert_height.as_u64() == self.reset_height
             && !self.reset.swap(true, Ordering::SeqCst)
         {
             bail!("Simulating commit failure");

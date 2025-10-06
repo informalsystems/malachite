@@ -2,6 +2,7 @@ use crate::handle::driver::apply_driver_input;
 use crate::handle::signature::verify_commit_certificate;
 use crate::handle::validator_set::get_validator_set;
 use crate::prelude::*;
+use malachitebft_core_state_machine::input::Certificate;
 
 pub async fn on_value_response<Ctx>(
     co: &Co<Ctx>,
@@ -13,7 +14,14 @@ where
     Ctx: Context,
 {
     let consensus_height = state.height();
-    let cert_height = value.certificate.height;
+
+    // FaB: Extract height and round from the first vote in the certificate
+    let first_vote = value
+        .certificate
+        .first()
+        .expect("Certificate should not be empty");
+    let cert_height = first_vote.message.height();
+    let cert_round = first_vote.message.round();
 
     if consensus_height > cert_height {
         debug!(
@@ -34,21 +42,21 @@ where
 
     info!(
         value.certificate.height = %cert_height,
-        signatures = value.certificate.commit_signatures.len(),
+        signatures = value.certificate.len(),
         "Processing value response"
     );
 
     let proposer = state
-        .get_proposer(cert_height, value.certificate.round)
+        .get_proposer(cert_height, cert_round)
         .clone();
 
     let peer = value.peer;
 
-    let effect = process_commit_certificate(co, state, metrics, value.certificate.clone())
+    let effect = process_certificate(co, state, metrics, value.certificate.clone())
         .await
         .map(|_| Effect::ValidSyncValue(value, proposer, Default::default()))
         .unwrap_or_else(|e| {
-            error!("Error when processing commit certificate: {e}");
+            error!("Error when processing certificate: {e}");
             Effect::InvalidSyncValue(peer, cert_height, e, Default::default())
         });
 
@@ -57,41 +65,21 @@ where
     Ok(())
 }
 
-async fn process_commit_certificate<Ctx>(
+// FaB: TODO - This function needs to be updated for FaB
+// FaB: In FaB, sync should receive a Decision message (value + 4f+1 prevote certificate)
+// FaB: Certificate is now Vec<SignedVote<Ctx>> containing 4f+1 prevotes
+// FaB: For now, this is stubbed out to allow compilation
+async fn process_certificate<Ctx>(
     co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
-    certificate: CommitCertificate<Ctx>,
+    certificate: Certificate<Ctx>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
 {
-    debug!(
-        certificate.height = %certificate.height,
-        signatures = certificate.commit_signatures.len(),
-        "Processing certificate"
-    );
-
-    let Some(validator_set) = get_validator_set(co, state, certificate.height).await? else {
-        return Err(Error::ValidatorSetNotFound(certificate.height));
-    };
-
-    if let Err(e) = verify_commit_certificate(
-        co,
-        certificate.clone(),
-        validator_set.as_ref().clone(),
-        state.params.threshold_params,
-    )
-    .await?
-    {
-        return Err(Error::InvalidCommitCertificate(certificate, e));
-    }
-
-    apply_driver_input(
-        co,
-        state,
-        metrics,
-        DriverInput::CommitCertificate(certificate),
-    )
-    .await
+    // FaB: Sync protocol needs updating for FaB
+    // FaB: Should receive (value, certificate) and apply as DriverInput::ReceiveDecision
+    warn!("FaB: Sync protocol not yet updated for FaB - Certificate handling stubbed out");
+    Ok(())
 }

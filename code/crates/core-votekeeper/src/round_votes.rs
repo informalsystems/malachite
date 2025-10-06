@@ -8,12 +8,11 @@ use crate::count::VoteCount;
 use crate::{Threshold, ThresholdParam, Weight};
 
 /// Tracks all the votes for a single round
+/// FaB: Only prevotes in FaB-a-la-Tendermint-bounded-square (no precommits)
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct RoundVotes<Ctx: Context> {
     /// The prevotes for this round.
     prevotes: VoteCount<Ctx>,
-    /// The precommits for this round.
-    precommits: VoteCount<Ctx>,
 }
 
 impl<Ctx: Context> RoundVotes<Ctx> {
@@ -21,18 +20,12 @@ impl<Ctx: Context> RoundVotes<Ctx> {
     pub fn new() -> Self {
         RoundVotes {
             prevotes: VoteCount::new(),
-            precommits: VoteCount::new(),
         }
     }
 
     /// Return the prevotes for this round.
     pub fn prevotes(&self) -> &VoteCount<Ctx> {
         &self.prevotes
-    }
-
-    /// Return the precommits for this round.
-    pub fn precommits(&self) -> &VoteCount<Ctx> {
-        &self.precommits
     }
 
     /// Add a vote to the round, of the given type, from the given address,
@@ -60,11 +53,6 @@ impl<Ctx: Context> RoundVotes<Ctx> {
         match vote_type {
             VoteType::Prevote => self.prevotes.sum(),
         }
-    }
-
-    /// Get the sum of the weights of all votes, regardless of type, for the given value.
-    pub fn combined_weight(&self, value: &NilOrVal<ValueId<Ctx>>) -> Weight {
-        self.prevotes.get(value) + self.precommits.get(value)
     }
 
     /// Return whether or not the threshold is met, ie. if we have a quorum for that threshold.

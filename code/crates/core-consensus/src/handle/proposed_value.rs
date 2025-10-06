@@ -56,6 +56,15 @@ where
         return Ok(());
     }
 
+    debug!(
+        "Processing ProposedValue: height={}, round={}, value_id={:?}, origin={:?}, mode={:?}",
+        proposed_value.height,
+        proposed_value.round,
+        proposed_value.value.id(),
+        origin,
+        state.params.value_payload
+    );
+
     // There are two cases where we need to generate an internal Proposal message for consensus to process the full proposal:
     // a) In parts-only mode, where we do not get a Proposal message but only the proposal parts
     // b) In any mode if the proposed value was provided by Sync, where we do net get a Proposal message but only the full value and the certificate
@@ -92,11 +101,19 @@ where
     let validity = proposed_value.validity;
     let proposals = state.proposals_for_value(&proposed_value);
 
+    debug!(
+        "Looking for proposals matching value: height={}, round={}, value_id={:?}, found {} proposals",
+        proposed_value.height,
+        proposed_value.round,
+        proposed_value.value.id(),
+        proposals.len()
+    );
+
     for signed_proposal in proposals {
         debug!(
             proposal.height = %signed_proposal.height(),
             proposal.round = %signed_proposal.round(),
-            "We have a full proposal for this round, checking..."
+            "We have a full proposal for this round, applying to driver..."
         );
 
         apply_driver_input(

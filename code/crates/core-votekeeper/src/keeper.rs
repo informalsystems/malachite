@@ -15,24 +15,22 @@ use crate::round_weights::RoundWeights;
 use crate::{Threshold, ThresholdParams, Weight};
 
 /// Messages emitted by the vote keeper
+/// FaB: Updated for FaB-a-la-Tendermint-bounded-square algorithm
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Output<Value> {
-    /// We have a quorum of prevotes for some value or nil
-    PolkaAny,
+    /// We have 4f+1 prevotes for the current round
+    /// FaB: Certificate received (driver should check for 2f+1 locks within it)
+    /// Maps to state machine Input::EnoughPrevotesForRound
+    CertificateAny,
 
-    /// We have a quorum of prevotes for nil
-    PolkaNil,
+    /// We have 4f+1 prevotes for a specific value
+    /// FaB: Certificate for a specific value (used for decisions)
+    /// Maps to state machine Input::CanDecide (if we have matching proposal)
+    CertificateValue(Value),
 
-    /// We have a quorum of prevotes for specific value
-    PolkaValue(Value),
-
-    /// We have a quorum of precommits for some value or nil
-    PrecommitAny,
-
-    /// We have a quorum of precommits for a specific value
-    PrecommitValue(Value),
-
-    /// We have f+1 honest votes for a value at a higher round
+    /// We have f+1 prevotes from a higher round
+    /// FaB: Skip to higher round
+    /// Maps to state machine Input::SkipRound
     SkipRound(Round),
 }
 
@@ -273,7 +271,8 @@ where
             }
         }
 
-        let threshold = compute_threshold(
+        // FaB: Check both 2f+1 (quorum) and 4f+1 (certificate) thresholds
+        let outputs = compute_thresholds(
             vote.vote_type(),
             per_round,
             vote.value(),
@@ -281,16 +280,15 @@ where
             total_weight,
         );
 
-        let output = threshold_to_output(vote.vote_type(), threshold);
-
-        match output {
-            // Ensure we do not output the same message twice
-            Some(output) if !per_round.emitted_outputs.contains(&output) => {
+        // FaB: Return the first new output (highest priority)
+        // Priority: Certificate > Quorum
+        outputs
+            .into_iter()
+            .find(|output| !per_round.emitted_outputs.contains(output))
+            .map(|output| {
                 per_round.emitted_outputs.insert(output.clone());
-                Some(output)
-            }
-            _ => None,
-        }
+                output
+            })
     }
 
     /// Check if a threshold is met, ie. if we have a quorum for that threshold.
@@ -314,49 +312,144 @@ where
     pub fn prune_votes(&mut self, min_round: Round) {
         self.per_round.retain(|round, _| *round >= min_round);
     }
+
+    /// Build a certificate (set of votes) for the given round and value.
+    /// FaB: Collects all prevotes for the given value in the given round.
+    /// Returns None if we don't have enough votes to form a certificate.
+    pub fn build_certificate(
+        &self,
+        round: Round,
+        value_id: &ValueId<Ctx>,
+    ) -> Option<Vec<SignedVote<Ctx>>> {
+        let per_round = self.per_round.get(&round)?;
+
+        // FaB: Collect all prevotes for this value
+        let certificate: Vec<SignedVote<Ctx>> = per_round
+            .received_votes
+            .iter()
+            .filter(|vote| {
+                vote.vote_type() == VoteType::Prevote
+                    && vote.value() == &NilOrVal::Val(value_id.clone())
+            })
+            .cloned()
+            .collect();
+
+        // FaB: Check if we have 4f+1 votes for this value
+        let weight: Weight = certificate
+            .iter()
+            .filter_map(|vote| self.validator_set.get_by_address(vote.validator_address()))
+            .map(|v| v.voting_power())
+            .sum();
+
+        if self
+            .threshold_params
+            .certificate_quorum
+            .is_met(weight, self.total_weight())
+        {
+            Some(certificate)
+        } else {
+            None
+        }
+    }
+
+    /// Build a certificate for any value in the given round.
+    /// FaB: Collects 4f+1 prevotes from the round, regardless of which value they voted for.
+    /// Used for proposer certificates when there's no 2f+1 lock.
+    pub fn build_certificate_any(&self, round: Round) -> Option<Vec<SignedVote<Ctx>>> {
+        let per_round = self.per_round.get(&round)?;
+
+        // FaB: Collect all prevotes from this round
+        let certificate: Vec<SignedVote<Ctx>> = per_round
+            .received_votes
+            .iter()
+            .filter(|vote| vote.vote_type() == VoteType::Prevote)
+            .cloned()
+            .collect();
+
+        // FaB: Check if we have 4f+1 votes total
+        let weight: Weight = certificate
+            .iter()
+            .filter_map(|vote| self.validator_set.get_by_address(vote.validator_address()))
+            .map(|v| v.voting_power())
+            .sum();
+
+        if self
+            .threshold_params
+            .certificate_quorum
+            .is_met(weight, self.total_weight())
+        {
+            Some(certificate)
+        } else {
+            None
+        }
+    }
+
+    /// Find a 2f+1 lock within a certificate.
+    /// FaB: Analyzes a certificate to find if there's a 2f+1 quorum for any specific value.
+    /// Returns the locked value if found, None otherwise.
+    pub fn find_lock_in_certificate(
+        &self,
+        certificate: &[SignedVote<Ctx>],
+    ) -> Option<ValueId<Ctx>> {
+        use alloc::collections::BTreeMap;
+
+        // Count votes per value
+        let mut value_weights: BTreeMap<ValueId<Ctx>, Weight> = BTreeMap::new();
+
+        for vote in certificate {
+            if let NilOrVal::Val(value_id) = vote.value() {
+                if let Some(validator) = self.validator_set.get_by_address(vote.validator_address()) {
+                    *value_weights.entry(value_id.clone()).or_insert(0) += validator.voting_power();
+                }
+            }
+        }
+
+        // FaB: Check if any value has 2f+1 weight (lock)
+        for (value_id, weight) in value_weights {
+            if self.threshold_params.quorum.is_met(weight, self.total_weight()) {
+                return Some(value_id);
+            }
+        }
+
+        None
+    }
 }
 
-/// Compute whether or not we have reached a threshold for the given value,
-/// and return that threshold.
-fn compute_threshold<Ctx>(
+/// Compute whether or not we have reached thresholds (4f+1 certificates) for the given value.
+/// FaB: Returns outputs when 4f+1 threshold is reached.
+/// The driver will analyze certificates to detect 2f+1 locks within them.
+fn compute_thresholds<Ctx>(
     vote_type: VoteType,
     round: &PerRound<Ctx>,
     value: &NilOrVal<ValueId<Ctx>>,
     thresholds: ThresholdParams,
     total_weight: Weight,
-) -> Threshold<ValueId<Ctx>>
+) -> Vec<Output<ValueId<Ctx>>>
 where
     Ctx: Context,
 {
+    let mut outputs = Vec::new();
+
+    // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
+    if vote_type != VoteType::Prevote {
+        return outputs;
+    }
+
     let weight = round.votes.get_weight(vote_type, value);
+    let weight_sum = round.votes.weight_sum(vote_type);
 
-    match value {
-        NilOrVal::Val(value) if thresholds.quorum.is_met(weight, total_weight) => {
-            Threshold::Value(value.clone())
-        }
-
-        NilOrVal::Nil if thresholds.quorum.is_met(weight, total_weight) => Threshold::Nil,
-
-        _ => {
-            let weight_sum = round.votes.weight_sum(vote_type);
-
-            if thresholds.quorum.is_met(weight_sum, total_weight) {
-                Threshold::Any
-            } else {
-                Threshold::Unreached
-            }
+    // FaB: Check 4f+1 certificate thresholds
+    // Certificate for specific value (4f+1 for same value)
+    if let NilOrVal::Val(v) = value {
+        if thresholds.certificate_quorum.is_met(weight, total_weight) {
+            outputs.push(Output::CertificateValue(v.clone()));
         }
     }
-}
 
-/// Map a vote type and a threshold to a state machine output.
-fn threshold_to_output<Value>(typ: VoteType, threshold: Threshold<Value>) -> Option<Output<Value>> {
-    match (typ, threshold) {
-        (_, Threshold::Unreached) => None,
-
-        // FaB: Only PREVOTE messages in FaB-a-la-Tendermint-bounded-square
-        (VoteType::Prevote, Threshold::Any) => Some(Output::PolkaAny),
-        (VoteType::Prevote, Threshold::Nil) => Some(Output::PolkaNil),
-        (VoteType::Prevote, Threshold::Value(v)) => Some(Output::PolkaValue(v)),
+    // Certificate for any value (4f+1 total prevotes, possibly distributed)
+    if thresholds.certificate_quorum.is_met(weight_sum, total_weight) {
+        outputs.push(Output::CertificateAny);
     }
+
+    outputs
 }

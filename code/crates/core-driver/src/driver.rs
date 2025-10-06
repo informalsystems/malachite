@@ -3,12 +3,14 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
 
-use malachitebft_core_state_machine::input::Input as RoundInput;
+use malachitebft_core_state_machine::input::{Certificate, Input as RoundInput};
 use malachitebft_core_state_machine::output::Output as RoundOutput;
-use malachitebft_core_state_machine::state::{RoundValue, State as RoundState, Step};
+use malachitebft_core_state_machine::state::{State as RoundState, Step};
 use malachitebft_core_state_machine::state_machine::Info;
+// FaB: Removed PolkaCertificate, CommitCertificate, PolkaSignature (3f+1 Tendermint concepts)
+// FaB: In FaB-a-la-Tendermint-bounded-square, we use 4f+1 prevote certificates instead
 use malachitebft_core_types::{
-    CommitCertificate, Context, EnterRoundCertificate, NilOrVal, PolkaCertificate, PolkaSignature,
+    Context, EnterRoundCertificate,
     Proposal, Round, RoundCertificateType, SignedProposal, SignedVote, Timeout, TimeoutKind,
     Validator, ValidatorSet, Validity, Value, ValueId, Vote, VoteType,
 };
@@ -49,11 +51,9 @@ where
     /// The vote keeper.
     pub(crate) vote_keeper: VoteKeeper<Ctx>,
 
-    /// The commit certificates
-    pub(crate) commit_certificates: Vec<CommitCertificate<Ctx>>,
-
-    /// The polka certificates
-    pub(crate) polka_certificates: Vec<PolkaCertificate<Ctx>>,
+    // FaB: Removed commit_certificates and polka_certificates (3f+1 Tendermint concepts)
+    // FaB: In FaB, certificates are 4f+1 prevotes, built on-demand from vote_keeper
+    // FaB: Use vote_keeper.build_certificate() or build_certificate_any() instead
 
     /// The state of the round state machine.
     pub(crate) round_state: RoundState<Ctx>,
@@ -62,8 +62,8 @@ where
     /// The first element of the tuple is the round at which that input has been emitted.
     pending_inputs: Vec<(Round, RoundInput<Ctx>)>,
 
+    // FaB: Only prevotes in FaB-a-la-Tendermint-bounded-square (no precommits)
     last_prevote: Option<Ctx::Vote>,
-    last_precommit: Option<Ctx::Vote>,
 
     /// The certificate that justifies moving to the `enter_round` specified in the `EnterRoundCertificate.
     pub round_certificate: Option<EnterRoundCertificate<Ctx>>,
@@ -98,10 +98,9 @@ where
             round_state,
             proposer: None,
             pending_inputs: vec![],
-            commit_certificates: vec![],
-            polka_certificates: vec![],
+            // FaB: Removed commit_certificates and polka_certificates initialization
             last_prevote: None,
-            last_precommit: None,
+            // FaB: No precommits in FaB
             round_certificate: None,
         }
     }
@@ -123,10 +122,9 @@ where
         self.vote_keeper = vote_keeper;
         self.round_state = round_state;
         self.pending_inputs = vec![];
-        self.commit_certificates = vec![];
-        self.polka_certificates = vec![];
+        // FaB: Removed commit_certificates and polka_certificates reset
         self.last_prevote = None;
-        self.last_precommit = None;
+        // FaB: No precommits in FaB
     }
 
     /// Return the height of the consensus.
@@ -154,19 +152,18 @@ where
         self.round_state.step == Step::Prevote
     }
 
-    /// Returns true if the current step is precommit.
-    pub fn step_is_precommit(&self) -> bool {
-        self.round_state.step == Step::Precommit
-    }
+    // FaB: No precommit step in FaB-a-la-Tendermint-bounded-square
 
     /// Returns true if the current step is commit.
     pub fn step_is_commit(&self) -> bool {
         self.round_state.step == Step::Commit
     }
 
-    /// Return the valid value (the value for which we saw a polka) for the current round, if any.
-    pub fn valid_value(&self) -> Option<&RoundValue<Ctx::Value>> {
-        self.round_state.valid.as_ref()
+    // FaB: Removed valid_value() method - Tendermint concept (polka)
+    // FaB: In FaB, use prevoted_value() to get the value we prevoted for
+    /// Return the value we prevoted for in the current round, if any.
+    pub fn prevoted_value(&self) -> Option<&Ctx::Value> {
+        self.round_state.prevoted_value.as_ref()
     }
 
     /// Return a reference to the votekeper
@@ -221,21 +218,8 @@ where
         }
     }
 
-    /// Get a commit certificate for the given round and value id.
-    pub fn commit_certificate(
-        &self,
-        round: Round,
-        value_id: ValueId<Ctx>,
-    ) -> Option<&CommitCertificate<Ctx>> {
-        self.commit_certificates
-            .iter()
-            .find(|c| c.round == round && c.value_id == value_id)
-    }
-
-    /// Get all polka certificates
-    pub fn polka_certificates(&self) -> &[PolkaCertificate<Ctx>] {
-        &self.polka_certificates
-    }
+    // FaB: Removed commit_certificate() and polka_certificates() methods
+    // FaB: No certificate storage in FaB - certificates built on-demand from vote_keeper
 
     /// Get the round certificate for the current round.
     pub fn round_certificate(&self) -> Option<&EnterRoundCertificate<Ctx>> {
@@ -314,7 +298,12 @@ where
                 outputs.push(Output::GetValue(height, round, timeout));
             }
 
-            RoundOutput::Decision(round, proposal) => outputs.push(Output::Decide(round, proposal)),
+            // FaB: Decision is now a struct with certificate (for reliable broadcast)
+            RoundOutput::Decision {
+                round,
+                proposal,
+                certificate,
+            } => outputs.push(Output::Decide(round, proposal, certificate)),
         }
     }
 
@@ -341,56 +330,25 @@ where
         }
     }
 
-    /// Apply the given input to the state machine, returning the output, if any.
+    /// FaB: Apply the given input to the state machine, returning the output, if any.
     fn apply(&mut self, input: Input<Ctx>) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
         match input {
-            Input::CommitCertificate(certificate) => self.apply_commit_certificate(certificate),
-            Input::PolkaCertificate(certificate) => self.apply_polka_certificate(certificate),
+            // FaB: Removed CommitCertificate and PolkaCertificate - not used in FaB
             Input::NewRound(height, round, proposer) => {
                 self.apply_new_round(height, round, proposer)
             }
             Input::ProposeValue(round, value) => self.apply_propose_value(round, value),
             Input::Proposal(proposal, validity) => self.apply_proposal(proposal, validity),
             Input::Vote(vote) => self.apply_vote(vote),
+            Input::ReceiveDecision(value, certificate) => {
+                self.apply_receive_decision(value, certificate)
+            }
             Input::TimeoutElapsed(timeout) => self.apply_timeout(timeout),
         }
     }
 
-    fn apply_commit_certificate(
-        &mut self,
-        certificate: CommitCertificate<Ctx>,
-    ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
-        if self.height() != certificate.height {
-            return Err(Error::InvalidCertificateHeight {
-                certificate_height: certificate.height,
-                consensus_height: self.height(),
-            });
-        }
-
-        let round = certificate.round;
-
-        match self.store_and_multiplex_commit_certificate(certificate) {
-            Some(round_input) => self.apply_input(round, round_input),
-            None => Ok(None),
-        }
-    }
-
-    fn apply_polka_certificate(
-        &mut self,
-        certificate: PolkaCertificate<Ctx>,
-    ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
-        if self.height() != certificate.height {
-            return Err(Error::InvalidCertificateHeight {
-                certificate_height: certificate.height,
-                consensus_height: self.height(),
-            });
-        }
-
-        match self.store_and_multiplex_polka_certificate(certificate) {
-            Some((input_round, round_input)) => self.apply_input(input_round, round_input),
-            None => Ok(None),
-        }
-    }
+    // FaB: Removed apply_commit_certificate() - no commit certificates in FaB
+    // FaB: Removed apply_polka_certificate() - no polka certificates in FaB
 
     fn apply_new_round(
         &mut self,
@@ -411,12 +369,55 @@ where
         self.apply_input(round, RoundInput::NewRound(round))
     }
 
+    // FaB: When proposer receives a value to propose, check if there's a certificate
+    /// FaB: Maps to LeaderProposeWithLock or LeaderProposeWithoutLock
     fn apply_propose_value(
         &mut self,
         round: Round,
         value: Ctx::Value,
     ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
-        self.apply_input(round, RoundInput::ProposeValue(value))
+        // FaB: Try to build a 4f+1 certificate for the previous round
+        // FaB: In round 0, there's no certificate needed - propose immediately with empty certificate
+        if round == Round::new(0) {
+            // FaB: Round 0 - propose without lock, pass value so it broadcasts immediately
+            let certificate = Vec::new(); // Empty certificate for round 0
+            return self.apply_input(
+                round,
+                RoundInput::LeaderProposeWithoutLock {
+                    value: Some(value),
+                    certificate,
+                },
+            );
+        }
+
+        // FaB: Try to build certificate from previous round
+        let prev_round = Round::new((round.as_i64() - 1) as u32);
+
+        // FaB: Check if we have a 4f+1 certificate with a 2f+1 lock on this value
+        if let Some(certificate) = self.vote_keeper.build_certificate(prev_round, &value.id()) {
+            // FaB: We have a certificate for this value → propose with lock
+            self.apply_input(
+                round,
+                RoundInput::LeaderProposeWithLock {
+                    value,
+                    certificate,
+                    certificate_round: prev_round,
+                },
+            )
+        } else if let Some(certificate) = self.vote_keeper.build_certificate_any(prev_round) {
+            // FaB: We have 4f+1 prevotes but no lock → propose without lock (value=None means request new value)
+            self.apply_input(
+                round,
+                RoundInput::LeaderProposeWithoutLock {
+                    value: None,
+                    certificate,
+                },
+            )
+        } else {
+            // FaB: No certificate available - shouldn't happen
+            // FaB: Proposer should only receive ProposeValue after seeing 4f+1 prevotes
+            Ok(None)
+        }
     }
 
     fn apply_proposal(
@@ -461,87 +462,43 @@ where
         let vote_round = vote.round();
         let this_round = self.round();
 
+        // FaB: Apply vote to vote keeper, get output if threshold reached
         let Some(output) = self.vote_keeper.apply_vote(vote, this_round) else {
             return Ok(None);
         };
 
+        // FaB: Handle certificate storage for skip rounds
         match &output {
-            VKOutput::PolkaValue(val) => self.store_polka_certificate(vote_round, val),
-            // Only store PrecommitAny certificates for the current round:
-            // - Lower round PrecommitAny is ignored
-            // - Higher round PrecommitAny cannot occur because receiving 2f+1
-            //   Precommit votes for a higher round would first generate a SkipRound certificate,
-            //   advancing the node to that round before the PrecommitAny is processed
-            VKOutput::PrecommitAny if this_round == vote_round => {
-                self.store_precommit_any_round_certificate(vote_round)
-            }
+            // FaB: Removed PolkaValue - no polka certificate storage
+            // FaB: Removed PrecommitAny - no precommit certificates in FaB
+
+            // FaB: Store skip round certificate (lines 95-96)
             VKOutput::SkipRound(round) => self.store_skip_round_certificate(*round),
+
+            // FaB: CertificateAny and CertificateValue don't need certificate storage
+            // FaB: They're built on-demand by multiplex_vote_threshold
             _ => (),
         }
 
-        let (input_round, round_input) = self.multiplex_vote_threshold(output, vote_round);
-
-        if round_input == RoundInput::NoInput {
+        // FaB: Multiplex the vote keeper output into a state machine input
+        let Some((input_round, round_input)) = self.multiplex_vote_threshold(output, vote_round) else {
             return Ok(None);
-        }
+        };
 
         self.apply_input(input_round, round_input)
     }
 
-    fn store_polka_certificate(&mut self, vote_round: Round, value_id: &ValueId<Ctx>) {
-        let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
-            return;
-        };
+    // FaB: Removed store_polka_certificate() - Tendermint 3f+1 concept
+    // FaB: No polka certificate storage in FaB
 
-        self.polka_certificates.push(PolkaCertificate {
-            height: self.height(),
-            round: vote_round,
-            value_id: value_id.clone(),
-            polka_signatures: per_round
-                .received_votes()
-                .iter()
-                .filter(|v| {
-                    v.vote_type() == VoteType::Prevote
-                        && v.value().as_ref() == NilOrVal::Val(value_id)
-                })
-                .map(|v| PolkaSignature::new(v.validator_address().clone(), v.signature.clone()))
-                .collect(),
-        })
-    }
-
-    /// Prunes all polka certificates and votes from rounds less than `min_round`.
+    /// FaB: Prunes all votes from rounds less than `min_round`.
     pub fn prune_votes_and_certificates(&mut self, min_round: Round) {
-        self.prune_polka_certificates(min_round);
+        // FaB: No certificates to prune - just prune votes
         self.vote_keeper.prune_votes(min_round);
     }
 
-    /// Prunes all polka certificates from rounds less than `min_round`.
-    fn prune_polka_certificates(&mut self, min_round: Round) {
-        self.polka_certificates
-            .retain(|cert| cert.round >= min_round);
-    }
-
-    fn store_precommit_any_round_certificate(&mut self, vote_round: Round) {
-        let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
-            panic!("Missing the PrecommitAny votes for round {vote_round}");
-        };
-
-        // FaB: Use prevotes instead of precommits
-        let prevotes: Vec<SignedVote<Ctx>> = per_round
-            .received_votes()
-            .iter()
-            .filter(|v| v.vote_type() == VoteType::Prevote)
-            .cloned()
-            .collect();
-
-        self.round_certificate = Some(EnterRoundCertificate::new_from_votes(
-            self.height(),
-            vote_round.increment(),
-            vote_round,
-            RoundCertificateType::Skip, // FaB: Changed from Precommit to Skip
-            prevotes,
-        ));
-    }
+    // FaB: Removed prune_polka_certificates() - no certificate storage
+    // FaB: Removed store_precommit_any_round_certificate() - no precommits in FaB
 
     fn store_skip_round_certificate(&mut self, vote_round: Round) {
         let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
@@ -565,17 +522,48 @@ where
         ));
     }
 
-    // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
+    // FaB: Timeout handling for FaB-a-la-Tendermint-bounded-square
+    // FaB: Only TimeoutPropose and TimeoutPrevote (no Precommit timeout)
     fn apply_timeout(&mut self, timeout: Timeout) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
         let input = match timeout.kind {
+            // FaB: TimeoutPropose (line 98-102)
             TimeoutKind::Propose => RoundInput::TimeoutPropose,
-            TimeoutKind::Prevote => RoundInput::TimeoutPrevote,
 
+            // FaB: TimeoutPrevote (line 104-106) - needs certificate of prevotes seen
+            TimeoutKind::Prevote => {
+                // FaB: Build certificate of all prevotes we've seen for this round
+                let certificate = self
+                    .vote_keeper
+                    .build_certificate_any(timeout.round)
+                    .unwrap_or_default();
+
+                RoundInput::TimeoutPrevote { certificate }
+            }
+
+            // FaB: Rebroadcast timeout (line 108-113)
             // The driver never receives these events, so we can just ignore them.
             TimeoutKind::Rebroadcast => return Ok(None),
         };
 
         self.apply_input(timeout.round, input)
+    }
+
+    /// FaB: Apply a received decision from the network/sync protocol
+    /// FaB: This allows nodes to learn about decisions from other nodes
+    fn apply_receive_decision(
+        &mut self,
+        value: Ctx::Value,
+        certificate: Certificate<Ctx>,
+    ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
+        // FaB: Pass the decision to the state machine
+        // FaB: The state machine will validate and potentially decide
+        self.apply_input(
+            self.round(),
+            RoundInput::ReceiveDecision {
+                value,
+                certificate,
+            },
+        )
     }
 
     /// Apply the input, update the state.

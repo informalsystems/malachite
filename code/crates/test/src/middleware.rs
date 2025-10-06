@@ -1,7 +1,10 @@
 use core::fmt;
 
 use malachitebft_core_consensus::{LocallyProposedValue, ProposedValue};
-use malachitebft_core_types::{CommitCertificate, NilOrVal, Round};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_core_state_machine::input::Certificate;
+use malachitebft_core_types::{NilOrVal, Round};
 
 use crate::decided_value::DecidedValue;
 use crate::{Address, Genesis, Height, Proposal, TestContext, ValidatorSet, Value, ValueId, Vote};
@@ -63,10 +66,11 @@ pub trait Middleware: fmt::Debug + Send + Sync {
     ) {
     }
 
+    /// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
     fn on_commit(
         &self,
         _ctx: &TestContext,
-        _certificate: &CommitCertificate<TestContext>,
+        _certificate: &Certificate<TestContext>,
         _proposal: &ProposedValue<TestContext>,
     ) -> Result<(), eyre::Report> {
         Ok(())

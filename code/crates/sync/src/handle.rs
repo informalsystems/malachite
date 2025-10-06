@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use derive_where::derive_where;
 use tracing::{debug, error, info, warn};
 
-use malachitebft_core_types::{Context, Height};
+use malachitebft_core_types::{Context, Height, Vote};
 
 use crate::co::Co;
 use crate::scoring::SyncResult;
@@ -103,9 +103,15 @@ where
             // verify that the heights of the certificates are also correct
             let mut current_height = start;
             for value in response.values.iter() {
-                if value.certificate.height != current_height {
+                // FaB: Extract height from the first vote in the certificate
+                let cert_height = value
+                    .certificate
+                    .first()
+                    .expect("Certificate should not be empty")
+                    .height();
+                if cert_height != current_height {
                     warn!(%request_id, %peer_id, "Received response with wrong certificate heights: expected {}, got {}",
-                        current_height, value.certificate.height);
+                        current_height, cert_height);
 
                     // Received a value with invalid range of heights from this peer and hence update the peer's score accordingly.
                     state.peer_scorer.update_score(peer_id, SyncResult::Failure);
@@ -386,10 +392,16 @@ where
     // Validate the height of each received value
     let mut height = *start;
     for value in values.clone() {
-        if value.certificate.height != height {
+        // FaB: Extract height from the first vote in the certificate
+        let cert_height = value
+            .certificate
+            .first()
+            .expect("Certificate should not be empty")
+            .height();
+        if cert_height != height {
             error!(
                 "Received from host value for height {}, expected for height {height}",
-                value.certificate.height
+                cert_height
             );
         }
         height = height.increment();

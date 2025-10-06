@@ -31,9 +31,20 @@ pub async fn on_propose<Ctx>(
 where
     Ctx: Context,
 {
+    info!(
+        "on_propose called: height={}, round={}, current_height={}, current_round={}",
+        local_value.height,
+        local_value.round,
+        state.driver.height(),
+        state.driver.round()
+    );
+
     if !verify_propose_value(state, &local_value)? {
+        warn!("verify_propose_value returned false");
         return Ok(());
     }
+
+    info!("verify_propose_value passed, creating ProposedValue");
 
     let proposed_value = ProposedValue {
         height: local_value.height,
@@ -60,13 +71,23 @@ where
 
     state.store_value(&proposed_value);
 
-    apply_driver_input(
+    info!("Calling apply_driver_input with ProposeValue");
+
+    let result = apply_driver_input(
         co,
         state,
         metrics,
         DriverInput::ProposeValue(local_value.round, local_value.value),
     )
-    .await
+    .await;
+
+    if let Err(ref e) = result {
+        error!("apply_driver_input failed: {}", e);
+    } else {
+        info!("apply_driver_input succeeded");
+    }
+
+    result
 }
 
 /// Verifies if a locally proposed value matches the current consensus state.

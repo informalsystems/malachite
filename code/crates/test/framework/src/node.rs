@@ -242,6 +242,9 @@ where
         })
     }
 
+    // FaB: PolkaCertificate event removed - Tendermint 2f+1 prevote concept not used in FaB
+    // FaB: This method is disabled for FaB
+    /*
     pub fn expect_polka_certificate(&mut self, at_height: u64, at_round: u32) -> &mut Self {
         self.on_event(move |event, _| {
             let Event::PolkaCertificate(msg) = event else {
@@ -263,6 +266,7 @@ where
             Ok(HandlerResult::ContinueTest)
         })
     }
+    */
 
     pub fn on_proposed_value<F>(&mut self, f: F) -> &mut Self
     where

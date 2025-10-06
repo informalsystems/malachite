@@ -27,6 +27,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 malachitebft-app-channel.workspace = true
+malachitebft-core-state-machine.workspace = true
 malachitebft-proto.workspace = true
 malachitebft-test.workspace = true
 malachitebft-test-cli.workspace = true

@@ -8,7 +8,8 @@ use informalsystems_malachitebft_test::TestContext;
 use informalsystems_malachitebft_test::{Height, Value, ValueId};
 use malachitebft_config::ValuePayload;
 use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::{CommitCertificate, Round};
+use malachitebft_core_state_machine::input::Certificate;
+use malachitebft_core_types::Round;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -365,12 +366,19 @@ impl Middleware for ResetHeight {
     fn on_commit(
         &self,
         _ctx: &TestContext,
-        certificate: &CommitCertificate<TestContext>,
+        certificate: &Certificate<TestContext>,
         proposal: &ProposedValue<TestContext>,
     ) -> Result<(), eyre::Report> {
-        assert_eq!(certificate.height, proposal.height);
+        // FaB: Extract height from the first vote in the certificate
+        let cert_height = certificate
+            .first()
+            .expect("Certificate should not be empty")
+            .message
+            .height;
 
-        if certificate.height.as_u64() == self.reset_height
+        assert_eq!(cert_height, proposal.height);
+
+        if cert_height.as_u64() == self.reset_height
             && !self.reset.swap(true, Ordering::SeqCst)
         {
             bail!("Simulating commit failure");
@@ -490,17 +498,14 @@ impl InvalidDecidedValue {
 impl Middleware for InvalidDecidedValue {
     fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
         if self.heights.contains(&height) {
+            // FaB: Certificate is now a Vec<SignedVote> containing 4f+1 prevotes
+            // Return an empty certificate (invalid)
             Some(DecidedValue {
                 value: Value {
                     value: 1,
                     extensions: Bytes::new(),
                 },
-                certificate: CommitCertificate::new(
-                    Height::new(1),
-                    Round::new(1),
-                    ValueId::new(1),
-                    vec![],
-                ),
+                certificate: vec![],
             })
         } else {
             None

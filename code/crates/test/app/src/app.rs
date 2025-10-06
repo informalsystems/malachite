@@ -207,19 +207,32 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
             // to commit for the current height, and will notify the application,
             // providing it with a commit certificate which contains the ID of the value
             // that was decided on as well as the set of commits for that value,
-            // ie. the precommits together with their (aggregated) signatures.
+            // FaB: Certificate contains 4f+1 prevotes instead of 2f+1 precommits
             AppMsg::Decided {
                 certificate,
                 extensions: _,
                 reply,
             } => {
+                // FaB: Extract height, round, and value_id from the first vote in the certificate
+                // FaB: All votes in the certificate are for the same height, round, and value
+                let first_vote = certificate.first().expect("Certificate should not be empty");
+                let height = first_vote.message.height;
+                let round = first_vote.message.round;
+                let value_id = match &first_vote.message.value {
+                    malachitebft_app_channel::app::types::core::NilOrVal::Val(v) => v.clone(),
+                    malachitebft_app_channel::app::types::core::NilOrVal::Nil => {
+                        panic!("Certificate contains nil votes");
+                    }
+                };
+
                 info!(
-                    height = %certificate.height,
-                    round = %certificate.round,
-                    value = %certificate.value_id,
+                    %height,
+                    %round,
+                    %value_id,
+                    votes = certificate.len(),
                     "Consensus has decided on value, committing..."
                 );
-                assert!(!certificate.commit_signatures.is_empty());
+                assert!(!certificate.is_empty());
 
                 // When that happens, we store the decided value in our store
                 match state.commit(certificate).await {

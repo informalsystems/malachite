@@ -1,9 +1,10 @@
 use derive_where::derive_where;
 use thiserror::Error;
 
+// FaB: Remove PolkaCertificate (Tendermint 2f+1 prevote concept)
 use malachitebft_core_types::{
-    Context, PolkaCertificate, Proposal, Round, RoundCertificate, Signature, SignedProposal,
-    SignedVote, Timeout, Validity, Vote,
+    Context, Proposal, Round, RoundCertificate, Signature, SignedProposal, SignedVote, Timeout,
+    Validity, Vote,
 };
 
 pub use malachitebft_core_types::ValuePayload;
@@ -130,6 +131,6 @@ pub enum VoteExtensionError {
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum LivenessMsg<Ctx: Context> {
     Vote(SignedVote<Ctx>),
-    PolkaCertificate(PolkaCertificate<Ctx>),
+    // FaB: Removed PolkaCertificate - Tendermint 2f+1 prevote concept not used in FaB
     SkipRoundCertificate(RoundCertificate<Ctx>),
 }

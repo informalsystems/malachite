@@ -5,7 +5,10 @@ use derive_where::derive_where;
 use ractor::{ActorRef, RpcReplyPort};
 
 use malachitebft_core_consensus::{Role, VoteExtensionError};
-use malachitebft_core_types::{CommitCertificate, Context, Round, ValueId, VoteExtensions};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_core_state_machine::input::Certificate;
+use malachitebft_core_types::{Context, Round, ValueId, VoteExtensions};
 use malachitebft_sync::{PeerId, RawDecidedValue};
 
 use crate::util::streaming::StreamMessage;
@@ -156,10 +159,10 @@ pub enum HostMsg<Ctx: Context> {
     ///
     /// If the application does not reply, consensus will stall.
     Decided {
-        /// The commit certificate containing the ID of the value that was decided on,
-        /// the the height and round at which it was decided, and the aggregated signatures
-        /// of the validators that committed to it.
-        certificate: CommitCertificate<Ctx>,
+        /// FaB: The certificate containing 4f+1 prevote messages that justify the decision.
+        /// FaB: This is a Vec<SignedVote<Ctx>> containing the prevotes from validators
+        /// FaB: that voted for the decided value.
+        certificate: Certificate<Ctx>,
 
         /// Vote extensions that were received for this height.
         extensions: VoteExtensions<Ctx>,

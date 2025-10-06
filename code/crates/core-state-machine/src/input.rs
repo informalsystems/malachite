@@ -3,10 +3,11 @@
 
 use derive_where::derive_where;
 
-use malachitebft_core_types::{Context, Round};
+use malachitebft_core_types::{Context, Round, SignedVote};
 
 /// A certificate is a set of prevote messages that justify a transition
-pub type Certificate<Ctx> = alloc::vec::Vec<<Ctx as Context>::Vote>;
+/// FaB: Certificates are 4f+1 signed prevotes (or f+1 for skip rounds)
+pub type Certificate<Ctx> = alloc::vec::Vec<SignedVote<Ctx>>;
 
 /// Input to the round state machine.
 /// FaB: Based on ConsensusInput from Quint spec
@@ -33,8 +34,9 @@ where
 
     /// FaB: Leader (proposer) can propose after receiving 4f+1 prevotes WITHOUT a 2f+1 lock
     /// Maps to: LeaderProposeWithoutLockInput
-    /// Contains: certificate of 4f+1 prevotes
+    /// Contains: certificate of 4f+1 prevotes, optional value (Some for round 0, None otherwise)
     LeaderProposeWithoutLock {
+        value: Option<Ctx::Value>,
         certificate: Certificate<Ctx>,
     },
 

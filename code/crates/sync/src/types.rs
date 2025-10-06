@@ -6,7 +6,10 @@ use displaydoc::Display;
 use libp2p::request_response;
 use serde::{Deserialize, Serialize};
 
-use malachitebft_core_types::{CommitCertificate, Context, Height};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_core_state_machine::input::Certificate;
+use malachitebft_core_types::{Context, Height};
 pub use malachitebft_peer::PeerId;
 
 /// Indicates whether the height is the start of a new height or a restart of the latest height
@@ -116,11 +119,13 @@ impl<Ctx: Context> ValueResponse<Ctx> {
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub struct RawDecidedValue<Ctx: Context> {
     pub value_bytes: Bytes,
-    pub certificate: CommitCertificate<Ctx>,
+    /// FaB: Certificate is now a Vec<SignedVote<Ctx>> containing 4f+1 prevotes
+    pub certificate: Certificate<Ctx>,
 }
 
 impl<Ctx: Context> RawDecidedValue<Ctx> {
-    pub fn new(value_bytes: Bytes, certificate: CommitCertificate<Ctx>) -> Self {
+    /// FaB: Certificate is now a Vec<SignedVote<Ctx>> containing 4f+1 prevotes
+    pub fn new(value_bytes: Bytes, certificate: Certificate<Ctx>) -> Self {
         Self {
             value_bytes,
             certificate,

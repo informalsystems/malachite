@@ -15,8 +15,7 @@ pub use error::Error;
 mod params;
 pub use params::{Params, ThresholdParams};
 
-#[doc(hidden)]
-pub use params::HIDDEN_LOCK_ROUND;
+// FaB: Removed HIDDEN_LOCK_ROUND export - not used in FaB
 
 mod effect;
 pub use effect::{Effect, Resumable, Resume};

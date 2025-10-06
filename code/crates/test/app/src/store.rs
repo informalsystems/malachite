@@ -8,8 +8,11 @@ use thiserror::Error;
 use tracing::error;
 
 use malachitebft_app_channel::app::types::codec::Codec;
-use malachitebft_app_channel::app::types::core::{CommitCertificate, Round};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_app_channel::app::types::core::Round;
 use malachitebft_app_channel::app::types::ProposedValue;
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_test::codec::proto as codec;
 use malachitebft_test::codec::proto::ProtobufCodec;
@@ -23,13 +26,15 @@ use crate::store::keys::PendingValueKey;
 use crate::streaming::ProposalParts;
 use malachitebft_test::decided_value::DecidedValue;
 
-fn decode_certificate(bytes: &[u8]) -> Result<CommitCertificate<TestContext>, ProtoError> {
-    let proto = proto::CommitCertificate::decode(bytes)?;
-    codec::decode_commit_certificate(proto)
+// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
+fn decode_certificate(bytes: &[u8]) -> Result<Certificate<TestContext>, ProtoError> {
+    let proto = proto::Certificate::decode(bytes)?;
+    codec::decode_certificate(proto)
 }
 
-fn encode_certificate(certificate: &CommitCertificate<TestContext>) -> Result<Vec<u8>, ProtoError> {
-    let proto = codec::encode_commit_certificate(certificate)?;
+// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
+fn encode_certificate(certificate: &Certificate<TestContext>) -> Result<Vec<u8>, ProtoError> {
+    let proto = codec::encode_certificate(certificate)?;
     Ok(proto.encode_to_vec())
 }
 
@@ -110,7 +115,13 @@ impl Db {
     }
 
     fn insert_decided_value(&self, decided_value: DecidedValue) -> Result<(), StoreError> {
-        let height = decided_value.certificate.height;
+        // FaB: Extract height from the first vote in the certificate
+        let height = decided_value
+            .certificate
+            .first()
+            .expect("Certificate should not be empty")
+            .message
+            .height;
 
         let tx = self.db.begin_write()?;
         {
@@ -387,9 +398,10 @@ impl Store {
         tokio::task::spawn_blocking(move || db.get_decided_value(height)).await?
     }
 
+    /// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
     pub async fn store_decided_value(
         &self,
-        certificate: &CommitCertificate<TestContext>,
+        certificate: &Certificate<TestContext>,
         value: Value,
     ) -> Result<(), StoreError> {
         let decided_value = DecidedValue {

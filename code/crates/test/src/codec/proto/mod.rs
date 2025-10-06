@@ -192,9 +192,10 @@ impl Codec<LivenessMsg<TestContext>> for ProtobufCodec {
             Some(proto::liveness_message::Message::Vote(vote)) => {
                 Ok(LivenessMsg::Vote(decode_vote(vote)?))
             }
-            Some(proto::liveness_message::Message::PolkaCertificate(cert)) => Ok(
-                LivenessMsg::PolkaCertificate(decode_polka_certificate(cert)?),
-            ),
+            // FaB: Removed PolkaCertificate decoding - not used in FaB
+            Some(proto::liveness_message::Message::PolkaCertificate(_cert)) => {
+                Err(ProtoError::Other("PolkaCertificate not supported in FaB".to_string()))
+            }
             Some(proto::liveness_message::Message::RoundCertificate(cert)) => Ok(
                 LivenessMsg::SkipRoundCertificate(decode_round_certificate(cert)?),
             ),
@@ -215,15 +216,7 @@ impl Codec<LivenessMsg<TestContext>> for ProtobufCodec {
                     .encode_to_vec(),
                 ))
             }
-            LivenessMsg::PolkaCertificate(cert) => {
-                let message = encode_polka_certificate(cert)?;
-                Ok(Bytes::from(
-                    proto::LivenessMessage {
-                        message: Some(proto::liveness_message::Message::PolkaCertificate(message)),
-                    }
-                    .encode_to_vec(),
-                ))
-            }
+            // FaB: Removed PolkaCertificate encoding - not used in FaB
             LivenessMsg::SkipRoundCertificate(cert) => {
                 let message = encode_round_certificate(cert)?;
                 Ok(Bytes::from(
@@ -455,7 +448,8 @@ pub fn encode_synced_value(
 ) -> Result<proto::SyncedValue, ProtoError> {
     Ok(proto::SyncedValue {
         value_bytes: synced_value.value_bytes.clone(),
-        certificate: Some(encode_commit_certificate(&synced_value.certificate)?),
+        // FaB: Use encode_certificate for Vec<SignedVote> instead of encode_commit_certificate
+        certificate: Some(encode_certificate(&synced_value.certificate)?),
     })
 }
 
@@ -468,7 +462,8 @@ pub fn decode_synced_value(
 
     Ok(sync::RawDecidedValue {
         value_bytes: proto.value_bytes,
-        certificate: decode_commit_certificate(certificate)?,
+        // FaB: Use decode_certificate for Vec<SignedVote> instead of decode_commit_certificate
+        certificate: decode_certificate(certificate)?,
     })
 }
 
@@ -585,6 +580,29 @@ pub fn encode_commit_certificate(
             })
             .collect::<Result<Vec<_>, _>>()?,
     })
+}
+
+// FaB: Certificate is a Vec<SignedVote> containing 4f+1 prevote messages
+pub fn encode_certificate(
+    certificate: &malachitebft_core_state_machine::input::Certificate<TestContext>,
+) -> Result<proto::Certificate, ProtoError> {
+    let votes = certificate
+        .iter()
+        .map(|vote| encode_vote(vote))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(proto::Certificate { votes })
+}
+
+// FaB: Certificate is a Vec<SignedVote> containing 4f+1 prevote messages
+pub fn decode_certificate(
+    certificate: proto::Certificate,
+) -> Result<malachitebft_core_state_machine::input::Certificate<TestContext>, ProtoError> {
+    certificate
+        .votes
+        .into_iter()
+        .map(|vote| decode_vote(vote))
+        .collect::<Result<Vec<_>, _>>()
 }
 
 pub fn decode_extension(ext: proto::Extension) -> Result<SignedExtension<TestContext>, ProtoError> {

@@ -15,7 +15,10 @@ use malachitebft_engine::host::Next;
 use malachitebft_engine::network::Msg as NetworkActorMsg;
 use malachitebft_engine::util::events::TxEvent;
 
-use crate::app::types::core::{CommitCertificate, Context, Round, ValueId, VoteExtensions};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_core_state_machine::input::Certificate;
+use crate::app::types::core::{Context, Round, ValueId, VoteExtensions};
 use crate::app::types::streaming::StreamMessage;
 use crate::app::types::sync::RawDecidedValue;
 use crate::app::types::{LocallyProposedValue, PeerId, ProposedValue};
@@ -217,9 +220,9 @@ pub enum AppMsg<Ctx: Context> {
 
     /// Notifies the application that consensus has decided on a value.
     ///
-    /// This message includes a commit certificate containing the ID of
-    /// the value that was decided on, the height and round at which it was decided,
-    /// and the aggregated signatures of the validators that committed to it.
+    /// FaB: This message includes a certificate containing 4f+1 prevote messages
+    /// that justify the decision. The certificate is a Vec<SignedVote<Ctx>> containing
+    /// the signed prevotes from validators that voted for the decided value.
     /// It also includes to the vote extensions received for that height.
     ///
     /// In response to this message, the application MUST send a [`Next`]
@@ -229,8 +232,8 @@ pub enum AppMsg<Ctx: Context> {
     ///
     /// If the application does not reply, consensus will stall.
     Decided {
-        /// The certificate for the decided value
-        certificate: CommitCertificate<Ctx>,
+        /// FaB: The certificate containing 4f+1 prevote messages that justify the decision
+        certificate: Certificate<Ctx>,
 
         /// The vote extensions received for that height
         extensions: VoteExtensions<Ctx>,

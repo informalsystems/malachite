@@ -146,19 +146,55 @@ where
         }
 
         // Leader received 4f+1 prevotes WITHOUT a 2f+1 lock
-        (Step::Prepropose, Input::LeaderProposeWithoutLock { certificate: _ })
+        (Step::Prepropose, Input::LeaderProposeWithoutLock { value, certificate })
             if this_round && info.is_proposer() =>
         {
             state.step = Step::Propose;
 
-            // Get a new value and broadcast PROPOSAL with certificate
-            let get_value = Output::get_value_and_schedule_timeout(
+            // If we already have a value (round 0), broadcast proposal immediately
+            // Otherwise, request a new value
+            if let Some(v) = value {
+                // FaB: Round 0 - we already have the value, broadcast immediately
+                let proposal = ctx.new_proposal(
+                    state.height,
+                    state.round,
+                    v,
+                    Round::Nil, // No pol_round for round 0
+                    info.address.clone(),
+                );
+
+                Transition::to(state).with_output(Output::Proposal(proposal))
+            } else {
+                // Get a new value and broadcast PROPOSAL with certificate
+                let get_value = Output::get_value_and_schedule_timeout(
+                    state.height,
+                    state.round,
+                    TimeoutKind::Propose,
+                );
+
+                Transition::to(state).with_output(get_value)
+            }
+        }
+
+        //
+        // Propose step - Proposer at round 0 broadcasts proposal
+        // FaB pseudocode lines 33-34
+        //
+
+        // Proposer at round 0 receives value from app and broadcasts proposal immediately
+        (Step::Propose, Input::LeaderProposeWithoutLock { value: Some(v), certificate: _ })
+            if this_round && info.is_proposer() && state.round == Round::ZERO =>
+        {
+            // FaB: Round 0 - proposer broadcasts proposal immediately
+            let proposal = ctx.new_proposal(
                 state.height,
                 state.round,
-                TimeoutKind::Propose,
+                v,
+                Round::Nil, // No pol_round for round 0
+                info.address.clone(),
             );
 
-            Transition::to(state).with_output(get_value)
+            Transition::to(state).with_output(Output::Proposal(proposal))
         }
 
         //

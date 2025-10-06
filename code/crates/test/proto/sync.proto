@@ -27,7 +27,8 @@ message ValueResponse {
 
 message SyncedValue {
     bytes value_bytes = 1;
-    CommitCertificate certificate = 2;
+    // FaB: Certificate is now a Vec<SignedVote> containing 4f+1 prevotes
+    Certificate certificate = 2;
 }
 
 message CommitSignature {
@@ -41,6 +42,11 @@ message CommitCertificate {
     uint32 round = 2;
     ValueId value_id = 3;
     repeated CommitSignature signatures = 4;
+}
+
+// FaB: Certificate is a Vec<SignedVote> containing 4f+1 prevote messages
+message Certificate {
+    repeated SignedMessage votes = 1;
 }
 
 message ProposedValue {

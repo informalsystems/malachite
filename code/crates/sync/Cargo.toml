@@ -17,6 +17,7 @@ borsh = ["dep:borsh", "malachitebft-peer/borsh"]
 
 [dependencies]
 malachitebft-core-types = { workspace = true }
+malachitebft-core-state-machine = { workspace = true }
 malachitebft-metrics = { workspace = true }
 malachitebft-peer = { workspace = true }
 eyre = {workspace = true}

@@ -1,5 +1,6 @@
 use derive_where::derive_where;
 
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_core_types::{Context, Round, Timeout};
 
 /// Messages emitted by the [`Driver`](crate::Driver)
@@ -18,7 +19,8 @@ where
     Vote(Ctx::Vote),
 
     /// Decide on a value
-    Decide(Round, Ctx::Proposal),
+    /// FaB: Includes certificate for reliable broadcast
+    Decide(Round, Ctx::Proposal, Certificate<Ctx>),
 
     /// Schedule a timeout
     ScheduleTimeout(Timeout),

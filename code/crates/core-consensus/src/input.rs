@@ -1,6 +1,8 @@
 use derive_where::derive_where;
+// FaB: Import Certificate for FaB 4f+1 prevote certificates (from state machine)
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_core_types::{
-    Context, PolkaCertificate, RoundCertificate, SignedProposal, SignedVote, Timeout, ValueOrigin,
+    Context, RoundCertificate, SignedProposal, SignedVote, Timeout, ValueOrigin,
     ValueResponse,
 };
 
@@ -24,10 +26,14 @@ where
     /// i.e. when consensus runs in a mode where the proposer sends a Proposal consensus message over the network.
     Proposal(SignedProposal<Ctx>),
 
-    /// Process a PolkaCertificate message received over the network
-    PolkaCertificate(PolkaCertificate<Ctx>),
+    // FaB: Removed PolkaCertificate - Tendermint 2f+1 concept not used in FaB
+
+    /// FaB: Receive a decision from the network/sync protocol
+    /// Contains the decided value and 4f+1 prevote certificate
+    ReceiveDecision(Ctx::Value, Certificate<Ctx>),
 
     /// Process a RoundCertificate message received over the network
+    /// FaB: Used for SkipRound (f+1 prevotes from higher round)
     RoundCertificate(RoundCertificate<Ctx>),
 
     /// Propose the given value.

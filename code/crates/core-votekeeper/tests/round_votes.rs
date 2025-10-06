@@ -63,6 +63,7 @@ fn add_votes_single_value() {
 
 #[test]
 fn add_votes_multi_values() {
+    // FaB: Test with prevotes for multiple values (only prevotes in FaB)
     let h = Height::new(1);
     let r = Round::new(0);
 
@@ -73,27 +74,27 @@ fn add_votes_multi_values() {
 
     let mut round_votes = RoundVotes::<TestContext>::new();
 
-    let vote1 = Vote::new_precommit(h, r, val1, ADDRESS1);
+    let vote1 = Vote::new_prevote(h, r, val1, ADDRESS1);
     let weight1 = round_votes.add_vote(&vote1, 1);
     assert_eq!(weight1, 1);
 
-    let vote2 = Vote::new_precommit(h, r, val2, ADDRESS2);
+    let vote2 = Vote::new_prevote(h, r, val2, ADDRESS2);
     let weight2 = round_votes.add_vote(&vote2, 1);
     assert_eq!(weight2, 1);
 
-    let vote3 = Vote::new_precommit(h, r, NilOrVal::Nil, ADDRESS3);
+    let vote3 = Vote::new_prevote(h, r, NilOrVal::Nil, ADDRESS3);
     let weight3 = round_votes.add_vote(&vote3, 1);
     assert_eq!(weight3, 1);
 
-    let vote4 = Vote::new_precommit(h, r, val1, ADDRESS4);
+    let vote4 = Vote::new_prevote(h, r, val1, ADDRESS4);
     let weight4 = round_votes.add_vote(&vote4, 1);
     assert_eq!(weight4, 2);
 
-    let vote5 = Vote::new_precommit(h, r, val2, ADDRESS5);
+    let vote5 = Vote::new_prevote(h, r, val2, ADDRESS5);
     let weight5 = round_votes.add_vote(&vote5, 1);
     assert_eq!(weight5, 2);
 
-    let vote6 = Vote::new_precommit(h, r, val2, ADDRESS6);
+    let vote6 = Vote::new_prevote(h, r, val2, ADDRESS6);
     let weight6 = round_votes.add_vote(&vote6, 10);
     assert_eq!(weight6, 12);
 }

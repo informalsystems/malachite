@@ -8,9 +8,10 @@ use tokio::sync::broadcast;
 use malachitebft_core_consensus::{
     LocallyProposedValue, ProposedValue, Role, SignedConsensusMsg, WalEntry,
 };
-use malachitebft_core_types::{
-    CommitCertificate, Context, PolkaCertificate, Round, RoundCertificate, SignedVote, ValueOrigin,
-};
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate and PolkaCertificate (Tendermint concepts)
+use malachitebft_core_state_machine::input::Certificate;
+use malachitebft_core_types::{Context, Round, RoundCertificate, SignedVote, ValueOrigin};
 
 pub type RxEvent<Ctx> = broadcast::Receiver<Event<Ctx>>;
 
@@ -49,11 +50,12 @@ pub enum Event<Ctx: Context> {
     Published(SignedConsensusMsg<Ctx>),
     ProposedValue(LocallyProposedValue<Ctx>),
     ReceivedProposedValue(ProposedValue<Ctx>, ValueOrigin),
-    Decided(CommitCertificate<Ctx>),
+    // FaB: Changed from CommitCertificate to Certificate (4f+1 prevote certificate)
+    Decided(Certificate<Ctx>),
     RepublishVote(SignedVote<Ctx>),
     RebroadcastRoundCertificate(RoundCertificate<Ctx>),
     SkipRoundCertificate(RoundCertificate<Ctx>),
-    PolkaCertificate(PolkaCertificate<Ctx>),
+    // FaB: Removed PolkaCertificate - Tendermint 2f+1 prevote concept not used in FaB
     WalReplayBegin(Ctx::Height, usize),
     WalReplayEntry(WalEntry<Ctx>),
     WalReplayDone(Ctx::Height),
@@ -77,7 +79,8 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
                     "ReceivedProposedValue(value: {value:?}, origin: {origin:?})"
                 )
             }
-            Event::Decided(cert) => write!(f, "Decided(value: {})", cert.value_id),
+            // FaB: Certificate is a Vec<SignedVote<Ctx>>, display count instead
+            Event::Decided(cert) => write!(f, "Decided({} votes)", cert.len()),
             Event::RepublishVote(vote) => write!(f, "RepublishVote(vote: {vote:?})"),
             Event::RebroadcastRoundCertificate(certificate) => write!(
                 f,
@@ -89,9 +92,7 @@ impl<Ctx: Context> fmt::Display for Event<Ctx> {
             Event::WalReplayEntry(entry) => write!(f, "WalReplayEntry(entry: {entry:?})"),
             Event::WalReplayDone(height) => write!(f, "WalReplayDone(height: {height})"),
             Event::WalReplayError(error) => write!(f, "WalReplayError({error})"),
-            Event::PolkaCertificate(certificate) => {
-                write!(f, "PolkaCertificate: {certificate:?})")
-            }
+            // FaB: Removed PolkaCertificate case
             Event::SkipRoundCertificate(certificate) => {
                 write!(f, "SkipRoundCertificate: {certificate:?})")
             }

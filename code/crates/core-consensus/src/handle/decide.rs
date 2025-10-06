@@ -1,10 +1,13 @@
-use crate::{handle::signature::verify_commit_certificate, prelude::*};
+// FaB: Import Certificate from state machine
+use malachitebft_core_state_machine::input::Certificate;
+use crate::prelude::*;
 
 #[cfg_attr(not(feature = "metrics"), allow(unused_variables))]
 pub async fn decide<Ctx>(
     co: &Co<Ctx>,
     state: &mut State<Ctx>,
     metrics: &Metrics,
+    certificate: Certificate<Ctx>,  // FaB: Certificate comes from Decision output
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -20,23 +23,11 @@ where
 
     let decided_id = decided_value.id();
 
-    // Look for an existing certificate
-    let (certificate, extensions) = state
-        .driver
-        .commit_certificate(proposal_round, decided_id.clone())
-        .cloned()
-        .map(|certificate| (certificate, VoteExtensions::default()))
-        .unwrap_or_else(|| {
-            // Restore the commits. Note that they will be removed from `state`
-            let mut commits = state.restore_precommits(height, proposal_round, &decided_value);
-
-            let extensions = extract_vote_extensions(&mut commits);
-
-            let certificate =
-                CommitCertificate::new(height, proposal_round, decided_id.clone(), commits);
-
-            (certificate, extensions)
-        });
+    // FaB: Certificate is already provided from the Decision output
+    // FaB: It contains 4f+1 prevote messages that were already validated by the state machine
+    // FaB: Extract vote extensions from the certificate
+    let mut certificate_votes = certificate.clone();
+    let extensions = extract_vote_extensions(&mut certificate_votes);
 
     let Some((proposal, _)) = state
         .driver
@@ -63,18 +54,9 @@ where
     assert_eq!(full_proposal.proposal.value().id(), decided_id);
     assert_eq!(full_proposal.validity, Validity::Valid);
 
-    // The certificate must be valid in Commit step
-    assert_eq!(
-        verify_commit_certificate(
-            co,
-            certificate.clone(),
-            state.driver.validator_set().clone(),
-            state.params.threshold_params,
-        )
-        .await?,
-        Ok(()),
-        "Commit certificate is not valid"
-    );
+    // FaB: Certificate validation is already done by the state machine before deciding
+    // FaB: The certificate contains 4f+1 prevote messages that justify the decision
+    // FaB: No additional verification needed here
 
     // Update metrics
     #[cfg(feature = "metrics")]
@@ -102,9 +84,10 @@ where
         }
     }
 
+    // FaB: Emit the Decide effect with the certificate and extracted extensions
     perform!(
         co,
-        Effect::Decide(certificate, extensions, Default::default())
+        Effect::Decide(certificate_votes, extensions, Default::default())
     );
 
     Ok(())

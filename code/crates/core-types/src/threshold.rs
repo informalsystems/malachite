@@ -1,6 +1,7 @@
 use crate::VotingPower;
 
 /// Represents the different quorum thresholds.
+/// FaB: Used with both 2f+1 and 4f+1 thresholds in FaB-a-la-Tendermint-bounded-square
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Threshold<ValueId> {
     /// No quorum has been reached yet
@@ -12,21 +13,30 @@ pub enum Threshold<ValueId> {
     /// Quorum of votes for nil
     Nil,
 
-    /// Quorum (+2/3) of votes for a value
+    /// Quorum of votes for a specific value
+    /// FaB: Can represent either 2f+1 (lock) or 4f+1 (certificate) depending on context
     Value(ValueId),
 }
 
 /// Represents the different quorum thresholds.
 ///
-/// There are two thresholds:
-/// - The quorum threshold, which is the minimum number of votes required for a quorum.
-/// - The honest threshold, which is the minimum number of votes required for a quorum of honest nodes.
+/// FaB: Updated for FaB-a-la-Tendermint-bounded-square algorithm
+/// There are three thresholds:
+/// - The quorum threshold (2f+1): Minimum for detecting locks on values
+/// - The certificate quorum (4f+1): Required for decisions and certificates in FaB
+/// - The honest threshold (f+1): Minimum number of honest nodes (for round skipping)
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ThresholdParams {
     /// Threshold for a quorum (default: 2f+1)
+    /// FaB: Used for detecting locks within certificates
     pub quorum: ThresholdParam,
 
+    /// Threshold for certificates (default: 4f+1)
+    /// FaB: Required for proposals, decisions, and round transitions
+    pub certificate_quorum: ThresholdParam,
+
     /// Threshold for the minimum number of honest nodes (default: f+1)
+    /// FaB: Used for round skipping when receiving f+1 votes from higher round
     pub honest: ThresholdParam,
 }
 
@@ -34,27 +44,36 @@ impl Default for ThresholdParams {
     fn default() -> Self {
         Self {
             quorum: ThresholdParam::TWO_F_PLUS_ONE,
+            certificate_quorum: ThresholdParam::FOUR_F_PLUS_ONE,
             honest: ThresholdParam::F_PLUS_ONE,
         }
     }
 }
 
-/// Represents the different quorum thresholds.
+/// Represents a single quorum threshold parameter.
+/// FaB: Threshold is met when: weight > (numerator/denominator) × total_weight
+/// For n=5f+1 validators: f+1=1/5, 2f+1=2/5, 4f+1=4/5
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ThresholdParam {
-    /// Numerator of the threshold
+    /// Numerator of the threshold fraction
     pub numerator: u64,
 
-    /// Denominator of the threshold
+    /// Denominator of the threshold fraction
     pub denominator: u64,
 }
 
 impl ThresholdParam {
-    /// 2f+1, ie. more than two thirds of the total weight
-    pub const TWO_F_PLUS_ONE: Self = Self::new(2, 3);
+    /// 2f+1, ie. more than two fifths of the total weight (n=5f+1)
+    /// FaB: Used for detecting locks within 4f+1 certificates
+    pub const TWO_F_PLUS_ONE: Self = Self::new(2, 5);
 
-    /// f+1, ie. more than one third of the total weight
-    pub const F_PLUS_ONE: Self = Self::new(1, 3);
+    /// f+1, ie. more than one fifth of the total weight (n=5f+1)
+    /// FaB: Used for round skipping when receiving f+1 votes from higher round
+    pub const F_PLUS_ONE: Self = Self::new(1, 5);
+
+    /// 4f+1, ie. more than four fifths of the total weight (n=5f+1)
+    /// FaB: Required for certificates and decisions in FaB-a-la-Tendermint-bounded-square
+    pub const FOUR_F_PLUS_ONE: Self = Self::new(4, 5);
 
     /// Create a new threshold parameter with the given numerator and denominator.
     pub const fn new(numerator: u64, denominator: u64) -> Self {
@@ -93,14 +112,35 @@ mod tests {
 
     #[test]
     fn threshold_param_is_met() {
-        assert!(!ThresholdParam::TWO_F_PLUS_ONE.is_met(1, 3));
-        assert!(!ThresholdParam::TWO_F_PLUS_ONE.is_met(2, 3));
-        assert!(ThresholdParam::TWO_F_PLUS_ONE.is_met(3, 3));
+        // FaB: Tests for n=5f+1 thresholds
 
-        assert!(!ThresholdParam::F_PLUS_ONE.is_met(3, 10));
-        assert!(ThresholdParam::F_PLUS_ONE.is_met(4, 10));
-        assert!(!ThresholdParam::TWO_F_PLUS_ONE.is_met(6, 10));
-        assert!(ThresholdParam::TWO_F_PLUS_ONE.is_met(7, 10));
+        // f+1 (1/5): needs > 1/5 of total
+        // With total=5: needs > 1, so >= 2
+        assert!(!ThresholdParam::F_PLUS_ONE.is_met(1, 5));
+        assert!(ThresholdParam::F_PLUS_ONE.is_met(2, 5));
+
+        // 2f+1 (2/5): needs > 2/5 of total
+        // With total=5: needs > 2, so >= 3
+        assert!(!ThresholdParam::TWO_F_PLUS_ONE.is_met(2, 5));
+        assert!(ThresholdParam::TWO_F_PLUS_ONE.is_met(3, 5));
+
+        // 4f+1 (4/5): needs > 4/5 of total
+        // With total=5: needs > 4, so >= 5
+        assert!(!ThresholdParam::FOUR_F_PLUS_ONE.is_met(4, 5));
+        assert!(ThresholdParam::FOUR_F_PLUS_ONE.is_met(5, 5));
+
+        // With total=10 (so f=1.8, but using integer math)
+        // f+1: needs > 2, so >= 3
+        assert!(!ThresholdParam::F_PLUS_ONE.is_met(2, 10));
+        assert!(ThresholdParam::F_PLUS_ONE.is_met(3, 10));
+
+        // 2f+1: needs > 4, so >= 5
+        assert!(!ThresholdParam::TWO_F_PLUS_ONE.is_met(4, 10));
+        assert!(ThresholdParam::TWO_F_PLUS_ONE.is_met(5, 10));
+
+        // 4f+1: needs > 8, so >= 9
+        assert!(!ThresholdParam::FOUR_F_PLUS_ONE.is_met(8, 10));
+        assert!(ThresholdParam::FOUR_F_PLUS_ONE.is_met(9, 10));
     }
 
     #[test]

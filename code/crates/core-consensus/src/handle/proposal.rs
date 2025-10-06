@@ -64,15 +64,13 @@ where
 
     debug_assert_eq!(proposal_height, consensus_height);
 
-    // Queue messages if driver is not initialized.
-    // Process messages received for the current height.
-    // Drop all others.
-    if state.driver.round() == Round::Nil {
-        debug!("Received proposal at round -1, queuing for later");
-        state.buffer_input(proposal_height, Input::Proposal(signed_proposal), metrics);
-
-        return Ok(());
-    }
+    // FaB: Don't buffer proposals for current height even if round is Nil
+    // FaB: Store them and they'll be processed when round starts
+    // FaB: Only buffer if this is genuinely for a future round that we can't process yet
+    //
+    // Note: Removed the round == Nil buffering logic here.
+    // Proposals for current height should be stored immediately.
+    // When NewRound is processed, stored proposals will be matched with values.
 
     if !verify_signed_proposal(co, state, &signed_proposal).await? {
         return Ok(());
@@ -85,6 +83,14 @@ where
         proposer = %proposer_address,
         message = %PrettyProposal::<Ctx>(&signed_proposal.message),
         "Received proposal"
+    );
+
+    debug!(
+        "Storing proposal: height={}, round={}, value_id={:?}, driver_round={:?}",
+        proposal_height,
+        proposal_round,
+        signed_proposal.value().id(),
+        state.driver.round()
     );
 
     // Store the proposal in the full proposal keeper
@@ -117,11 +123,27 @@ where
         state.store_value(&new_value);
     }
 
-    if let Some(full_proposal) = state.full_proposal_at_round_and_value(
+    let full_proposal_result = state.full_proposal_at_round_and_value(
         &proposal_height,
         proposal_round,
         signed_proposal.value(),
-    ) {
+    );
+
+    debug!(
+        "Checking for full proposal: height={}, round={}, value_id={:?}, has_full_proposal={}",
+        proposal_height,
+        proposal_round,
+        signed_proposal.value().id(),
+        full_proposal_result.is_some()
+    );
+
+    if let Some(full_proposal) = full_proposal_result {
+        debug!(
+            "Applying full proposal to driver: height={}, round={}",
+            proposal_height,
+            proposal_round
+        );
+
         apply_driver_input(
             co,
             state,

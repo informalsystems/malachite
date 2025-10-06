@@ -15,9 +15,8 @@ use malachitebft_sync::{
 
 use malachitebft_codec as codec;
 use malachitebft_core_consensus::{LivenessMsg, SignedConsensusMsg};
-use malachitebft_core_types::{
-    Context, PolkaCertificate, RoundCertificate, SignedProposal, SignedVote,
-};
+// FaB: Remove PolkaCertificate (Tendermint 2f+1 prevote concept)
+use malachitebft_core_types::{Context, RoundCertificate, SignedProposal, SignedVote};
 use malachitebft_metrics::SharedRegistry;
 use malachitebft_network::handle::CtrlHandle;
 use malachitebft_network::{Channel, Config, Event, Multiaddr, PeerId};
@@ -108,7 +107,7 @@ pub enum NetworkEvent<Ctx: Context> {
     Proposal(PeerId, SignedProposal<Ctx>),
     ProposalPart(PeerId, StreamMessage<Ctx::ProposalPart>),
 
-    PolkaCertificate(PeerId, PolkaCertificate<Ctx>),
+    // FaB: Removed PolkaCertificate - Tendermint 2f+1 prevote concept not used in FaB
 
     RoundCertificate(PeerId, RoundCertificate<Ctx>),
 
@@ -370,10 +369,8 @@ where
                     }
                 };
 
+                // FaB: Removed PolkaCertificate case - not used in FaB
                 let event = match msg {
-                    LivenessMsg::PolkaCertificate(polka_cert) => {
-                        NetworkEvent::PolkaCertificate(from, polka_cert)
-                    }
                     LivenessMsg::SkipRoundCertificate(round_cert) => {
                         NetworkEvent::RoundCertificate(from, round_cert)
                     }

@@ -1,8 +1,11 @@
 use crate::{TestContext, Value};
-use malachitebft_core_types::CommitCertificate;
+// FaB: Import Certificate from state machine (4f+1 prevote certificate)
+// FaB: Remove CommitCertificate (Tendermint 2f+1 precommit concept)
+use malachitebft_core_state_machine::input::Certificate;
 
 #[derive(Clone, Debug)]
 pub struct DecidedValue {
     pub value: Value,
-    pub certificate: CommitCertificate<TestContext>,
+    /// FaB: Certificate is now a Vec<SignedVote<TestContext>> containing 4f+1 prevotes
+    pub certificate: Certificate<TestContext>,
 }

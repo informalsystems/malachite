@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use malachitebft_app::streaming::StreamId;
 use malachitebft_core_consensus::{LivenessMsg, SignedConsensusMsg};
+use malachitebft_core_state_machine::input::Certificate;
 use malachitebft_core_types::{
     CommitCertificate, CommitSignature, NilOrVal, PolkaCertificate, PolkaSignature, Round,
     RoundCertificate, RoundCertificateType, RoundSignature, SignedProposal, SignedVote, VoteType,
@@ -238,10 +239,13 @@ impl From<CommitCertificate<TestContext>> for RawCommitCertificate {
     }
 }
 
+// FaB: Certificate is now a Vec<SignedVote> containing 4f+1 prevotes
+pub type RawCertificate = Vec<RawSignedMessage>;
+
 #[derive(Serialize, Deserialize)]
 pub struct RawSyncedValue {
     pub value_bytes: Bytes,
-    pub certificate: RawCommitCertificate,
+    pub certificate: RawCertificate,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -259,7 +263,15 @@ impl From<ValueResponse<TestContext>> for ValueRawResponse {
                 .into_iter()
                 .map(|value| RawSyncedValue {
                     value_bytes: value.value_bytes,
-                    certificate: value.certificate.into(),
+                    // FaB: Convert Certificate (Vec<SignedVote>) to RawCertificate (Vec<RawSignedMessage>)
+                    certificate: value
+                        .certificate
+                        .into_iter()
+                        .map(|signed_vote| RawSignedMessage {
+                            message: signed_vote.message.to_sign_bytes(),
+                            signature: *signed_vote.signature.inner(),
+                        })
+                        .collect(),
                 })
                 .collect(),
         }
@@ -275,7 +287,15 @@ impl From<ValueRawResponse> for ValueResponse<TestContext> {
                 .into_iter()
                 .map(|value| RawDecidedValue {
                     value_bytes: value.value_bytes,
-                    certificate: value.certificate.into(),
+                    // FaB: Convert RawCertificate (Vec<RawSignedMessage>) to Certificate (Vec<SignedVote>)
+                    certificate: value
+                        .certificate
+                        .into_iter()
+                        .map(|raw_msg| SignedVote {
+                            message: Vote::from_sign_bytes(&raw_msg.message).unwrap(),
+                            signature: raw_msg.signature.into(),
+                        })
+                        .collect(),
                 })
                 .collect(),
         }
@@ -349,12 +369,7 @@ impl From<LivenessMsg<TestContext>> for RawLivenessMsg {
                 message: vote.message.to_sign_bytes(),
                 signature: *vote.signature.inner(),
             }),
-            LivenessMsg::PolkaCertificate(polka) => Self::PolkaCertificate(RawPolkaCertificate {
-                height: polka.height,
-                round: polka.round,
-                value_id: polka.value_id,
-                polka_signatures: vec![], // Placeholder, implement as needed
-            }),
+            // FaB: Removed PolkaCertificate - Tendermint 2f+1 prevote concept not used in FaB
             LivenessMsg::SkipRoundCertificate(round_cert) => {
                 Self::SkipRoundCertificate(RawRoundCertificate {
                     height: round_cert.height,
@@ -383,20 +398,9 @@ impl From<RawLivenessMsg> for LivenessMsg<TestContext> {
                 message: Vote::from_bytes(&vote.message).unwrap(),
                 signature: vote.signature.into(),
             }),
-            RawLivenessMsg::PolkaCertificate(cert) => {
-                LivenessMsg::PolkaCertificate(PolkaCertificate {
-                    height: cert.height,
-                    round: cert.round,
-                    value_id: cert.value_id,
-                    polka_signatures: cert
-                        .polka_signatures
-                        .into_iter()
-                        .map(|sig| PolkaSignature {
-                            address: sig.address,
-                            signature: sig.signature.into(),
-                        })
-                        .collect(),
-                })
+            // FaB: Removed PolkaCertificate case - not used in FaB
+            RawLivenessMsg::PolkaCertificate(_cert) => {
+                panic!("PolkaCertificate is not supported in FaB")
             }
             RawLivenessMsg::SkipRoundCertificate(cert) => {
                 LivenessMsg::SkipRoundCertificate(RoundCertificate {

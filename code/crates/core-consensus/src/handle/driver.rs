@@ -6,7 +6,7 @@ use crate::handle::on_proposal;
 use crate::handle::signature::sign_proposal;
 use crate::handle::signature::sign_vote;
 use crate::handle::vote::on_vote;
-use crate::params::HIDDEN_LOCK_ROUND;
+// FaB: Removed HIDDEN_LOCK_ROUND import - not used in FaB
 use crate::prelude::*;
 use crate::types::{
     LivenessMsg, {LocallyProposedValue, SignedConsensusMsg},
@@ -115,28 +115,12 @@ where
             }
         }
 
-        DriverInput::CommitCertificate(certificate) => {
-            if certificate.height != state.driver.height() {
-                warn!(
-                    "Ignoring commit certificate for height {}, current height: {}",
-                    certificate.height,
-                    state.driver.height()
-                );
+        // FaB: Removed CommitCertificate - no commit certificates in FaB
+        // FaB: Removed PolkaCertificate - no polka certificates in FaB
 
-                return Ok(());
-            }
-        }
-
-        DriverInput::PolkaCertificate(certificate) => {
-            if certificate.height != state.driver.height() {
-                warn!(
-                    "Ignoring polka certificate for height {}, current height: {}",
-                    certificate.height,
-                    state.driver.height()
-                );
-
-                return Ok(());
-            }
+        DriverInput::ReceiveDecision(_value, _certificate) => {
+            // FaB: ReceiveDecision doesn't need height validation here
+            // FaB: The state machine will handle validation
         }
 
         DriverInput::TimeoutElapsed(_) => (),
@@ -157,12 +141,11 @@ where
     if prev_step != new_step {
         debug!(step.previous = ?prev_step, step.new = ?new_step, "Transitioned to new step");
 
-        if let Some(valid) = &state.driver.valid_value() {
+        // FaB: prevoted_value() returns Option<&Value> (no round info)
+        // FaB: Log if we have a prevoted value when entering propose step
+        if let Some(_prevoted) = state.driver.prevoted_value() {
             if state.driver.step_is_propose() {
-                info!(
-                    round = %valid.round,
-                    "Entering Propose step with a valid value"
-                );
+                info!("Entering Propose step with a prevoted value");
             }
         }
 
@@ -262,98 +245,23 @@ where
                     );
                 };
 
-                // Publishing the polka certificate of the re-proposed value
-                // ensures all validators receive it, which is necessary for
-                // them to accept the re-proposed value.
-                if proposal.pol_round().is_defined() {
-                    // Broadcast the polka certificate at pol_round
-                    let Some(polka_certificate) =
-                        state.polka_certificate_at_round(proposal.pol_round())
-                    else {
-                        panic!(
-                            "Missing polka certificate for pol_round {}",
-                            proposal.pol_round()
-                        );
-                    };
-                    perform!(
-                        co,
-                        Effect::PublishLivenessMsg(
-                            LivenessMsg::PolkaCertificate(polka_certificate),
-                            Default::default()
-                        )
-                    );
-                }
+                // FaB: Removed polka certificate broadcasting
+                // FaB: In FaB, there are no polka certificates (2f+1 prevotes)
+                // FaB: Validators receive proposals and prevotes directly
             }
 
             Ok(())
         }
 
         DriverOutput::Vote(vote) => {
-            // Upon locking, in addition to publishing a Precommit message,
-            // a validator must request the application to restream the proposal,
-            // publish the proposal message, and publish the polka certificate.
-            // In other words, it must ensure that all validators receive the same events
-            // that led it to lock a value. Together with the timeout mechanisms,
-            // this guarantees that after GST, all correct validators will update
-            // their validValue and validRound to these values in this round.
-            // As a result, Malachite ensures liveness, because all validators
-            // will be aware of the most recently locked value, and whichever validator
-            // becomes the leader in one of the following rounds will propose a value
-            // that all correct validators can accept.
-            // Importantly, this mechanism does not need to be enabled from round 0,
-            // as it is expensive; it can be activated from any round as a last-resort
-            // backup to guarantee liveness.
-            // FaB: Changed from Precommit to Prevote (only prevotes in FaB)
-            if let (VoteType::Prevote, NilOrVal::Val(value_id)) = (vote.vote_type(), vote.value())
+            // FaB: In FaB, when casting a prevote for a value, prune old votes
+            // FaB: No HIDDEN_LOCK_ROUND mechanism - liveness is ensured through:
+            // FaB: 1. Round skipping (f+1 prevotes from higher round)
+            // FaB: 2. Periodic rebroadcast of lastPrevote and proposal (lines 111-113 of pseudocode)
+            if let (VoteType::Prevote, NilOrVal::Val(_value_id)) = (vote.vote_type(), vote.value())
             {
-                // Prune all votes and certificates for the previous rounds as we know we are not going to use them anymore.
+                // Prune all votes and certificates for the previous rounds
                 state.driver.prune_votes_and_certificates(vote.round());
-
-                if state.driver.round() >= HIDDEN_LOCK_ROUND {
-                    if let Some((signed_proposal, Validity::Valid)) = state
-                        .driver
-                        .proposal_and_validity_for_round_and_value(vote.round(), value_id.clone())
-                    {
-                        perform!(
-                            co,
-                            Effect::RestreamProposal(
-                                signed_proposal.height(),
-                                signed_proposal.round(),
-                                signed_proposal.pol_round(),
-                                signed_proposal.validator_address().clone(),
-                                signed_proposal.value().id(),
-                                Default::default()
-                            )
-                        );
-
-                        if state.params.value_payload.include_proposal() {
-                            perform!(
-                                co,
-                                Effect::PublishConsensusMsg(
-                                    SignedConsensusMsg::Proposal(signed_proposal.clone()),
-                                    Default::default()
-                                )
-                            );
-                        }
-
-                        let Some(polka_certificate) =
-                            state.polka_certificate_at_round(vote.round())
-                        else {
-                            panic!(
-                                "Missing polka certificate for Precommit({:?}) at round {}",
-                                vote.value(),
-                                vote.round()
-                            );
-                        };
-                        perform!(
-                            co,
-                            Effect::PublishLivenessMsg(
-                                LivenessMsg::PolkaCertificate(polka_certificate),
-                                Default::default()
-                            )
-                        );
-                    }
-                }
             }
 
             if state.is_validator() {
@@ -387,7 +295,8 @@ where
             Ok(())
         }
 
-        DriverOutput::Decide(consensus_round, proposal) => {
+        // FaB: Decide now includes certificate
+        DriverOutput::Decide(consensus_round, proposal, certificate) => {
             info!(
                 round = %consensus_round,
                 height = %proposal.height(),
@@ -395,7 +304,8 @@ where
                 "Decided",
             );
 
-            decide(co, state, metrics).await?;
+            // FaB: Pass certificate to decide handler
+            decide(co, state, metrics, certificate).await?;
 
             Ok(())
         }
