@@ -145,10 +145,7 @@ where
     }
 
     /// FaB: Compute thresholds for a specific round
-    /// Returns outputs when 4f+1 thresholds are reached
-    fn compute_thresholds_for_round(&self, target_round: Round) -> Vec<Output<ValueId<Ctx>>> {
-        let mut outputs = Vec::new();
-
+    fn compute_thresholds_for_round(&self, target_round: Round) -> Option<Output<ValueId<Ctx>>> {
         // Tally prevotes for this round
         let mut weight_sum: Weight = 0;
         let mut weight_per_value: BTreeMap<ValueId<Ctx>, Weight> = BTreeMap::new();
@@ -171,16 +168,16 @@ where
         // Check 4f+1 certificate for specific values
         for (value_id, weight) in &weight_per_value {
             if self.threshold_params.certificate_quorum.is_met(*weight, total_weight) {
-                outputs.push(Output::CertificateValue(value_id.clone()));
+                return Some(Output::CertificateValue(value_id.clone()));
             }
         }
 
         // Check 4f+1 certificate for any value (total prevotes)
         if self.threshold_params.certificate_quorum.is_met(weight_sum, total_weight) {
-            outputs.push(Output::CertificateAny);
+            return Some(Output::CertificateAny);
         }
 
-        outputs
+        None
     }
 
     /// FaB: Check if we have f+1 prevotes from rounds >= target_round (for skip)
@@ -249,11 +246,12 @@ where
         // Step 5: Compute thresholds for vote's round
         let outputs = self.compute_thresholds_for_round(vote.round());
 
-        // Step 6: Return first new output
+        // Step 6: Return output if not yet emitted
         let emitted = self
             .emitted_outputs_per_round
             .entry(vote.round())
             .or_insert_with(BTreeSet::new);
+
         outputs
             .into_iter()
             .find(|output| !emitted.contains(output))
