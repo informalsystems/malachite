@@ -102,20 +102,12 @@ where
     ) -> Vec<SignedVote<Ctx>> {
         assert_eq!(height, self.driver.height());
 
-        // FaB: Get prevotes (not precommits) for the height and round.
-        if let Some(per_round) = self.driver.votes().per_round(round) {
-            per_round
-                .received_votes()
-                .iter()
-                .filter(|vote| {
-                    vote.vote_type() == VoteType::Prevote
-                        && vote.value() == &NilOrVal::Val(value.id())
-                })
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        }
+        // FaB: Use build_certificate() which collects from latest_prevotes
+        // Returns the certificate if we have 4f+1, or None otherwise
+        self.driver
+            .votes()
+            .build_certificate(round, &value.id())
+            .unwrap_or_default()
     }
 
     // FaB: Removed polka_certificate_at_round() - no polka certificates in FaB
@@ -246,45 +238,25 @@ where
     }
 
     pub fn print_state(&self) {
-        if let Some(per_round) = self.driver.votes().per_round(self.driver.round()) {
-            warn!(
-                "Number of validators having voted: {} / {}",
-                per_round.addresses_weights().get_inner().len(),
-                self.driver.validator_set().count()
-            );
-            warn!(
-                "Total voting power of validators: {}",
-                self.driver.validator_set().total_voting_power()
-            );
-            warn!(
-                "Voting power required: {}",
-                self.params
-                    .threshold_params
-                    .quorum
-                    .min_expected(self.driver.validator_set().total_voting_power())
-            );
-            warn!(
-                "Total voting power of validators having voted: {}",
-                per_round.addresses_weights().sum()
-            );
-            warn!(
-                "Total voting power of validators having prevoted nil: {}",
-                per_round
-                    .votes()
-                    .get_weight(VoteType::Prevote, &NilOrVal::Nil)
-            );
-            // FaB: Only prevotes in FaB-a-la-Tendermint-bounded-square
-            warn!(
-                "Total voting power of validators having prevoted nil: {}",
-                per_round
-                    .votes()
-                    .get_weight(VoteType::Prevote, &NilOrVal::Nil)
-            );
-            warn!(
-                "Total weight of prevotes: {}",
-                per_round.votes().weight_sum(VoteType::Prevote)
-            );
-        }
+        // FaB: Simplified print_state - PerRound struct removed
+        warn!(
+            "Height: {}, Round: {}, Step: {:?}",
+            self.driver.height(),
+            self.driver.round(),
+            self.driver.step()
+        );
+        warn!(
+            "Total validators: {}, Total voting power: {}",
+            self.driver.validator_set().count(),
+            self.driver.validator_set().total_voting_power()
+        );
+        warn!(
+            "Voting power required (quorum): {}",
+            self.params
+                .threshold_params
+                .quorum
+                .min_expected(self.driver.validator_set().total_voting_power())
+        );
     }
 
     /// Check if we are a validator node, i.e. we are present in the current validator set.

@@ -508,17 +508,10 @@ where
     // FaB: Removed store_precommit_any_round_certificate() - no precommits in FaB
 
     fn store_skip_round_certificate(&mut self, vote_round: Round) {
-        let Some(per_round) = self.vote_keeper.per_round(vote_round) else {
-            panic!("Missing the SkipRoundvotes for round {vote_round}");
+        // FaB: Use build_skip_round_certificate() which collects from latest_prevotes
+        let Some(skip_votes) = self.vote_keeper.build_skip_round_certificate(vote_round) else {
+            panic!("Missing the SkipRound votes for round {vote_round}");
         };
-
-        let mut seen_addresses = BTreeSet::new();
-        let skip_votes: Vec<_> = per_round
-            .received_votes()
-            .iter()
-            .filter(|vote| seen_addresses.insert(vote.validator_address()))
-            .cloned()
-            .collect();
 
         self.round_certificate = Some(EnterRoundCertificate::new_from_votes(
             self.height(),

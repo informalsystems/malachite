@@ -19,17 +19,14 @@ pub mod types {
     pub use malachitebft_core_types::ValuePayload;
     pub use malachitebft_core_types::{Round, SignedVote, ThresholdParams};
     pub use malachitebft_core_votekeeper::evidence::EvidenceMap as VoteEvidenceMap;
-    pub use malachitebft_core_votekeeper::keeper::PerRound as VotePerRound;
 }
 
 use self::types::*;
 
 /// The state of the vote keeper, which keeps track of votes and misbehavior evidence.
+/// FaB: Simplified to track only evidence since we store one prevote per validator
 #[derive_where(Debug, Clone)]
 pub struct VoteKeeperState<Ctx: Context> {
-    /// The votes that were received in each round so far
-    pub votes: BTreeMap<Round, VotePerRound<Ctx>>,
-
     /// Misbehavior evidence for voting
     pub evidence: VoteEvidenceMap<Ctx>,
 }
@@ -93,7 +90,6 @@ impl<Ctx: Context> StateDump<Ctx> {
             params: state.params.clone(),
             validator_set: state.validator_set().clone(),
             vote_keeper: VoteKeeperState {
-                votes: state.driver.votes().all_rounds().clone(),
                 evidence: state.driver.votes().evidence().clone(),
             },
             proposal_keeper: ProposalKeeperState {
