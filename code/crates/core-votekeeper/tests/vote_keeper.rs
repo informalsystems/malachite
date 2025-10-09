@@ -82,7 +82,7 @@ fn fab_certificate_for_value() {
 
     // FaB: 5th vote reaches 4f+1 certificate (CertificateValue)
     let vote = new_signed_prevote(height, round, val, addr5);
-    assert_eq!(keeper.apply_vote(vote, round), Some(Output::CertificateValue(id)));
+    assert_eq!(keeper.apply_vote(vote, round), Some(Output::DecisionValue(id)));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn fab_skip_round() {
 
     // FaB: 2nd vote from future round reaches f+1 (2 out of 5 = > 1/5)
     let vote = new_signed_prevote(height, fut_round, val, addr3);
-    assert_eq!(keeper.apply_vote(vote, cur_round), Some(Output::SkipRound(fut_round)));
+    assert_eq!(keeper.apply_vote(vote, cur_round), Some(Output::MaxRoundPlus(fut_round)));
 }
 
 #[test]

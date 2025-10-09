@@ -110,7 +110,7 @@ where
     // FaB: Process vote keeper outputs for FaB-a-la-Tendermint-bounded-square
     ///
     /// Vote keeper emits 3 types of outputs:
-    /// - CertificateAny: 4f+1 prevotes total (need to check for 2f+1 locks)
+    /// - CertificateAny: 4f+1 prevotes total
     /// - CertificateValue(v): 4f+1 prevotes for value v (can decide if we have proposal)
     /// - SkipRound(r): f+1 prevotes from higher round r
     ///
@@ -124,6 +124,40 @@ where
         threshold_round: Round,
     ) -> Option<(Round, RoundInput<Ctx>)> {
         match new_threshold {
+            // FaB: 4f+1 prevotes for specific value v
+            // FaB: Check if we have a matching proposal → CanDecide (lines 72-74)
+            VKOutput::DecisionValue(ref value_id) => {
+                // FaB: Check if we have a valid proposal for this value
+                // FaB: CanDecide has no step restriction (line 72-74)
+                if let Some((signed_proposal, validity)) =
+                    self.proposal_and_validity_for_round_and_value(threshold_round, value_id.clone())
+                {
+                    if validity.is_valid() {
+                        // FaB: Build the certificate for this value
+                        if let Some(certificate) =
+                            self.vote_keeper.build_certificate(threshold_round, value_id)
+                        {
+                            // FaB: We can decide! (any step)
+                            return Some((
+                                threshold_round,
+                                RoundInput::CanDecide {
+                                    proposal: signed_proposal.message.clone(),
+                                    certificate,
+                                },
+                            ));
+                        }
+                    }
+                }
+
+                // FaB: No valid proposal yet, but we have certificate
+                // FaB: Only signal EnoughPrevotesForRound if at prevote step (line 69-70)
+                if threshold_round == self.round() && self.round_state.step == Step::Prevote {
+                    Some((threshold_round, RoundInput::EnoughPrevotesForRound))
+                } else {
+                    None
+                }
+            }
+
             // FaB: 4f+1 prevotes for any values (possibly distributed)
             // FaB: Signal state machine that we have enough prevotes for this round (line 69-70)
             // FaB: Only at prevote step
@@ -185,43 +219,9 @@ where
                 }
             }
 
-            // FaB: 4f+1 prevotes for specific value v
-            // FaB: Check if we have a matching proposal → CanDecide (lines 72-74)
-            VKOutput::CertificateValue(ref value_id) => {
-                // FaB: Check if we have a valid proposal for this value
-                // FaB: CanDecide has no step restriction (line 72-74)
-                if let Some((signed_proposal, validity)) =
-                    self.proposal_and_validity_for_round_and_value(threshold_round, value_id.clone())
-                {
-                    if validity.is_valid() {
-                        // FaB: Build the certificate for this value
-                        if let Some(certificate) =
-                            self.vote_keeper.build_certificate(threshold_round, value_id)
-                        {
-                            // FaB: We can decide! (any step)
-                            return Some((
-                                threshold_round,
-                                RoundInput::CanDecide {
-                                    proposal: signed_proposal.message.clone(),
-                                    certificate,
-                                },
-                            ));
-                        }
-                    }
-                }
-
-                // FaB: No valid proposal yet, but we have certificate
-                // FaB: Only signal EnoughPrevotesForRound if at prevote step (line 69-70)
-                if threshold_round == self.round() && self.round_state.step == Step::Prevote {
-                    Some((threshold_round, RoundInput::EnoughPrevotesForRound))
-                } else {
-                    None
-                }
-            }
-
             // FaB: f+1 prevotes from higher round → skip to that round (lines 95-96)
             // FaB: No step restriction
-            VKOutput::SkipRound(new_round) => {
+            VKOutput::MaxRoundPlus(new_round) => {
                 // FaB Lines 92-96: Build f+1 certificate (not 4f+1!) justifying the skip
                 // max_round+ requires f+1 voting power, NOT 4f+1
                 if let Some(certificate) = self.vote_keeper.build_skip_round_certificate(new_round) {

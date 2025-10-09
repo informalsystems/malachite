@@ -480,7 +480,7 @@ where
             // FaB: Removed PrecommitAny - no precommit certificates in FaB
 
             // FaB: Store skip round certificate (lines 95-96)
-            VKOutput::SkipRound(round) => self.store_skip_round_certificate(*round),
+            VKOutput::MaxRoundPlus(round) => self.store_skip_round_certificate(*round),
 
             // FaB: CertificateAny and CertificateValue don't need certificate storage
             // FaB: They're built on-demand by multiplex_vote_threshold

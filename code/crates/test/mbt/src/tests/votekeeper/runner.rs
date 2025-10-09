@@ -136,7 +136,7 @@ impl ItfRunner for VoteKeeperRunner {
                         value_from_model(&ModelValue::Val(expected_value.to_string())).as_ref()
                     );
                 }
-                (Output::SkipRound(round), Skip(expected_round)) => {
+                (Output::MaxRoundPlus(round), Skip(expected_round)) => {
                     assert_eq!(round, &Round::from(*expected_round));
                 }
                 (actual, expected) => {
@@ -205,7 +205,7 @@ impl ItfRunner for VoteKeeperRunner {
                 let event_name = match event {
                     Output::PolkaValue(_) => "PolkaValue".to_string(),
                     Output::PrecommitValue(_) => "PrecommitValue".to_string(),
-                    Output::SkipRound(_) => "Skip".to_string(),
+                    Output::MaxRoundPlus(_) => "Skip".to_string(),
                     _ => format!("{event:?}"),
                 };
 

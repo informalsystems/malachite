@@ -16,19 +16,20 @@ use crate::{Threshold, ThresholdParams, Weight};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Output<Value> {
     /// We have 4f+1 prevotes for the current round
-    /// FaB: Certificate received (driver should check for 2f+1 locks within it)
     /// Maps to state machine Input::EnoughPrevotesForRound
+    /// Might have a 2f+1 lock or it might not ...
+    /// Corresponds to MaxRound+
     CertificateAny,
 
     /// We have 4f+1 prevotes for a specific value
     /// FaB: Certificate for a specific value (used for decisions)
     /// Maps to state machine Input::CanDecide (if we have matching proposal)
-    CertificateValue(Value),
+    DecisionValue(Value),
 
     /// We have f+1 prevotes from a higher round
     /// FaB: Skip to higher round
     /// Maps to state machine Input::SkipRound
-    SkipRound(Round),
+    MaxRoundPlus(Round),
 }
 
 /// Keeps track of votes and emits messages when thresholds are reached.
@@ -144,8 +145,36 @@ where
         weight
     }
 
-    /// FaB: Compute thresholds for a specific round
-    fn compute_thresholds_for_round(&self, target_round: Round) -> Option<Output<ValueId<Ctx>>> {
+    /// FaB: Checks if there's a certificate (4f+1 of PREVOTES) for all rounds >= min_round
+    fn find_a_certficate(&self, min_round: Round) -> Option<Output<ValueId<Ctx>>> {
+        // Tally prevotes for this round
+        let mut weight_sum: Weight = 0;
+        let mut weight_per_value: BTreeMap<ValueId<Ctx>, Weight> = BTreeMap::new();
+
+        for vote in self.latest_prevotes.values() {
+            if vote.round() >= min_round && vote.vote_type() == VoteType::Prevote { // shouldn't this be the case ... that it's only prevotes ...
+                if let Some(validator) = self.validator_set.get_by_address(vote.validator_address()) {
+                    let weight = validator.voting_power();
+                    weight_sum += weight;
+
+                    if let NilOrVal::Val(value_id) = vote.value() {
+                        *weight_per_value.entry(value_id.clone()).or_insert(0) += weight;
+                    }
+                }
+            }
+        }
+
+        let total_weight = self.total_weight();
+
+        if self.threshold_params.certificate_quorum.is_met(weight_sum, total_weight) {
+            return Some(Output::CertificateAny);
+        }
+
+        None
+    }
+
+    /// FaB: Checks if there's a decision value for the `target_round`
+    fn find_a_decision_value(&self, target_round: Round) -> Option<Output<ValueId<Ctx>>> {
         // Tally prevotes for this round
         let mut weight_sum: Weight = 0;
         let mut weight_per_value: BTreeMap<ValueId<Ctx>, Weight> = BTreeMap::new();
@@ -168,13 +197,8 @@ where
         // Check 4f+1 certificate for specific values
         for (value_id, weight) in &weight_per_value {
             if self.threshold_params.certificate_quorum.is_met(*weight, total_weight) {
-                return Some(Output::CertificateValue(value_id.clone()));
+                return Some(Output::DecisionValue(value_id.clone()));
             }
-        }
-
-        // Check 4f+1 certificate for any value (total prevotes)
-        if self.threshold_params.certificate_quorum.is_met(weight_sum, total_weight) {
-            return Some(Output::CertificateAny);
         }
 
         None
@@ -228,10 +252,23 @@ where
         self.latest_prevotes
             .insert(vote.validator_address().clone(), vote.clone());
 
+        // Check if we've reached a decision
+        let output = self.find_a_decision_value(round);
+        if let Some(d) = output {
+            let emitted = self
+                .emitted_outputs_per_round
+                .entry(vote.round())
+                .or_insert_with(BTreeSet::new);
+            if !emitted.contains(&d) {
+                emitted.insert(d.clone());
+                return Some(d);
+            }
+        }
+
         // Step 4: Check for SkipRound (vote from future round > current round)
         if vote.round() > round {
             if self.compute_skip_threshold(vote.round()) {
-                let output = Output::SkipRound(vote.round());
+                let output = Output::MaxRoundPlus(vote.round());
                 let emitted = self
                     .emitted_outputs_per_round
                     .entry(vote.round())
@@ -243,22 +280,20 @@ where
             }
         }
 
-        // Step 5: Compute thresholds for vote's round
-        let outputs = self.compute_thresholds_for_round(vote.round());
+        // Check if we've reached a decision
+        let output = self.find_a_certficate(round);
+        if let Some(d) = output {
+            let emitted = self
+                .emitted_outputs_per_round
+                .entry(vote.round())
+                .or_insert_with(BTreeSet::new);
+            if !emitted.contains(&d) {
+                emitted.insert(d.clone());
+                return Some(d);
+            }
+        }
 
-        // Step 6: Return output if not yet emitted
-        let emitted = self
-            .emitted_outputs_per_round
-            .entry(vote.round())
-            .or_insert_with(BTreeSet::new);
-
-        outputs
-            .into_iter()
-            .find(|output| !emitted.contains(output))
-            .map(|output| {
-                emitted.insert(output.clone());
-                output
-            })
+        None
     }
 
     /// Check if a threshold is met, ie. if we have a quorum for that threshold.
