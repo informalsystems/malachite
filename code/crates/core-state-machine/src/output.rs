@@ -17,9 +17,13 @@ where
     /// Move to the new round.
     NewRound(Round),
 
-    /// Broadcast a proposal.
+    /// Broadcast a proposal with its justification certificate.
     /// FaB: Maps to BroadcastProposal
-    Proposal(Ctx::Proposal),
+    /// The certificate is None for round 0, Some(certificate) for round > 0
+    Proposal {
+        proposal: Ctx::Proposal,
+        certificate: Option<Certificate<Ctx>>,
+    },
 
     /// Broadcast a prevote.
     /// FaB: Maps to BroadcastPrevote (only prevotes in FaB, no precommits)
@@ -45,7 +49,8 @@ where
 }
 
 impl<Ctx: Context> Output<Ctx> {
-    /// Build a `Proposal` output.
+    /// Build a `Proposal` output with no certificate (for testing/convenience).
+    /// For proposals with certificates, construct Output::Proposal directly.
     pub fn proposal(
         ctx: &Ctx,
         height: Ctx::Height,
@@ -54,7 +59,10 @@ impl<Ctx: Context> Output<Ctx> {
         pol_round: Round,
         address: Ctx::Address,
     ) -> Self {
-        Output::Proposal(ctx.new_proposal(height, round, value, pol_round, address))
+        Output::Proposal {
+            proposal: ctx.new_proposal(height, round, value, pol_round, address),
+            certificate: None,
+        }
     }
 
     /// Build a `Vote` output for a prevote.

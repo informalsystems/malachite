@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### `malachitebft-core-state-machine`
+
+- Replaced `Input::Proposal` with two new variants to support SafeProposal validation (FaB pseudocode lines 51-67):
+  - `Input::SafeProposal(Ctx::Proposal)` - Proposal passed SafeProposal validation, validator will prevote for new value
+  - `Input::UnsafeProposal(Ctx::Proposal)` - Proposal failed SafeProposal validation, validator will prevote for old `prevotedValue_p` or nil
+- Updated state machine handlers in `state_machine.rs` to implement conditional prevoting based on SafeProposal result
+- Removed unused `Certificate` import from `state.rs`
+
+### `malachitebft-core-driver`
+
+- Added `validate_safe_proposal()` method to Driver that implements FaB SafeProposal predicate (pseudocode lines 61-67):
+  - Case 1: Accepts proposals with 2f+1 lock on matching value from recent rounds (>= round_p-1)
+  - Case 2a: Accepts proposals with 4f+1 prevotes from recent rounds (>= round_p-1)
+  - Case 2b: Accepts proposals with empty certificate at round 0
+  - Case 3: Rejects proposals with invalid certificates
+- Changed `multiplex_proposal()` signature to accept `certificate: Option<Vec<SignedVote<Ctx>>>` parameter
+  - Currently accepts `None` for backwards compatibility (Phase 1)
+  - Validates SafeProposal and returns appropriate Input variant
+- Made `threshold_params` field `pub(crate)` in Driver struct to allow access from mux module
+- Added imports: `Validator` and `ValidatorSet` traits to mux module
+
 ### `malachitebft-core-types`
 
 - Changed methods of `SigningProvider` and `SigningProviderExt` traits to `async` ([#1151](https://github.com/informalsystems/malachite/issues/1151))
@@ -171,7 +192,6 @@ No breaking changes.
 #### Struct Changes
 - Added new fields to externally-constructible structs:
   - `State.last_signed_prevote`
-  - `State.last_signed_precommit`
   - `State.decided_sent`
   - `Params.vote_sync_mode`
 
@@ -179,6 +199,7 @@ No breaking changes.
   - Removed `extension` field from `ProposedValue`
   - Removed `signed_precommits` field from `State`
   - Removed `decision` field from `State`
+  - Removed `last_signed_precommit` field from `State` (FaB has no precommits)
 
 - Removed structs:
   - `ValueToPropose` has been removed
@@ -207,6 +228,7 @@ No breaking changes.
   - `State::store_decision`
   - `State::full_proposals_for_value`
   - `State::remove_full_proposals`
+  - `State::restore_precommits` (FaB has no precommits)
 
 
 ### `informalsystems-malachitebft-sync`

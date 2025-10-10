@@ -22,9 +22,13 @@ where
 
     /// Process a Proposal message received over the network
     ///
+    /// FaB: Now includes optional certificate (4f+1 prevotes from previous round)
+    /// - Round 0: certificate is Some(vec![]) (empty certificate)
+    /// - Round > 0: certificate contains 4f+1 prevotes from rounds >= round-1
+    ///
     /// This input MUST only be provided when `ValuePayload` is set to `ProposalOnly` or `ProposalAndParts`,
     /// i.e. when consensus runs in a mode where the proposer sends a Proposal consensus message over the network.
-    Proposal(SignedProposal<Ctx>),
+    Proposal(SignedProposal<Ctx>, Option<Certificate<Ctx>>),
 
     // FaB: Removed PolkaCertificate - Tendermint 2f+1 concept not used in FaB
 

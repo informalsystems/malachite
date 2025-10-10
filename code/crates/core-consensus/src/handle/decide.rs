@@ -29,7 +29,7 @@ where
     let mut certificate_votes = certificate.clone();
     let extensions = extract_vote_extensions(&mut certificate_votes);
 
-    let Some((proposal, _)) = state
+    let Some((proposal, _, _certificate)) = state
         .driver
         .proposal_and_validity_for_round_and_value(proposal_round, decided_id.clone())
     else {
@@ -54,9 +54,12 @@ where
     assert_eq!(full_proposal.proposal.value().id(), decided_id);
     assert_eq!(full_proposal.validity, Validity::Valid);
 
-    // FaB: Certificate validation is already done by the state machine before deciding
-    // FaB: The certificate contains 4f+1 prevote messages that justify the decision
-    // FaB: No additional verification needed here
+    // FaB: All votes in this certificate have been cryptographically verified before being added to VoteKeeper.
+    // FaB: Verification happens at entry points: on_vote() verifies gossip/sync votes, verify_prevote_certificate()
+    // FaB: verifies proposal certificates, verify_round_certificate() verifies round certificates.
+    // FaB: The state machine only checks thresholds (4f+1) and matching - it does NOT verify signatures.
+    // FaB: This certificate was built from vote_keeper.latest_prevotes which maintains the invariant that
+    // FaB: it only contains pre-verified votes. No re-verification is needed here.
 
     // Update metrics
     #[cfg(feature = "metrics")]

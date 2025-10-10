@@ -33,7 +33,9 @@ pub trait Middleware: fmt::Debug + Send + Sync {
         pol_round: Round,
         address: Address,
     ) -> Proposal {
-        Proposal::new(height, round, value, pol_round, address)
+        // FaB: Certificate is None here - will be added later in consensus layer
+        // The state machine outputs the certificate separately in Output::Proposal
+        Proposal::new(height, round, value, pol_round, address, None)
     }
 
     fn new_prevote(

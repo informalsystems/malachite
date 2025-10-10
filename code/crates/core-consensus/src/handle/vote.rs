@@ -147,7 +147,7 @@ where
     verify_vote_extension(co, state, signed_vote, validator).await
 }
 
-async fn verify_vote_extension<Ctx>(
+pub async fn verify_vote_extension<Ctx>(
     co: &Co<Ctx>,
     state: &State<Ctx>,
     vote: &SignedVote<Ctx>,

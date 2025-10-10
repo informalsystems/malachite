@@ -4,6 +4,7 @@ use {
         io::{Read, Result, Write},
         BorshDeserialize, BorshSerialize,
     },
+    malachitebft_core_state_machine::input::Certificate,
     malachitebft_core_types::{
         Context, PolkaCertificate, Round, RoundCertificate, SignedProposal, SignedVote, Validity,
     },
@@ -20,9 +21,12 @@ where
                 0u8.serialize(writer)?;
                 signed_message.serialize(writer)
             }
-            SignedConsensusMsg::Proposal(signed_message) => {
+            // FaB: Serialize both proposal and certificate
+            SignedConsensusMsg::Proposal { proposal, certificate } => {
                 1u8.serialize(writer)?;
-                signed_message.serialize(writer)
+                proposal.serialize(writer)?;
+                // Serialize Option<Certificate> as Option<Vec<SignedVote>>
+                certificate.serialize(writer)
             }
         }
     }
@@ -39,9 +43,13 @@ where
             0 => Ok(SignedConsensusMsg::Vote(SignedVote::deserialize_reader(
                 reader,
             )?)),
-            1 => Ok(SignedConsensusMsg::Proposal(
-                SignedProposal::deserialize_reader(reader)?,
-            )),
+            // FaB: Deserialize both proposal and certificate
+            1 => {
+                let proposal = SignedProposal::deserialize_reader(reader)?;
+                // Deserialize Option<Certificate> as Option<Vec<SignedVote>>
+                let certificate: Option<Certificate<Ctx>> = Option::deserialize_reader(reader)?;
+                Ok(SignedConsensusMsg::Proposal { proposal, certificate })
+            }
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Invalid discriminant",

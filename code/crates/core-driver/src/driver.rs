@@ -37,7 +37,7 @@ where
     address: Ctx::Address,
 
     /// Quorum thresholds
-    threshold_params: ThresholdParams,
+    pub(crate) threshold_params: ThresholdParams,
 
     /// The validator set at the current height
     validator_set: Ctx::ValidatorSet,
@@ -232,21 +232,23 @@ where
         self.round_certificate.as_ref()
     }
 
-    /// Returns the proposal and its validity for the given round and value_id, if any.
+    /// Returns the proposal, its validity, and certificate for the given round and value_id, if any.
+    /// FaB Phase 3A: Now includes certificate
     pub fn proposal_and_validity_for_round_and_value(
         &self,
         round: Round,
         value_id: ValueId<Ctx>,
-    ) -> Option<&(SignedProposal<Ctx>, Validity)> {
+    ) -> Option<&(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)> {
         self.proposal_keeper
             .get_proposal_and_validity_for_round_and_value(round, value_id)
     }
 
-    /// Returns the proposals and their validities for the given round, if any.
+    /// Returns the proposals, their validities, and certificates for the given round, if any.
+    /// FaB Phase 3A: Now includes certificates
     pub fn proposals_and_validities_for_round(
         &self,
         round: Round,
-    ) -> &[(SignedProposal<Ctx>, Validity)] {
+    ) -> &[(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)] {
         self.proposal_keeper
             .get_proposals_and_validities_for_round(round)
     }
@@ -293,7 +295,9 @@ where
         match round_output {
             RoundOutput::NewRound(round) => outputs.push(Output::NewRound(self.height(), round)),
 
-            RoundOutput::Proposal(proposal) => outputs.push(Output::Propose(proposal)),
+            RoundOutput::Proposal { proposal, certificate } => {
+                outputs.push(Output::Propose { proposal, certificate })
+            }
 
             RoundOutput::Vote(vote) => self.lift_vote_output(vote, outputs),
 
@@ -344,7 +348,9 @@ where
                 self.apply_new_round(height, round, proposer)
             }
             Input::ProposeValue(round, value) => self.apply_propose_value(round, value),
-            Input::Proposal(proposal, validity) => self.apply_proposal(proposal, validity),
+            Input::Proposal(proposal, validity, certificate) => {
+                self.apply_proposal(proposal, validity, certificate)
+            }
             Input::Vote(vote) => self.apply_vote(vote),
             Input::ReceiveDecision(value, certificate) => {
                 self.apply_receive_decision(value, certificate)
@@ -382,7 +388,7 @@ where
         round: Round,
         value: Ctx::Value,
     ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
-        // FaB: Try to build a 4f+1 certificate for the previous round
+        // FaB: Try to build a 4f+1 certificate from rounds >= round_p-1
         // FaB: In round 0, there's no certificate needed - propose immediately with empty certificate
         if round == Round::new(0) {
             // FaB: Round 0 - propose without lock, pass value so it broadcasts immediately
@@ -396,23 +402,35 @@ where
             );
         }
 
-        // FaB: Try to build certificate from previous round
+        // FaB: Build certificate from rounds >= round_p-1 (FaB lines 39, 45)
+        // FaB: "4f+1 <PREVOTE, h_p, r, *> = S while r>=round_p-1"
         let prev_round = Round::new((round.as_i64() - 1) as u32);
 
-        // FaB: Check if we have a 4f+1 certificate with a 2f+1 lock on this value
-        if let Some(certificate) = self.vote_keeper.build_certificate(prev_round, &value.id()) {
-            // FaB: We have a certificate for this value → propose with lock
-            self.apply_input(
-                round,
-                RoundInput::LeaderProposeWithLock {
-                    value,
-                    certificate,
-                    certificate_round: prev_round,
-                },
-            )
-        } else if let Some(certificate) = self.vote_keeper.build_certificate_any(prev_round) {
-            // FaB: We have 4f+1 prevotes but no lock → propose without lock
-            // FaB: Pass the value so state machine can broadcast proposal
+        // FaB: Try to build 4f+1 certificate from rounds >= prev_round
+        if let Some((certificate, cert_round)) = self.vote_keeper.build_certificate_from_rounds_gte(prev_round) {
+            // FaB: Check if certificate contains 2f+1 lock on the incoming value
+            // FaB: Lines 39-43: "∃ P ⊆ S. |P| >= 2f+1 AND v!=nil AND (∀m \in P. m=<PREVOTE, h_p, r, id(v)>)"
+            if let Some(locked_value_id) = self.vote_keeper.find_lock_in_certificate(&certificate) {
+                if locked_value_id == value.id() {
+                    // FaB: Certificate contains 2f+1 lock on THIS value → propose with lock
+                    // FaB: Use cert_round as the pol_round (round of the certificate)
+                    return self.apply_input(
+                        round,
+                        RoundInput::LeaderProposeWithLock {
+                            value,
+                            certificate,
+                            certificate_round: cert_round,
+                        },
+                    );
+                }
+
+                // TODO: this should be an error I feel that we should log ....
+                // FaB: Certificate has a lock on a DIFFERENT value
+                // FaB: Fall through to propose without lock using the value from getValue()
+            }
+
+            // FaB: No 2f+1 lock (or lock on different value) → propose without lock
+            // FaB: Lines 45-49: "∄ v, P ⊆ S. |P| >= 2f+1 ..."
             self.apply_input(
                 round,
                 RoundInput::LeaderProposeWithoutLock {
@@ -423,6 +441,7 @@ where
         } else {
             // FaB: No certificate available - shouldn't happen
             // FaB: Proposer should only receive ProposeValue after seeing 4f+1 prevotes
+            // maybe we should log an error as well ...
             Ok(None)
         }
     }
@@ -431,6 +450,7 @@ where
         &mut self,
         proposal: SignedProposal<Ctx>,
         validity: Validity,
+        certificate: Option<Certificate<Ctx>>,
     ) -> Result<Option<RoundOutput<Ctx>>, Error<Ctx>> {
         if self.height() != proposal.height() {
             return Err(Error::InvalidProposalHeight {
@@ -441,7 +461,7 @@ where
 
         let round = proposal.round();
 
-        match self.store_and_multiplex_proposal(proposal, validity) {
+        match self.store_and_multiplex_proposal(proposal, validity, certificate) {
             Some(round_input) => self.apply_input(round, round_input),
             None => Ok(None),
         }

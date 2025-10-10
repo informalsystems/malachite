@@ -77,11 +77,22 @@ impl Codec<SignedConsensusMsg<TestContext>> for ProtobufCodec {
             .ok_or_else(|| ProtoError::missing_field::<proto::SignedMessage>("message"))?;
 
         match proto_message {
-            proto::signed_message::Message::Proposal(proto) => {
-                let proposal = Proposal::from_proto(proto)?;
-                Ok(SignedConsensusMsg::Proposal(SignedProposal::new(
-                    proposal, signature,
-                )))
+            proto::signed_message::Message::Proposal(mut proto_proposal) => {
+                // FaB: Extract certificate from protobuf before decoding proposal
+                // The certificate is transmitted alongside but not part of the signature
+                // Take the certificate out of proto_proposal to avoid cloning
+                let certificate = match proto_proposal.certificate.take() {
+                    Some(cert) => Some(decode_certificate(cert)?),
+                    None => None,
+                };
+
+                // Decode the proposal (certificate field in proto_proposal is now None)
+                let proposal = Proposal::from_proto(proto_proposal)?;
+
+                Ok(SignedConsensusMsg::Proposal {
+                    proposal: SignedProposal::new(proposal, signature),
+                    certificate,  // ← Certificate extracted and tracked separately
+                })
             }
             proto::signed_message::Message::Vote(vote) => {
                 let vote = Vote::from_proto(vote)?;
@@ -101,11 +112,21 @@ impl Codec<SignedConsensusMsg<TestContext>> for ProtobufCodec {
                 };
                 Ok(Bytes::from(proto.encode_to_vec()))
             }
-            SignedConsensusMsg::Proposal(proposal) => {
+            // FaB: Proposal now carries certificate separately for transmission
+            SignedConsensusMsg::Proposal { proposal, certificate } => {
+                // Get the proposal proto (will have certificate=None from the struct field)
+                let mut proto_proposal = proposal.message.to_proto()?;
+
+                // FaB: Merge certificate for transmission
+                // Note: The signature was computed WITHOUT the certificate
+                // But we transmit the certificate alongside for validation
+                proto_proposal.certificate = match certificate {
+                    Some(cert) => Some(encode_certificate(cert)?),
+                    None => None,
+                };
+
                 let proto = proto::SignedMessage {
-                    message: Some(proto::signed_message::Message::Proposal(
-                        proposal.message.to_proto()?,
-                    )),
+                    message: Some(proto::signed_message::Message::Proposal(proto_proposal)),
                     signature: Some(encode_signature(&proposal.signature)),
                 };
                 Ok(Bytes::from(proto.encode_to_vec()))

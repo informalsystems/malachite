@@ -41,6 +41,15 @@ message Proposal {
     Value value = 3;
     optional uint32 pol_round = 4;
     Address validator_address = 5;
+    // FaB: Certificate containing 4f+1 prevotes to justify this proposal
+    // Required for rounds > 0, None for round 0
+    optional Certificate certificate = 6;
+}
+
+// FaB: Certificate is a Vec<SignedVote> containing 4f+1 prevote messages
+// Used to justify proposals in rounds > 0 (SafeProposal validation)
+message Certificate {
+    repeated SignedMessage votes = 1;
 }
 
 message Signature {

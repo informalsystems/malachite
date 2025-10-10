@@ -23,7 +23,7 @@ use malachitebft_core_state_machine::input::Input as RoundInput;
 use malachitebft_core_state_machine::state::Step;
 // FaB: Removed CommitCertificate and PolkaCertificate imports (3f+1 Tendermint concepts)
 use malachitebft_core_types::{SignedProposal};
-use malachitebft_core_types::{Context, Proposal, Round, Validity, Value, ValueId};
+use malachitebft_core_types::{Context, Proposal, Round, Validator, Validity, ValidatorSet, Value, ValueId};
 use malachitebft_core_votekeeper::keeper::Output as VKOutput;
 
 use crate::Driver;
@@ -34,17 +34,23 @@ where
 {
     // FaB: Process a received proposal for FaB-a-la-Tendermint-bounded-square
     ///
-    /// In FaB, proposal processing is simpler than Tendermint:
+    /// In FaB, proposal processing:
     ///
     /// 1. Check if we have a valid proposal + 4f+1 prevotes for it → CanDecide
-    /// 2. Otherwise, if it's a valid proposal for current round → Proposal
+    /// 2. Otherwise, if it's a valid proposal for current round → validate SafeProposal
+    ///    - If SafeProposal passes → SafeProposal input (prevote for new value)
+    ///    - If SafeProposal fails → UnsafeProposal input (prevote for old value)
     /// 3. Invalid or out-of-round proposals → None (ignore)
     ///
-    /// SafeProposal validation is done by the state machine when it receives the Proposal input.
+    /// # Arguments
+    /// * `proposal` - The proposal to process
+    /// * `validity` - Whether the proposal passed application validity check
+    /// * `certificate` - Optional certificate of prevotes (None during backwards compat transition)
     pub(crate) fn multiplex_proposal(
         &mut self,
         proposal: Ctx::Proposal,
         validity: Validity,
+        certificate: Option<Vec<malachitebft_core_types::SignedVote<Ctx>>>,
     ) -> Option<RoundInput<Ctx>> {
         // FaB: Should only receive proposals for our height
         assert_eq!(self.height(), proposal.height());
@@ -80,26 +86,35 @@ where
             return None;
         }
 
-        // FaB: Valid proposal for current round → send to state machine
-        // FaB: State machine will validate SafeProposal (lines 51-67) and prevote
-        Some(RoundInput::Proposal(proposal))
+        // FaB: Valid proposal for current round → validate SafeProposal (FaB lines 51-67)
+        // FaB: Driver validates SafeProposal and state machine reacts accordingly
+        if self.validate_safe_proposal(&proposal, &certificate) {
+            // FaB: SafeProposal validation passed
+            Some(RoundInput::SafeProposal(proposal))
+        } else {
+            // FaB: SafeProposal validation FAILED
+            Some(RoundInput::UnsafeProposal(proposal))
+        }
     }
 
     pub(crate) fn store_and_multiplex_proposal(
         &mut self,
         signed_proposal: SignedProposal<Ctx>,
         validity: Validity,
+        certificate: Option<Vec<malachitebft_core_types::SignedVote<Ctx>>>,
     ) -> Option<RoundInput<Ctx>> {
         // Should only receive proposals for our height.
         assert_eq!(self.height(), signed_proposal.height());
 
         let proposal = signed_proposal.message.clone();
 
-        // Store the proposal and its validity
+        // Store the proposal, its validity, and certificate
+        // FaB Phase 3A: Certificate is now cached for later reprocessing
         self.proposal_keeper
-            .store_proposal(signed_proposal, validity);
+            .store_proposal(signed_proposal, validity, certificate.clone());
 
-        self.multiplex_proposal(proposal, validity)
+        // FaB: Phase 2 - pass certificate through for SafeProposal validation
+        self.multiplex_proposal(proposal, validity, certificate)
     }
 
     // FaB: Removed store_and_multiplex_commit_certificate() - Tendermint 3f+1 concept
@@ -129,7 +144,7 @@ where
             VKOutput::DecisionValue(ref value_id) => {
                 // FaB: Check if we have a valid proposal for this value
                 // FaB: CanDecide has no step restriction (line 72-74)
-                if let Some((signed_proposal, validity)) =
+                if let Some((signed_proposal, validity, _certificate)) =
                     self.proposal_and_validity_for_round_and_value(threshold_round, value_id.clone())
                 {
                     if validity.is_valid() {
@@ -177,7 +192,7 @@ where
                             // FaB: Need to find the locked value from cached proposals
                             // FaB: Search in all rounds from prev_round to cert_round
                             for search_round in prev_round.as_i64()..=cert_round.as_i64() {
-                                if let Some((signed_proposal, validity)) =
+                                if let Some((signed_proposal, validity, _certificate)) =
                                     self.proposal_and_validity_for_round_and_value(Round::new(search_round as u32), value_id.clone())
                                 {
                                     if validity.is_valid() {
@@ -262,7 +277,7 @@ where
                     // FaB: Need to find the locked value from cached proposals
                     // FaB: Search in all rounds from prev_round to cert_round
                     for search_round in prev_round.as_i64()..=cert_round.as_i64() {
-                        if let Some((signed_proposal, validity)) =
+                        if let Some((signed_proposal, validity, _certificate)) =
                             self.proposal_and_validity_for_round_and_value(Round::new(search_round as u32), value_id.clone())
                         {
                             if validity.is_valid() {
@@ -297,12 +312,14 @@ where
         // FaB: Check if we have cached proposals for this round that need reprocessing
         let proposals = self.proposals_and_validities_for_round(round).to_vec();
 
-        for (signed_proposal, validity) in proposals {
+        for (signed_proposal, validity, certificate) in proposals {
             let proposal = &signed_proposal.message;
 
             // FaB: At propose step, reprocess proposals (line 51-59)
             if step == Step::Propose {
-                if let Some(input) = self.multiplex_proposal(proposal.clone(), validity) {
+                // FaB Phase 3A: Extract cached certificate for reprocessing
+                // This preserves SafeProposal validation for round > 0 proposals
+                if let Some(input) = self.multiplex_proposal(proposal.clone(), validity, certificate) {
                     result.push((self.round(), input))
                 }
             }
@@ -311,6 +328,107 @@ where
         }
 
         result
+    }
+
+    /// Validates SafeProposal predicate from FaB pseudocode lines 61-67.
+    ///
+    /// SafeProposal checks if a proposal is safe to prevote for based on its certificate S.
+    ///
+    /// Returns true if any of these conditions hold:
+    /// 1. Certificate is None AND proposal is for round 0 (idiomatic Rust for "no certificate")
+    /// 2. Certificate contains 2f+1 prevotes for value v'' from rounds >= round_p-1,
+    ///    AND proposed value v matches v''
+    /// 3. Certificate contains 4f+1 prevotes (any values) from rounds >= round_p-1
+    ///
+    /// # Arguments
+    /// * `proposal` - The proposal to validate
+    /// * `certificate` - Certificate of prevotes (None for round 0, Some(votes) for round > 0)
+    ///
+    /// # Returns
+    /// `true` if SafeProposal passes, `false` otherwise
+    pub(crate) fn validate_safe_proposal(
+        &self,
+        proposal: &Ctx::Proposal,
+        certificate: &Option<Vec<malachitebft_core_types::SignedVote<Ctx>>>,
+    ) -> bool {
+        use malachitebft_core_types::{SignedVote, Vote};
+
+        // FaB pseudocode line 64: Case 2b - "S == {} AND r == 0"
+        // Round 0 must have None (idiomatic Rust for "no certificate needed")
+        if proposal.round() == Round::ZERO {
+            return certificate.is_none();
+        }
+
+        // Round > 0 must have a non-empty certificate
+        let Some(cert) = certificate else {
+            // FaB: Round > 0 with no certificate is invalid
+            return false;
+        };
+
+        if cert.is_empty() {
+            // FaB: Round > 0 with empty certificate is invalid
+            return false;
+        }
+
+        let round_p = self.round();
+        let min_round = Round::new(round_p.as_i64().saturating_sub(1).max(0) as u32);
+
+        // FaB pseudocode lines 62-63: Case 1 - Check for 2f+1 lock on any value v''
+        // "if ∃ v'', P ⊆ S. |P| >= 2f+1 AND v''!=nil AND
+        //     (∀m ∈ P. m=<PREVOTE, h_p, r', id(v'')> AND r'>=round_p-1)"
+        if let Some(locked_value_id) = self.vote_keeper.find_lock_in_certificate(cert) {
+            // Check all votes in certificate are from recent rounds (r' >= round_p - 1)
+            let all_recent = cert.iter().all(|vote| {
+                vote.round() >= min_round && vote.height() == proposal.height()
+            });
+
+            if !all_recent {
+                // FaB: Case 1 FAILED - certificate contains votes from old rounds
+                return false;
+            }
+
+            // Check locked value matches proposed value
+            // "return id(v'') == id(v) AND Valid(v)"
+            if locked_value_id != proposal.value().id() {
+                // FaB: Case 1 FAILED - proposal value doesn't match 2f+1 lock
+                return false;
+            }
+
+            // FaB: Case 1 PASSED - 2f+1 lock on matching value - VALID
+            return true;
+        }
+
+        // FaB pseudocode line 64: Case 2a - Check for 4f+1 prevotes from recent rounds
+        // "|S| == 4f+1 AND (∀m ∈ S. m=<PREVOTE, h_p, r', *> AND r'>=round_p-1)"
+        let weight: u64 = cert
+            .iter()
+            .filter_map(|vote| self.validator_set().get_by_address(vote.validator_address()))
+            .map(|v| v.voting_power())
+            .sum();
+        let is_4f_plus_1 = self
+            .threshold_params
+            .certificate_quorum
+            .is_met(weight, self.validator_set().total_voting_power());
+
+        if is_4f_plus_1 {
+            // All votes must be from rounds >= round_p - 1
+            let all_recent = cert.iter().all(|vote| {
+                vote.round() >= min_round && vote.height() == proposal.height()
+            });
+
+            if !all_recent {
+                // FaB: Case 2a FAILED - certificate has 4f+1 but contains votes from old rounds
+                return false;
+            }
+
+            // FaB: Case 2a PASSED - 4f+1 prevotes from recent rounds - VALID
+            return true;
+        }
+
+        // FaB pseudocode line 66-67: Case 3 - Invalid certificate
+        // "else return FALSE"
+        // FaB: Case 3 - Invalid certificate (no 2f+1 lock, not 4f+1 recent prevotes)
+        false
     }
 }
 

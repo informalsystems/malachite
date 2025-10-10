@@ -53,7 +53,7 @@ where
             reset_and_start_height(co, state, metrics, height, validator_set, is_restart).await
         }
         Input::Vote(vote) => on_vote(co, state, metrics, vote).await,
-        Input::Proposal(proposal) => on_proposal(co, state, metrics, proposal).await,
+        Input::Proposal(proposal, certificate) => on_proposal(co, state, metrics, proposal, certificate).await,
         Input::Propose(value) => on_propose(co, state, metrics, value).await,
         Input::TimeoutElapsed(timeout) => on_timeout_elapsed(co, state, metrics, timeout).await,
         Input::ProposedValue(value, origin) => {

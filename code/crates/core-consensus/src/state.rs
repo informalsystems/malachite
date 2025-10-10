@@ -35,9 +35,6 @@ where
 
     /// Last prevote broadcasted by this node
     pub last_signed_prevote: Option<SignedVote<Ctx>>,
-
-    /// Last precommit broadcasted by this node
-    pub last_signed_precommit: Option<SignedVote<Ctx>>,
 }
 
 impl<Ctx> State<Ctx>
@@ -61,7 +58,6 @@ where
             sync_input_queue: BoundedQueue::new(queue_capacity),
             full_proposal_keeper: Default::default(),
             last_signed_prevote: None,
-            last_signed_precommit: None,
         }
     }
 
@@ -94,23 +90,8 @@ where
         }
     }
 
-    pub fn restore_precommits(
-        &mut self,
-        height: Ctx::Height,
-        round: Round,
-        value: &Ctx::Value,
-    ) -> Vec<SignedVote<Ctx>> {
-        assert_eq!(height, self.driver.height());
-
-        // FaB: Use build_certificate() which collects from latest_prevotes
-        // Returns the certificate if we have 4f+1, or None otherwise
-        self.driver
-            .votes()
-            .build_certificate(round, &value.id())
-            .unwrap_or_default()
-    }
-
     // FaB: Removed polka_certificate_at_round() - no polka certificates in FaB
+    // FaB: Removed restore_precommits() - no precommits in FaB
 
     pub fn full_proposal_at_round_and_value(
         &self,
@@ -163,7 +144,6 @@ where
     ) {
         self.full_proposal_keeper.clear();
         self.last_signed_prevote = None;
-        self.last_signed_precommit = None;
 
         self.driver.move_to_height(height, validator_set);
     }

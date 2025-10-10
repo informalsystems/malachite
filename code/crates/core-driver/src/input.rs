@@ -20,8 +20,9 @@ where
     /// FaB: Used by proposer in prepropose step after receiving 4f+1 prevotes
     ProposeValue(Round, Ctx::Value),
 
-    /// Receive a proposal, of the given validity
-    Proposal(SignedProposal<Ctx>, Validity),
+    /// Receive a proposal with its justification certificate, of the given validity
+    /// The certificate is None for round 0, Some(certificate) for round > 0
+    Proposal(SignedProposal<Ctx>, Validity, Option<Certificate<Ctx>>),
 
     /// Receive a vote (only prevotes in FaB)
     Vote(SignedVote<Ctx>),

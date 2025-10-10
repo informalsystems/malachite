@@ -131,7 +131,7 @@ impl<Ctx: Context> fmt::Display for Msg<Ctx> {
         match self {
             Msg::StartHeight(height, _) => write!(f, "StartHeight(height={height})"),
             Msg::NetworkEvent(event) => match event {
-                NetworkEvent::Proposal(_, proposal) => write!(
+                NetworkEvent::Proposal(_, proposal, _) => write!(
                     f,
                     "NetworkEvent(Proposal height={} round={})",
                     proposal.height(),
@@ -506,14 +506,14 @@ where
                         }
                     }
 
-                    NetworkEvent::Proposal(from, proposal) => {
+                    NetworkEvent::Proposal(from, proposal, certificate) => {
                         if state.consensus.params.value_payload.parts_only() {
                             error!(%from, "Properly configured peer should never send proposal messages in BlockPart mode");
                             return Ok(());
                         }
 
                         if let Err(e) = self
-                            .process_input(&myself, state, ConsensusInput::Proposal(proposal))
+                            .process_input(&myself, state, ConsensusInput::Proposal(proposal, certificate))
                             .await
                         {
                             error!(%from, "Error when processing proposal: {e}");
@@ -782,11 +782,12 @@ where
                     }
                 }
 
-                WalEntry::ConsensusMsg(Proposal(proposal)) => {
+                // FaB: Extract proposal and certificate from WAL entry
+                WalEntry::ConsensusMsg(Proposal { proposal, certificate }) => {
                     info!("Replaying proposal: {proposal:?}");
 
                     if let Err(e) = self
-                        .process_input(myself, state, ConsensusInput::Proposal(proposal))
+                        .process_input(myself, state, ConsensusInput::Proposal(proposal, certificate))
                         .await
                     {
                         error!("Error when replaying Proposal: {e}");

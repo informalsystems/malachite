@@ -808,10 +808,8 @@ mod tests {
         let t = TimeoutConfig::default();
         assert_eq!(t.timeout_duration(TimeoutKind::Propose), t.timeout_propose);
         assert_eq!(t.timeout_duration(TimeoutKind::Prevote), t.timeout_prevote);
-        assert_eq!(
-            t.timeout_duration(TimeoutKind::Precommit),
-            t.timeout_precommit
-        );
+        // FaB: No Precommit timeout in FaB-a-la-Tendermint-bounded-square
+        // FaB: Removed assertion for TimeoutKind::Precommit
     }
 
     #[test]

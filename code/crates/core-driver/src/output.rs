@@ -12,8 +12,12 @@ where
     /// Start a new round
     NewRound(Ctx::Height, Round),
 
-    /// Broadcast a proposal
-    Propose(Ctx::Proposal),
+    /// Broadcast a proposal with its justification certificate
+    /// The certificate is None for round 0, Some(certificate) for round > 0
+    Propose {
+        proposal: Ctx::Proposal,
+        certificate: Option<Certificate<Ctx>>,
+    },
 
     /// Broadcast a vote for a value
     Vote(Ctx::Vote),

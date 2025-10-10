@@ -71,9 +71,6 @@ pub struct StateDump<Ctx: Context> {
     /// Last prevote broadcasted by this node
     pub last_signed_prevote: Option<SignedVote<Ctx>>,
 
-    /// Last precommit broadcasted by this node
-    pub last_signed_precommit: Option<SignedVote<Ctx>>,
-
     /// The certificate that justifies moving to the `enter_round` specified in the certificate
     pub round_certificate: Option<EnterRoundCertificate<Ctx>>,
 
@@ -98,7 +95,6 @@ impl<Ctx: Context> StateDump<Ctx> {
             },
             full_proposal_keeper: state.full_proposal_keeper.clone(),
             last_signed_prevote: state.last_signed_prevote.clone(),
-            last_signed_precommit: state.last_signed_precommit.clone(),
             round_certificate: state.driver.round_certificate().cloned(),
             input_queue: state.input_queue.clone(),
         }

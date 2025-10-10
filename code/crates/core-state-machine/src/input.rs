@@ -40,10 +40,15 @@ where
         certificate: Certificate<Ctx>,
     },
 
-    /// Receive a proposal from the proposer.
-    /// FaB: Maps to FollowerReceiveProposalInput
-    /// Follower validates SafeProposal and prevotes
-    Proposal(Ctx::Proposal),
+    /// Receive a proposal that passed SafeProposal validation
+    /// FaB pseudocode line 53: "if SafeProposal(M) then"
+    /// Follower prevotes for the proposal value
+    SafeProposal(Ctx::Proposal),
+
+    /// Receive a proposal that failed SafeProposal validation
+    /// FaB pseudocode line 57: "else"
+    /// Follower prevotes for old prevotedValue_p (or nil)
+    UnsafeProposal(Ctx::Proposal),
 
     /// FaB: Received 4f+1 prevotes for current round (max_round = round_p)
     /// Maps to: EnoughPrevotesForRoundInput

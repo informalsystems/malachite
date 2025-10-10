@@ -5,6 +5,8 @@ use crate::input::Input;
 use crate::prelude::*;
 use crate::types::{ConsensusMsg, ProposedValue, SignedConsensusMsg, WalEntry};
 use crate::util::pretty::PrettyProposal;
+// FaB: Import Certificate for proposal certificates
+use malachitebft_core_state_machine::input::Certificate;
 
 /// Handles an incoming consensus proposal message.
 ///
@@ -32,6 +34,7 @@ pub async fn on_proposal<Ctx>(
     state: &mut State<Ctx>,
     metrics: &Metrics,
     signed_proposal: SignedProposal<Ctx>,
+    certificate: Option<Certificate<Ctx>>,
 ) -> Result<(), Error<Ctx>>
 where
     Ctx: Context,
@@ -57,7 +60,7 @@ where
     // Queue proposals for heights higher than the current height.
     if proposal_height > consensus_height {
         debug!("Received proposal for higher height {proposal_height}, queuing for later",);
-        state.buffer_input(proposal_height, Input::Proposal(signed_proposal), metrics);
+        state.buffer_input(proposal_height, Input::Proposal(signed_proposal, certificate), metrics);
 
         return Ok(());
     }
@@ -95,14 +98,17 @@ where
 
     // Store the proposal in the full proposal keeper
     state.store_proposal(signed_proposal.clone());
-
+ 
     // If consensus runs in a mode where it publishes proposals over the network,
     // we need to persist in the Write-Ahead Log before we actually send it over the network.
     if state.params.value_payload.include_proposal() {
         perform!(
             co,
             Effect::WalAppend(
-                WalEntry::ConsensusMsg(SignedConsensusMsg::Proposal(signed_proposal.clone())),
+                WalEntry::ConsensusMsg(SignedConsensusMsg::Proposal {
+                    proposal: signed_proposal.clone(),
+                    certificate: certificate.clone(),  // FaB: Store certificate for WAL replay
+                }),
                 Default::default()
             )
         );
@@ -148,7 +154,11 @@ where
             co,
             state,
             metrics,
-            DriverInput::Proposal(full_proposal.proposal.clone(), full_proposal.validity),
+            DriverInput::Proposal(
+                full_proposal.proposal.clone(),
+                full_proposal.validity,
+                certificate, // FaB Phase 3A: Pass certificate from network
+            ),
         )
         .await?;
     } else {

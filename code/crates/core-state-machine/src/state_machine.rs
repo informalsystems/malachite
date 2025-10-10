@@ -129,7 +129,7 @@ where
         //
 
         // Leader received 4f+1 prevotes WITH 2f+1 for same value v
-        (Step::Prepropose, Input::LeaderProposeWithLock { value, certificate: _, certificate_round })
+        (Step::Prepropose, Input::LeaderProposeWithLock { value, certificate, certificate_round })
             if this_round && info.is_proposer() =>
         {
             state.step = Step::Propose;
@@ -143,7 +143,11 @@ where
                 info.address.clone(),
             );
 
-            Transition::to(state).with_output(Output::Proposal(proposal))
+            // FaB: Attach certificate with 2f+1 lock
+            Transition::to(state).with_output(Output::Proposal {
+                proposal,
+                certificate: Some(certificate),
+            })
         }
 
         // Leader received 4f+1 prevotes WITHOUT a 2f+1 lock
@@ -152,19 +156,23 @@ where
         {
             state.step = Step::Propose;
 
-            // If we already have a value (round 0), broadcast proposal immediately
-            // Otherwise, request a new value
+            // If we already have a value, broadcast proposal immediately with certificate
+            // Otherwise, request a new value (certificate will be reattached when value arrives)
             if let Some(v) = value {
-                // FaB: Round 0 - we already have the value, broadcast immediately
+                // FaB: Round > 0 (Prepropose only at round > 0) - broadcast with certificate
                 let proposal = ctx.new_proposal(
                     state.height,
                     state.round,
                     v,
-                    Round::Nil, // No pol_round for round 0
+                    Round::Nil, // No pol_round when no lock
                     info.address.clone(),
                 );
 
-                Transition::to(state).with_output(Output::Proposal(proposal))
+                // FaB: Attach certificate (4f+1 prevotes, no 2f+1 lock)
+                Transition::to(state).with_output(Output::Proposal {
+                    proposal,
+                    certificate: Some(certificate),
+                })
             } else {
                 // FaB: Round > 0 - request a new value
                 // When value arrives via ProposeValue, driver will rebuild the certificate
@@ -197,7 +205,12 @@ where
                 info.address.clone(),
             );
 
-            Transition::to(state).with_output(Output::Proposal(proposal))
+            // FaB: Round 0 - no certificate (None is idiomatic Rust for "not needed")
+            // SafeProposal case 2b: "S == {} AND r == 0" means no certificate at round 0
+            Transition::to(state).with_output(Output::Proposal {
+                proposal,
+                certificate: None,
+            })
         }
 
         // Proposer at round > 0 receives value from app after storing certificate
@@ -207,8 +220,6 @@ where
         {
             // FaB: Round > 0 - use the certificate provided by the driver
             // The certificate is built from prevotes in rounds >= previous round
-            // TODO: For now, we ignore the certificate in the proposal creation
-            // The certificate should be attached during proposal streaming/gossip
             let proposal = ctx.new_proposal(
                 state.height,
                 state.round,
@@ -217,7 +228,11 @@ where
                 info.address.clone(),
             );
 
-            Transition::to(state).with_output(Output::Proposal(proposal))
+            // FaB: Attach certificate (4f+1 prevotes, no 2f+1 lock)
+            Transition::to(state).with_output(Output::Proposal {
+                proposal,
+                certificate: Some(certificate),
+            })
         }
 
         //
@@ -225,10 +240,15 @@ where
         // FaB pseudocode lines 51-59
         //
 
-        // Follower receives PROPOSAL from proposer (SafeProposal validation happens in driver)
-        // If SafeProposal is true, driver will provide the proposal
-        (Step::Propose, Input::Proposal(proposal)) if this_round => {
+        // FaB pseudocode lines 53-56: SafeProposal passed - prevote for proposal value
+        // "if SafeProposal(M) then
+        //      prevotedValue_p = v
+        //      prevotedProposalMsg_p = <PROPOSAL, h_p, round_p, v, {}>
+        //      lastPrevote_p = <PREVOTE, h_p, round_p, id(v)>"
+        (Step::Propose, Input::SafeProposal(proposal)) if this_round => {
             state.step = Step::Prevote;
+
+            // FaB: SafeProposal validation passed - prevote for the new proposal value
 
             // Broadcast PREVOTE for the proposal value (FaB lines 56-59)
             let prevote = ctx.new_prevote(
@@ -238,11 +258,50 @@ where
                 info.address.clone(),
             );
 
-            // Update prevoted state and last prevote
+            // FaB line 55: prevotedProposalMsg_p = <PROPOSAL, h_p, round_p, v, {}>
+            // The {} means empty certificate, which translates to pol_round = Round::Nil
+            let proposal_without_cert = ctx.new_proposal(
+                state.height,
+                state.round,
+                proposal.value().clone(),
+                Round::Nil,  // Empty certificate (FaB notation: {})
+                info.proposer.clone(),
+            );
+
+            // Update prevoted state: prevotedValue_p = v, prevotedProposalMsg_p = proposal_without_cert
             state = state
                 .set_prevoted_value(proposal.value().clone())
-                .set_prevoted_proposal_msg(proposal.clone())
+                .set_prevoted_proposal_msg(proposal_without_cert)
                 .set_last_prevote(prevote.clone());
+
+            Transition::to(state).with_output(Output::Vote(prevote))
+        }
+
+        // FaB pseudocode lines 57-58: SafeProposal failed - prevote for old value
+        // "else
+        //      lastPrevote_p = <PREVOTE, h_p, round_p, id(prevotedValue_p)>"
+        (Step::Propose, Input::UnsafeProposal(proposal)) if this_round => {
+            state.step = Step::Prevote;
+
+            // FaB: SafeProposal validation failed - prevote for OLD prevotedValue_p (or nil)
+
+            // Prevote for prevotedValue_p (or nil if we haven't prevoted before)
+            let value_to_prevote = state
+                .prevoted_value
+                .as_ref()
+                .map(|v| NilOrVal::Val(v.id()))
+                .unwrap_or(NilOrVal::Nil);
+
+            let prevote = ctx.new_prevote(
+                state.height,
+                state.round,
+                value_to_prevote,
+                info.address.clone(),
+            );
+
+            // Note: We do NOT update prevotedValue_p or prevotedProposalMsg_p
+            // Only update last_prevote
+            state = state.set_last_prevote(prevote.clone());
 
             Transition::to(state).with_output(Output::Vote(prevote))
         }

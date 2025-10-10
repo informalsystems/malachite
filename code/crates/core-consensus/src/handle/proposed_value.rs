@@ -120,7 +120,11 @@ where
             co,
             state,
             metrics,
-            DriverInput::Proposal(signed_proposal, validity),
+            DriverInput::Proposal(
+                signed_proposal,
+                validity,
+                None, // Phase 2: Locally generated proposals don't have certificates initially
+            ),
         )
         .await?;
     }

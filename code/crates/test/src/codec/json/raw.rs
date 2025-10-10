@@ -36,7 +36,8 @@ impl From<SignedConsensusMsg<TestContext>> for RawSignedConsensusMsg {
                 message: vote.message.to_sign_bytes(),
                 signature: *vote.signature.inner(),
             }),
-            SignedConsensusMsg::Proposal(proposal) => Self::Proposal(RawSignedMessage {
+            // FaB: Extract proposal from struct variant, certificate not serialized in raw format
+            SignedConsensusMsg::Proposal { proposal, .. } => Self::Proposal(RawSignedMessage {
                 message: proposal.message.to_sign_bytes(),
                 signature: *proposal.signature.inner(),
             }),
@@ -52,10 +53,14 @@ impl From<RawSignedConsensusMsg> for SignedConsensusMsg<TestContext> {
                 signature: vote.signature.into(),
             }),
             RawSignedConsensusMsg::Proposal(proposal) => {
-                SignedConsensusMsg::Proposal(SignedProposal {
-                    message: Proposal::from_sign_bytes(&proposal.message).unwrap(),
-                    signature: proposal.signature.into(),
-                })
+                // FaB: Raw format doesn't include certificate, so set to None
+                SignedConsensusMsg::Proposal {
+                    proposal: SignedProposal {
+                        message: Proposal::from_sign_bytes(&proposal.message).unwrap(),
+                        signature: proposal.signature.into(),
+                    },
+                    certificate: None,
+                }
             }
         }
     }

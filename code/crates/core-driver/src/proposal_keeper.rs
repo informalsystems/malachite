@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use derive_where::derive_where;
 use thiserror::Error;
 
-use malachitebft_core_types::{Context, Proposal, Round, SignedProposal, Validity, Value, ValueId};
+use malachitebft_core_types::{Context, Proposal, Round, SignedProposal, SignedVote, Validity, Value, ValueId};
 
 /// Errors can that be yielded when recording a proposal.
 #[derive_where(Debug)]
@@ -33,30 +33,33 @@ where
     Ctx: Context,
 {
     /// The proposals received in a given round (proposal.round) if any.
-    proposals: Vec<(SignedProposal<Ctx>, Validity)>,
+    /// Each entry contains: (proposal, validity, optional certificate)
+    /// FaB Phase 3A: Certificates are now cached alongside proposals to preserve them for reprocessing
+    proposals: Vec<(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)>,
 }
 
 impl<Ctx> PerRound<Ctx>
 where
     Ctx: Context,
 {
-    /// Return the first proposal and its validity that matches the given value_id, if any.
+    /// Return the first proposal, its validity, and certificate that matches the given value_id, if any.
     fn get_first_proposal_and_validity(
         &self,
         value_id: ValueId<Ctx>,
-    ) -> Option<&(SignedProposal<Ctx>, Validity)> {
+    ) -> Option<&(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)> {
         self.proposals
             .iter()
-            .find(|(proposal, _)| proposal.value().id() == value_id)
+            .find(|(proposal, _, _)| proposal.value().id() == value_id)
     }
 
-    // /// Return the first proposal, if any, without validity.
+    // /// Return the first proposal, if any, without validity or certificate.
     fn get_first_proposal(&self) -> Option<&SignedProposal<Ctx>> {
-        self.proposals.first().map(|(p, _)| p)
+        self.proposals.first().map(|(p, _, _)| p)
     }
 
-    /// Returns all proposals and their validities.
-    pub fn get_proposals_and_validities(&self) -> &[(SignedProposal<Ctx>, Validity)] {
+    /// Returns all proposals, their validities, and certificates.
+    /// FaB Phase 3A: Now includes certificates for reprocessing cached proposals
+    pub fn get_proposals_and_validities(&self) -> &[(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)] {
         &self.proposals
     }
 
@@ -67,13 +70,15 @@ where
     /// - Stores each unique proposal once.
     /// - Returns an error if equivocation is detected but from the **same** validator.
     /// - Panics if proposals come from **different validators**.
+    /// FaB Phase 3A: Now accepts certificate to cache alongside proposal
     pub fn add(
         &mut self,
         proposal: SignedProposal<Ctx>,
         validity: Validity,
+        certificate: Option<Vec<SignedVote<Ctx>>>,
     ) -> Result<(), RecordProposalError<Ctx>> {
-        // Ignore exact duplicates
-        if self.proposals.iter().any(|(p, _)| p == &proposal) {
+        // Ignore exact duplicates (compare only proposal, not certificate)
+        if self.proposals.iter().any(|(p, _, _)| p == &proposal) {
             return Ok(());
         }
 
@@ -90,8 +95,8 @@ where
             }
         }
 
-        // Store the new unique proposal
-        self.proposals.push((proposal.clone(), validity));
+        // Store the new unique proposal with its certificate
+        self.proposals.push((proposal.clone(), validity, certificate));
 
         // If more than one distinct proposal has been recorded, treat it as equivocation.
         if self.proposals.len() > 1 {
@@ -130,22 +135,24 @@ where
         Self::default()
     }
 
-    /// Returns the proposal and its validity for the round, matching the value_id, if any.
+    /// Returns the proposal, its validity, and certificate for the round, matching the value_id, if any.
+    /// FaB Phase 3A: Now includes certificate
     pub fn get_proposal_and_validity_for_round_and_value(
         &self,
         round: Round,
         value_id: ValueId<Ctx>,
-    ) -> Option<&(SignedProposal<Ctx>, Validity)> {
+    ) -> Option<&(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)> {
         self.per_round
             .get(&round)
             .and_then(|round_info| round_info.get_first_proposal_and_validity(value_id))
     }
 
-    /// Returns all proposals and their validities for the round, if any.
+    /// Returns all proposals, their validities, and certificates for the round, if any.
+    /// FaB Phase 3A: Now includes certificates
     pub fn get_proposals_and_validities_for_round(
         &self,
         round: Round,
-    ) -> &[(SignedProposal<Ctx>, Validity)] {
+    ) -> &[(SignedProposal<Ctx>, Validity, Option<Vec<SignedVote<Ctx>>>)] {
         self.per_round
             .get(&round)
             .map(PerRound::get_proposals_and_validities)
@@ -162,11 +169,17 @@ where
         &self.evidence
     }
 
-    /// Store a proposal, checking for conflicts and storing evidence of equivocation if necessary.
-    pub fn store_proposal(&mut self, proposal: SignedProposal<Ctx>, validity: Validity) {
+    /// Store a proposal with its certificate, checking for conflicts and storing evidence of equivocation if necessary.
+    /// FaB Phase 3A: Now accepts certificate to cache alongside proposal
+    pub fn store_proposal(
+        &mut self,
+        proposal: SignedProposal<Ctx>,
+        validity: Validity,
+        certificate: Option<Vec<SignedVote<Ctx>>>,
+    ) {
         let per_round = self.per_round.entry(proposal.round()).or_default();
 
-        match per_round.add(proposal, validity) {
+        match per_round.add(proposal, validity, certificate) {
             Ok(()) => (),
 
             Err(RecordProposalError::ConflictingProposal {

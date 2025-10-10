@@ -257,7 +257,8 @@ fn wal_entry_type<Ctx: Context>(entry: &WalEntry<Ctx>) -> &'static str {
     match entry {
         WalEntry::ConsensusMsg(msg) => match msg {
             SignedConsensusMsg::Vote(_) => "Consensus(Vote)",
-            SignedConsensusMsg::Proposal(_) => "Consensus(Proposal)",
+            // FaB: Certificate field added but not used for logging
+            SignedConsensusMsg::Proposal { .. } => "Consensus(Proposal)",
         },
         WalEntry::ProposedValue(_) => "LocallyProposedValue",
         WalEntry::Timeout(_) => "Timeout",

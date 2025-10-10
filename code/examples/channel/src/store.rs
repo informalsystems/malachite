@@ -10,13 +10,13 @@ use thiserror::Error;
 use tracing::error;
 
 use malachitebft_app_channel::app::types::codec::Codec;
-use malachitebft_app_channel::app::types::core::{CommitCertificate, Round};
+use malachitebft_app_channel::app::types::core::{Round, SignedMessage};
 use malachitebft_app_channel::app::types::ProposedValue;
 use malachitebft_proto::{Error as ProtoError, Protobuf};
 use malachitebft_test::codec::proto as codec;
 use malachitebft_test::codec::proto::ProtobufCodec;
 use malachitebft_test::proto;
-use malachitebft_test::{Height, TestContext, Value, ValueId};
+use malachitebft_test::{Height, TestContext, Value, ValueId, Vote};
 
 mod keys;
 use keys::{HeightKey, UndecidedValueKey};
@@ -25,19 +25,23 @@ use crate::metrics::DbMetrics;
 use crate::store::keys::PendingValueKey;
 use crate::streaming::ProposalParts;
 
+// FaB: DecidedValue now uses Vec<SignedVote> instead of CommitCertificate
 #[derive(Clone, Debug)]
 pub struct DecidedValue {
     pub value: Value,
-    pub certificate: CommitCertificate<TestContext>,
+    pub certificate: Vec<SignedMessage<TestContext, Vote>>,
 }
 
-fn decode_certificate(bytes: &[u8]) -> Result<CommitCertificate<TestContext>, ProtoError> {
-    let proto = proto::CommitCertificate::decode(bytes)?;
-    codec::decode_commit_certificate(proto)
+// FaB: Use the new certificate encoding (Vec<SignedVote>) instead of CommitCertificate
+fn decode_certificate_from_bytes(bytes: &[u8]) -> Result<Vec<SignedMessage<TestContext, Vote>>, ProtoError> {
+    let proto = proto::Certificate::decode(bytes)?;
+    codec::decode_certificate(proto)
 }
 
-fn encode_certificate(certificate: &CommitCertificate<TestContext>) -> Result<Vec<u8>, ProtoError> {
-    let proto = codec::encode_commit_certificate(certificate)?;
+// FaB: Use the new certificate encoding (Vec<SignedVote>) instead of CommitCertificate
+fn encode_certificate_to_bytes(certificate: &[SignedMessage<TestContext, Vote>]) -> Result<Vec<u8>, ProtoError> {
+    let cert_vec = certificate.to_vec();
+    let proto = codec::encode_certificate(&cert_vec)?;
     Ok(proto.encode_to_vec())
 }
 
@@ -121,7 +125,7 @@ impl Db {
             value.and_then(|value| {
                 let bytes = value.value();
                 read_bytes += bytes.len() as u64;
-                decode_certificate(&bytes).ok()
+                decode_certificate_from_bytes(&bytes).ok()
             })
         };
 
@@ -140,7 +144,12 @@ impl Db {
         let start = Instant::now();
         let mut write_bytes = 0;
 
-        let height = decided_value.certificate.height;
+        // FaB: Extract height from the first vote in the certificate
+        let first_vote = decided_value
+            .certificate
+            .first()
+            .expect("Certificate should not be empty");
+        let height = first_vote.message.height;
         let tx = self.db.begin_write()?;
 
         {
@@ -152,7 +161,7 @@ impl Db {
 
         {
             let mut certificates = tx.open_table(CERTIFICATES_TABLE)?;
-            let encoded_certificate = encode_certificate(&decided_value.certificate)?;
+            let encoded_certificate = encode_certificate_to_bytes(&decided_value.certificate)?;
             write_bytes += encoded_certificate.len() as u64;
             certificates.insert(height, encoded_certificate)?;
         }
@@ -497,14 +506,15 @@ impl Store {
 
     /// Stores a decided value with its certificate.
     /// Called by the application when it `commit`s a value decided by consensus.
+    /// FaB: Certificate is now Vec<SignedVote> (4f+1 prevotes) instead of CommitCertificate
     pub async fn store_decided_value(
         &self,
-        certificate: &CommitCertificate<TestContext>,
+        certificate: &[SignedMessage<TestContext, Vote>],
         value: Value,
     ) -> Result<(), StoreError> {
         let decided_value = DecidedValue {
             value,
-            certificate: certificate.clone(),
+            certificate: certificate.to_vec(),
         };
 
         let db = Arc::clone(&self.db);

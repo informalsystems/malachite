@@ -1,6 +1,8 @@
 use derive_where::derive_where;
 use thiserror::Error;
 
+// FaB: Import Certificate for proposal justification (4f+1 prevotes)
+use malachitebft_core_state_machine::input::Certificate;
 // FaB: Remove PolkaCertificate (Tendermint 2f+1 prevote concept)
 use malachitebft_core_types::{
     Context, Proposal, Round, RoundCertificate, Signature, SignedProposal, SignedVote, Timeout,
@@ -24,31 +26,38 @@ pub enum Role {
 }
 
 /// A signed consensus message, ie. a signed vote or a signed proposal.
+/// FaB: Proposal variant carries certificate for transmission (not in signature)
 #[derive_where(Clone, Debug, PartialEq, Eq)]
 pub enum SignedConsensusMsg<Ctx: Context> {
     Vote(SignedVote<Ctx>),
-    Proposal(SignedProposal<Ctx>),
+    /// FaB: Proposal with optional certificate (4f+1 prevotes)
+    /// Certificate is transmitted alongside but NOT included in signature
+    /// Signature covers proposal identity only, certificate is self-validating evidence
+    Proposal {
+        proposal: SignedProposal<Ctx>,
+        certificate: Option<Certificate<Ctx>>,
+    },
 }
 
 impl<Ctx: Context> SignedConsensusMsg<Ctx> {
     pub fn height(&self) -> Ctx::Height {
         match self {
             SignedConsensusMsg::Vote(msg) => msg.height(),
-            SignedConsensusMsg::Proposal(msg) => msg.height(),
+            SignedConsensusMsg::Proposal { proposal, .. } => proposal.height(),
         }
     }
 
     pub fn round(&self) -> Round {
         match self {
             SignedConsensusMsg::Vote(msg) => msg.round(),
-            SignedConsensusMsg::Proposal(msg) => msg.round(),
+            SignedConsensusMsg::Proposal { proposal, .. } => proposal.round(),
         }
     }
 
     pub fn signature(&self) -> &Signature<Ctx> {
         match self {
             SignedConsensusMsg::Vote(msg) => &msg.signature,
-            SignedConsensusMsg::Proposal(msg) => &msg.signature,
+            SignedConsensusMsg::Proposal { proposal, .. } => &proposal.signature,
         }
     }
 }

@@ -273,13 +273,23 @@ impl State {
 
     /// Commits a value with the given certificate, updating internal state
     /// and moving to the next height
+    /// FaB: Certificate is now Vec<SignedVote> (4f+1 prevotes) instead of CommitCertificate
     pub async fn commit(
         &mut self,
-        certificate: CommitCertificate<TestContext>,
+        certificate: Vec<malachitebft_app_channel::app::types::core::SignedMessage<TestContext, malachitebft_test::Vote>>,
         extensions: VoteExtensions<TestContext>,
     ) -> eyre::Result<()> {
-        let (height, round, value_id) =
-            (certificate.height, certificate.round, certificate.value_id);
+        // FaB: Extract height, round, and value_id from the first vote in the certificate
+        // FaB: All votes in the certificate are for the same height, round, and value
+        let first_vote = certificate.first().expect("Certificate should not be empty");
+        let height = first_vote.message.height;
+        let round = first_vote.message.round;
+        let value_id = match &first_vote.message.value {
+            malachitebft_app_channel::app::types::core::NilOrVal::Val(v) => v.clone(),
+            malachitebft_app_channel::app::types::core::NilOrVal::Nil => {
+                panic!("Certificate contains nil votes");
+            }
+        };
 
         // Store extensions for use at next height if we are the proposer
         self.vote_extensions.insert(height.increment(), extensions);

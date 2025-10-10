@@ -15,6 +15,8 @@ use malachitebft_sync::{
 
 use malachitebft_codec as codec;
 use malachitebft_core_consensus::{LivenessMsg, SignedConsensusMsg};
+// FaB: Import Certificate for proposal certificates
+use malachitebft_core_state_machine::input::Certificate;
 // FaB: Remove PolkaCertificate (Tendermint 2f+1 prevote concept)
 use malachitebft_core_types::{Context, RoundCertificate, SignedProposal, SignedVote};
 use malachitebft_metrics::SharedRegistry;
@@ -104,7 +106,8 @@ pub enum NetworkEvent<Ctx: Context> {
 
     Vote(PeerId, SignedVote<Ctx>),
 
-    Proposal(PeerId, SignedProposal<Ctx>),
+    /// FaB: Proposal with optional certificate (4f+1 prevotes from previous round)
+    Proposal(PeerId, SignedProposal<Ctx>, Option<Certificate<Ctx>>),
     ProposalPart(PeerId, StreamMessage<Ctx::ProposalPart>),
 
     // FaB: Removed PolkaCertificate - Tendermint 2f+1 prevote concept not used in FaB
@@ -396,8 +399,9 @@ where
 
                 let event = match msg {
                     SignedConsensusMsg::Vote(vote) => NetworkEvent::Vote(from, vote),
-                    SignedConsensusMsg::Proposal(proposal) => {
-                        NetworkEvent::Proposal(from, proposal)
+                    // FaB: Extract both proposal and certificate from struct variant
+                    SignedConsensusMsg::Proposal { proposal, certificate } => {
+                        NetworkEvent::Proposal(from, proposal, certificate)
                     }
                 };
 

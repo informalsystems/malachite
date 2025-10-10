@@ -4,7 +4,7 @@ use crate::{TestBuilder, TestParams};
 
 #[tokio::test]
 pub async fn basic_full_node() {
-    const HEIGHT: u64 = 5;
+    const HEIGHT: u64 = 500;
 
     let mut test = TestBuilder::<()>::new();
 
@@ -37,7 +37,7 @@ pub async fn basic_full_node() {
         .wait_until(HEIGHT)
         .success();
 
-    test.build().run(Duration::from_secs(30)).await
+    test.build().run(Duration::from_secs(60)).await
 }
 
 #[tokio::test]

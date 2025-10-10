@@ -44,10 +44,8 @@ message CommitCertificate {
     repeated CommitSignature signatures = 4;
 }
 
-// FaB: Certificate is a Vec<SignedVote> containing 4f+1 prevote messages
-message Certificate {
-    repeated SignedMessage votes = 1;
-}
+// FaB: Certificate is imported from consensus.proto
+// It's a Vec<SignedVote> containing 4f+1 prevote messages
 
 message ProposedValue {
     uint64 height = 1;

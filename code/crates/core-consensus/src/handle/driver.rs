@@ -3,8 +3,8 @@ use malachitebft_core_driver::Output as DriverOutput;
 
 use crate::handle::decide::decide;
 use crate::handle::on_proposal;
-use crate::handle::signature::sign_proposal;
-use crate::handle::signature::sign_vote;
+use crate::handle::signature::{sign_proposal, sign_vote, verify_prevote_certificate};
+use crate::handle::validator_set::get_validator_set;
 use crate::handle::vote::on_vote;
 // FaB: Removed HIDDEN_LOCK_ROUND import - not used in FaB
 use crate::prelude::*;
@@ -68,7 +68,6 @@ where
             info!(%height, %round, %proposer, ?role, "Starting new round");
 
             state.last_signed_prevote = None;
-            state.last_signed_precommit = None;
 
             perform!(co, Effect::CancelAllTimeouts(Default::default()));
             perform!(
@@ -91,7 +90,8 @@ where
             );
         }
 
-        DriverInput::Proposal(proposal, _validity) => {
+        DriverInput::Proposal(proposal, _validity, certificate) => {
+            // Fast height check first (cheap rejection)
             if proposal.height() != state.driver.height() {
                 warn!(
                     "Ignoring proposal for height {}, current height: {}",
@@ -100,6 +100,48 @@ where
                 );
 
                 return Ok(());
+            }
+
+            // FaB: Validate certificate signatures to prevent Byzantine forgery
+            // This prevents safety violations where Byzantine nodes send proposals
+            // with forged certificates containing fake vote signatures
+            if let Some(cert) = certificate {
+                // Skip validation for empty certificates (defensive, shouldn't happen)
+                if !cert.is_empty() {
+                    // Get validator set for this height
+                    let Some(validator_set) = get_validator_set(co, state, proposal.height()).await? else {
+                        warn!(
+                            height = %proposal.height(),
+                            "Proposal has certificate but no validator set known, dropping"
+                        );
+                        return Ok(());
+                    };
+
+                    // Validate all vote signatures and extensions in certificate
+                    if !verify_prevote_certificate(
+                        co,
+                        state,
+                        cert,
+                        &validator_set.into_owned(),
+                        proposal.height()
+                    ).await? {
+                        warn!(
+                            height = %proposal.height(),
+                            round = %proposal.round(),
+                            proposer = %proposal.validator_address(),
+                            certificate_size = cert.len(),
+                            "Rejecting proposal with invalid certificate"
+                        );
+                        return Ok(());
+                    }
+
+                    debug!(
+                        height = %proposal.height(),
+                        round = %proposal.round(),
+                        certificate_size = cert.len(),
+                        "Certificate validated successfully"
+                    );
+                }
             }
         }
 
@@ -206,15 +248,20 @@ where
             .await
         }
 
-        DriverOutput::Propose(proposal) => {
+        DriverOutput::Propose { proposal, certificate } => {
             info!(
                 id = %proposal.value().id(),
                 round = %proposal.round(),
                 "Proposing value"
             );
 
+            // FaB: Certificate is transmitted alongside proposal (not in signature)
+            // Signature covers proposal identity only (height, round, value, pol_round, address)
+            // Certificate is self-validating evidence (4f+1 prevotes, each already signed)
+
             // Only sign and publish if we're in the validator set
             if state.is_validator() {
+                // Sign the proposal (to_sign_bytes() excludes certificate)
                 let signed_proposal = sign_proposal(co, proposal.clone()).await?;
 
                 if signed_proposal.pol_round().is_defined() {
@@ -231,7 +278,7 @@ where
                     );
                 }
 
-                on_proposal(co, state, metrics, signed_proposal.clone()).await?;
+                on_proposal(co, state, metrics, signed_proposal.clone(), certificate.clone()).await?;
 
                 // Proposal messages should not be broadcasted if they are implicit,
                 // instead they should be inferred from the block parts.
@@ -239,7 +286,10 @@ where
                     perform!(
                         co,
                         Effect::PublishConsensusMsg(
-                            SignedConsensusMsg::Proposal(signed_proposal),
+                            SignedConsensusMsg::Proposal {
+                                proposal: signed_proposal,
+                                certificate,  // ← Certificate passed through for transmission
+                            },
                             Default::default()
                         )
                     );
