@@ -188,9 +188,32 @@ where
 
                         // FaB: Check if certificate contains 2f+1 lock on any value
                         if let Some(value_id) = self.vote_keeper.find_lock_in_certificate(&certificate) {
-                            // FaB: Has 2f+1 lock on value_id → LeaderProposeWithLock (line 40-43)
-                            // FaB: Need to find the locked value from cached proposals
-                            // FaB: Search in all rounds from prev_round to cert_round
+                            // FaB Safety Requirement (Lines 39-43): When 2f+1 lock exists on value v,
+                            // proposer MUST propose v (if available) or NOT propose at all.
+                            // Proposing a different value would violate FaB safety property.
+
+                            // Step 1: Check prevoted_value (most common case)
+                            // Why: If this node prevoted for the locked value, it has the value readily available.
+                            // This handles the common case where the proposer participated in creating the lock.
+                            if let Some(prevoted) = &self.round_state.prevoted_value {
+                                if prevoted.id() == value_id {
+                                    return Some((
+                                        current_round,
+                                        RoundInput::LeaderProposeWithLock {
+                                            value: prevoted.clone(),
+                                            certificate,
+                                            certificate_round: cert_round,
+                                        },
+                                    ));
+                                }
+                            }
+
+                            // Step 2: Search ProposalKeeper for the locked value
+                            // Why: Node may have received the proposal without prevoting for it.
+                            // This handles cases like:
+                            // - Node received proposal after crash/restart
+                            // - Node received proposal via rebroadcast
+                            // - Node saw proposal but SafeProposal failed so it didn't prevote
                             for search_round in prev_round.as_i64()..=cert_round.as_i64() {
                                 if let Some((signed_proposal, validity, _certificate)) =
                                     self.proposal_and_validity_for_round_and_value(Round::new(search_round as u32), value_id.clone())
@@ -209,13 +232,25 @@ where
                                 }
                             }
 
-                            // FaB: TODO: If we don't have the locked value cached, we should request it
-                            // FaB: For now, fall through to no-lock case (safety violation risk!)
-                            // warn!("Proposer has 2f+1 lock on value_id {:?} but doesn't have the value cached!", value_id);
+                            // Step 3: Don't have locked value - DON'T propose wrong value!
+                            // Why: Proposing a different value when 2f+1 lock exists violates FaB safety.
+                            // Better to not propose and let the round timeout. This ensures:
+                            // 1. Safety: Never propose conflicting value
+                            // 2. Liveness: Timeout fires, proposer votes, round progresses
+                            // 3. Eventually another proposer (who has the value) will succeed
+                            //
+                            // FaB Spec Analysis:
+                            // - Lines 39-43 require BOTH <PROPOSAL for v> AND <4f+1 PREVOTE with 2f+1 for v>
+                            //   We have the prevotes but NOT the proposal, so lines 39-43 don't trigger.
+                            // - Lines 45-49 require NO 2f+1 lock (∄ condition), but we HAVE a lock.
+                            //   So lines 45-49 also don't trigger.
+                            // Therefore, staying in Prepropose and waiting for timeout is correct per FaB!
+                            return None;
                         }
 
-                        // FaB: No 2f+1 lock (or couldn't find locked value) → LeaderProposeWithoutLock (line 45-49)
-                        // FaB: Pass value=None to trigger GetValue request
+                        // FaB: No 2f+1 lock exists → LeaderProposeWithoutLock (lines 45-49)
+                        // Why: Without a lock, any value is safe to propose per FaB algorithm.
+                        // Pass value=None to trigger GetValue request from application.
                         return Some((
                             current_round,
                             RoundInput::LeaderProposeWithoutLock {

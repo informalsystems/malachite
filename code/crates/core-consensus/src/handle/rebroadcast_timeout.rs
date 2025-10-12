@@ -24,7 +24,8 @@ where
 
     // FaB: Line 113 - if prevotedValue_p != nil, rebroadcast prevotedProposalMsg_p
     if let Some(proposal) = state.driver.prevoted_proposal_msg() {
-        let proposer = state.get_proposer(proposal.height(), proposal.round()).clone();
+        // Use the original proposer from the proposal, not the computed proposer for this round
+        let proposer = proposal.validator_address().clone();
 
         warn!(
             %height, %round,
@@ -33,6 +34,7 @@ where
             value_id = ?proposal.value().id(),
             "Rebroadcasting proposal for prevoted value"
         );
+
 
         perform!(
             co,

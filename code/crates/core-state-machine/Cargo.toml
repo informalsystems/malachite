@@ -18,6 +18,7 @@ malachitebft-core-types = { workspace = true }
 derive-where = { workspace = true }
 displaydoc = { workspace = true }
 time = { workspace = true, optional = true }
+tracing = { workspace = true }
 
 [features]
 std = []

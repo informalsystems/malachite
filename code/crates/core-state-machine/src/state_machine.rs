@@ -260,12 +260,17 @@ where
 
             // FaB line 55: prevotedProposalMsg_p = <PROPOSAL, h_p, round_p, v, {}>
             // The {} means empty certificate, which translates to pol_round = Round::Nil
+            // IMPORTANT: Must use the ORIGINAL proposer from the received proposal,
+            // not info.proposer (which is the proposer for the current round context).
+            // When we rebroadcast this proposal, it must have the correct proposer address
+            // so that other nodes can validate it properly.
+
             let proposal_without_cert = ctx.new_proposal(
                 state.height,
                 state.round,
                 proposal.value().clone(),
                 Round::Nil,  // Empty certificate (FaB notation: {})
-                info.proposer.clone(),
+                proposal.validator_address().clone(),  // Use original proposer, not info.proposer!
             );
 
             // Update prevoted state: prevotedValue_p = v, prevotedProposalMsg_p = proposal_without_cert

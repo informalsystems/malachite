@@ -411,9 +411,14 @@ where
             // FaB: Check if certificate contains 2f+1 lock on the incoming value
             // FaB: Lines 39-43: "∃ P ⊆ S. |P| >= 2f+1 AND v!=nil AND (∀m \in P. m=<PREVOTE, h_p, r, id(v)>)"
             if let Some(locked_value_id) = self.vote_keeper.find_lock_in_certificate(&certificate) {
+                // FaB Safety Requirement: When 2f+1 lock exists, we MUST propose the locked value.
+                // This check is defense-in-depth against race conditions where a lock appears
+                // between mux.rs check and this point (votes arriving during getValue()).
+
                 if locked_value_id == value.id() {
-                    // FaB: Certificate contains 2f+1 lock on THIS value → propose with lock
-                    // FaB: Use cert_round as the pol_round (round of the certificate)
+                    // Lucky! getValue() returned the exact value we need.
+                    // This can happen if getValue() is deterministic or if the application
+                    // chose the same value that already has a lock.
                     return self.apply_input(
                         round,
                         RoundInput::LeaderProposeWithLock {
@@ -424,13 +429,53 @@ where
                     );
                 }
 
-                // TODO: this should be an error I feel that we should log ....
-                // FaB: Certificate has a lock on a DIFFERENT value
-                // FaB: Fall through to propose without lock using the value from getValue()
+                // getValue() returned a DIFFERENT value than the locked value.
+                // This is a race condition: lock appeared after mux.rs checked but before getValue() returned.
+                // We MUST NOT propose the value from getValue() - it would violate FaB safety.
+
+                // Step 1: Check prevoted_value
+                // Why: If we prevoted for the locked value, we have it readily available.
+                if let Some(prevoted) = &self.round_state.prevoted_value {
+                    if prevoted.id() == locked_value_id {
+                        return self.apply_input(
+                            round,
+                            RoundInput::LeaderProposeWithLock {
+                                value: prevoted.clone(),
+                                certificate,
+                                certificate_round: cert_round,
+                            },
+                        );
+                    }
+                }
+
+                // Step 2: Search ProposalKeeper for the locked value
+                // Why: We might have received the proposal earlier without prevoting for it.
+                for (_round, per_round) in self.proposal_keeper.all_rounds() {
+                    for (proposal, _, _) in per_round.get_proposals_and_validities() {
+                        if proposal.value().id() == locked_value_id {
+                            return self.apply_input(
+                                round,
+                                RoundInput::LeaderProposeWithLock {
+                                    value: proposal.value().clone(),
+                                    certificate,
+                                    certificate_round: cert_round,
+                                },
+                            );
+                        }
+                    }
+                }
+
+                // Step 3: Don't have locked value - DON'T propose getValue()'s value!
+                // Why: Same as mux.rs - proposing different value violates FaB safety.
+                // This is defense-in-depth: should rarely happen if mux.rs is fixed,
+                // but protects against race conditions where lock appears between checks.
+                //
+                // Result: No proposal sent, timeout will fire, proposer will vote and round progresses.
+                return Ok(None);
             }
 
-            // FaB: No 2f+1 lock (or lock on different value) → propose without lock
-            // FaB: Lines 45-49: "∄ v, P ⊆ S. |P| >= 2f+1 ..."
+            // FaB: No 2f+1 lock → safe to use the value from getValue()
+            // Why: Without a lock, any value is safe to propose per FaB algorithm (lines 45-49).
             self.apply_input(
                 round,
                 RoundInput::LeaderProposeWithoutLock {
