@@ -176,7 +176,7 @@ where
         Input::SyncRequestTimedOut(request_id, peer_id, request) => {
             match request {
                 Request::ValueRequest(value_request) => {
-                    warn!(%peer_id, range = %DisplayRange::<Ctx>(&value_request.range), "Sync request timed out");
+                    info!(%peer_id, range = %DisplayRange::<Ctx>(&value_request.range), "Sync request timed out");
 
                     state.peer_scorer.update_score(peer_id, SyncResult::Timeout);
 
@@ -280,7 +280,7 @@ where
     }
 
     if peer_height > state.tip_height {
-        warn!(
+        info!(
             height.tip = %state.tip_height,
             height.peer = %peer_height,
             "SYNC REQUIRED: Falling behind"
@@ -732,10 +732,8 @@ async fn request_values_from_peer<Ctx>(
 where
     Ctx: Context,
 {
-    info!(range = %DisplayRange::<Ctx>(&range), peer.id = %peer, "Requesting sync from peer");
-
     if range.is_empty() {
-        warn!(range.sync = %DisplayRange::<Ctx>(&range), %peer, "Range is empty, skipping request");
+        debug!(range.sync = %DisplayRange::<Ctx>(&range), %peer, "Range is empty, skipping request");
         return Ok(());
     }
 
@@ -743,9 +741,14 @@ where
     // (meaning that they have been validated by consensus or a peer).
     let range = state.trim_validated_heights(&range);
     if range.is_empty() {
-        warn!(%peer, "All values in range {} have been validated, skipping request", DisplayRange::<Ctx>(&range));
+        warn!(
+            range = %DisplayRange::<Ctx>(&range), %peer,
+            "All values in range have been validated, skipping request"
+        );
         return Ok(());
     }
+
+    info!(range = %DisplayRange::<Ctx>(&range), %peer, "Requesting sync from peer");
 
     // Send request to peer
     let Some(request_id) = perform!(
