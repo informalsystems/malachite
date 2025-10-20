@@ -656,7 +656,8 @@ pub async fn validator_persistent_peer_reconnection_discovery_disabled() {
             Duration::from_secs(30),
             TestParams {
                 enable_value_sync: true,
-                parallel_requests: 1,
+                parallel_requests: 3,
+                batch_size: 3,
                 enable_discovery: false,
                 exclude_from_persistent_peers: vec![4], // Node 4 is a new validator, others don't have it as persistent peer
                 ..Default::default()
