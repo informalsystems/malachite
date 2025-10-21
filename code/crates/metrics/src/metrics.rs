@@ -215,13 +215,13 @@ impl Metrics {
             );
 
             registry.register(
-                "sync queue_heights",
+                "sync_queue_heights",
                 "Number of heights in the sync input queue",
                 metrics.sync_queue_heights.clone(),
             );
 
             registry.register(
-                "sync queue_size",
+                "sync_queue_size",
                 "Number of inputs in the consensus sync input queue across all heights",
                 metrics.sync_queue_size.clone(),
             );
