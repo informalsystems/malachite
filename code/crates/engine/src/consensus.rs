@@ -535,13 +535,6 @@ where
                     }
 
                     NetworkEvent::RoundCertificate(from, certificate) => {
-                        info!(
-                            %from,
-                            %certificate.height,
-                            %certificate.round,
-                            number_of_votes = certificate.round_signatures.len(),
-                            "Received round certificate"
-                        );
                         if let Err(e) = self
                             .process_input(
                                 &myself,
@@ -699,7 +692,7 @@ where
             timeout.kind,
             TimeoutKind::Prevote | TimeoutKind::Precommit | TimeoutKind::Rebroadcast
         ) {
-            warn!(step = ?timeout.kind, "Timeout elapsed");
+            info!(step = ?timeout.kind, "Timeout elapsed");
             state.consensus.print_state();
         }
 
