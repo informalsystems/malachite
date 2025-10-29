@@ -27,8 +27,8 @@ use malachitebft_test::{
 use malachitebft_test_cli::metrics;
 
 use crate::config::{load_config, Config};
-use crate::metrics::DbMetrics;
-use crate::state::State;
+use crate::metrics::Metrics;
+use crate::state::{State, StateMetrics};
 use crate::store::Store;
 
 /// Main application struct implementing the consensus node functionality
@@ -138,7 +138,7 @@ impl Node for App {
         let tx_event = channels.events.clone();
 
         let registry = SharedRegistry::global().with_moniker(&config.moniker);
-        let metrics = DbMetrics::register(&registry);
+        let metrics = Metrics::register(&registry);
 
         if config.metrics.enabled {
             tokio::spawn(metrics::serve(config.metrics.listen_addr));
@@ -147,10 +147,32 @@ impl Node for App {
         let db_dir = self.get_home_dir().join("db");
         std::fs::create_dir_all(&db_dir)?;
 
-        let store = Store::open(db_dir.join("store.db"), metrics).await?;
+        let store = Store::open(db_dir.join("store.db"), metrics.db.clone()).await?;
         let start_height = self.start_height.unwrap_or(Height::INITIAL);
-        let mut state = State::new(ctx, signing_provider, genesis, address, start_height, store);
 
+        // Load cumulative metrics from database for crash recovery
+        let (txs_count, chain_bytes, elapsed_seconds) =
+            store.load_cumulative_metrics().await?.unwrap_or_else(|| {
+                tracing::info!("📊 No metrics found in database, starting with default values");
+                (0, 0, 0)
+            });
+
+        let state_metrics = StateMetrics {
+            txs_count,
+            chain_bytes,
+            elapsed_seconds,
+            metrics,
+        };
+
+        let mut state = State::new(
+            ctx,
+            signing_provider,
+            genesis,
+            address,
+            start_height,
+            store,
+            state_metrics,
+        );
         let span = tracing::error_span!("node", moniker = %config.moniker);
         let app_handle = tokio::spawn(
             async move {
