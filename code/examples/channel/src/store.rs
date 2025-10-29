@@ -74,6 +74,9 @@ impl From<redb::TransactionError> for StoreError {
     }
 }
 
+const PERSISTENT_METRICS_TABLE: redb::TableDefinition<&str, u64> =
+    redb::TableDefinition::new("persistent_metrics");
+
 const CERTIFICATES_TABLE: redb::TableDefinition<HeightKey, Vec<u8>> =
     redb::TableDefinition::new("certificates");
 
@@ -417,10 +420,68 @@ impl Db {
         let _ = tx.open_table(CERTIFICATES_TABLE)?;
         let _ = tx.open_table(UNDECIDED_PROPOSALS_TABLE)?;
         let _ = tx.open_table(PENDING_PROPOSAL_PARTS_TABLE)?;
+        let _ = tx.open_table(PERSISTENT_METRICS_TABLE)?;
 
         tx.commit()?;
 
         Ok(())
+    }
+
+    fn insert_cumulative_metrics(
+        &self,
+        txs_count: u64,
+        chain_bytes: u64,
+        elapsed_seconds: u64,
+    ) -> Result<(), StoreError> {
+        let start = Instant::now();
+        let write_bytes = (size_of::<u64>() * 3) as u64;
+
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(PERSISTENT_METRICS_TABLE)?;
+            table.insert("txs_count", txs_count)?;
+            table.insert("chain_bytes", chain_bytes)?;
+            table.insert("elapsed_seconds", elapsed_seconds)?;
+        }
+        tx.commit()?;
+
+        self.metrics.observe_write_time(start.elapsed());
+        self.metrics.add_write_bytes(write_bytes);
+
+        Ok(())
+    }
+
+    fn get_cumulative_metrics(&self) -> Result<Option<(u64, u64, u64)>, StoreError> {
+        let start = Instant::now();
+        let mut read_bytes = 0;
+
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(PERSISTENT_METRICS_TABLE)?;
+
+        let txs_count = table.get("txs_count")?.map(|v| {
+            read_bytes += size_of::<u64>() as u64;
+            v.value()
+        });
+
+        let chain_bytes = table.get("chain_bytes")?.map(|v| {
+            read_bytes += size_of::<u64>() as u64;
+            v.value()
+        });
+
+        let elapsed_seconds = table.get("elapsed_seconds")?.map(|v| {
+            read_bytes += size_of::<u64>() as u64;
+            v.value()
+        });
+
+        self.metrics.observe_read_time(start.elapsed());
+        self.metrics.add_read_bytes(read_bytes);
+        self.metrics.add_key_read_bytes(
+            ("txs_count".len() + "chain_bytes".len() + "elapsed_seconds".len()) as u64,
+        );
+
+        Ok(txs_count
+            .zip(chain_bytes)
+            .and_then(|(t, c)| elapsed_seconds.map(|e| (t, c, e))))
     }
 
     fn get_undecided_proposal_by_value_id(
@@ -511,6 +572,23 @@ impl Store {
         tokio::task::spawn_blocking(move || db.insert_decided_value(decided_value)).await?
     }
 
+    pub async fn store_cumulative_metrics(
+        &self,
+        txs_count: u64,
+        chain_bytes: u64,
+        elapsed_seconds: u64,
+    ) -> Result<(), StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || {
+            db.insert_cumulative_metrics(txs_count, chain_bytes, elapsed_seconds)
+        })
+        .await?
+    }
+
+    pub async fn load_cumulative_metrics(&self) -> Result<Option<(u64, u64, u64)>, StoreError> {
+        let db = Arc::clone(&self.db);
+        tokio::task::spawn_blocking(move || db.get_cumulative_metrics()).await?
+    }
     /// Stores an undecided proposal.
     /// Called by the application when receiving new proposals from peers.
     pub async fn store_undecided_proposal(

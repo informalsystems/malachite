@@ -5,14 +5,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 
+use crate::metrics::Metrics;
+
 use bytes::{Bytes, BytesMut};
 use eyre::eyre;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use sha3::Digest;
-use tokio::time::sleep;
-use tracing::{debug, error, info};
-
 use malachitebft_app_channel::app::consensus::ProposedValue;
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
@@ -25,12 +21,24 @@ use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
     ProposalPart, TestContext, ValidatorSet, Value,
 };
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use sha3::Digest;
+use tokio::time::{sleep, Instant};
+use tracing::{debug, error, info};
 
 use crate::store::{DecidedValue, Store};
 use crate::streaming::{PartStreamsMap, ProposalParts};
 
 /// Number of historical values to keep in the store
 const HISTORY_LENGTH: u64 = 1000;
+
+pub struct StateMetrics {
+    pub txs_count: u64,
+    pub chain_bytes: u64,
+    pub elapsed_seconds: u64,
+    pub metrics: Metrics,
+}
 
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
@@ -48,6 +56,10 @@ pub struct State {
     pub current_height: Height,
     pub current_round: Round,
     pub current_proposer: Option<Address>,
+    pub metrics: Metrics,
+    pub txs_count: u64,
+    pub chain_bytes: u64,
+    pub start_time: Instant,
 }
 
 /// Represents errors that can occur during the verification of a proposal's signature.
@@ -110,7 +122,10 @@ impl State {
         address: Address,
         height: Height,
         store: Store,
+        state_metrics: StateMetrics,
     ) -> Self {
+        let start_time =
+            Instant::now() - std::time::Duration::from_secs(state_metrics.elapsed_seconds);
         Self {
             ctx,
             signing_provider,
@@ -123,6 +138,10 @@ impl State {
             vote_extensions: HashMap::new(),
             streams_map: PartStreamsMap::new(),
             rng: StdRng::seed_from_u64(seed_from_address(&address, std::process::id() as u64)),
+            txs_count: state_metrics.txs_count,
+            chain_bytes: state_metrics.chain_bytes,
+            start_time,
+            metrics: state_metrics.metrics,
         }
     }
 
@@ -322,7 +341,8 @@ impl State {
         height: Height,
         round: Round,
     ) -> eyre::Result<Option<LocallyProposedValue<TestContext>>> {
-        let proposals = self.store.get_undecided_proposals(height, round).await?;
+        let proposals: Vec<ProposedValue<TestContext>> =
+            self.store.get_undecided_proposals(height, round).await?;
 
         assert!(
             proposals.len() <= 1,

@@ -106,6 +106,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         Ok(()) => {
                             // Validation passed - convert to ProposedValue and move to undecided
                             let value = State::assemble_value_from_parts(parts.clone())?;
+
                             state.store.store_undecided_proposal(value).await?;
                             info!(
                                 height = %parts.height,
@@ -248,6 +249,17 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                     value = %certificate.value_id,
                     "Consensus has decided on value, committing..."
                 );
+                let elapsed_time = state.start_time.elapsed();
+                let proposal = state
+                    .store
+                    .get_undecided_proposal_by_value_id(certificate.value_id)
+                    .await;
+
+                let Ok(Some(proposal)) = proposal else {
+                    return Err(eyre!(
+                        "Trying to retrieve non existing proposal upon which we are deciding"
+                    ));
+                };
 
                 // When that happens, we store the decided value in our store
                 match state.commit(certificate, extensions).await {
@@ -283,6 +295,43 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         }
                     }
                 }
+
+                state.chain_bytes += std::mem::size_of_val(&proposal.value.value) as u64;
+                state
+                    .metrics
+                    .tx_stats
+                    .add_chain_bytes(std::mem::size_of_val(&proposal.value.value) as u64);
+
+                state.txs_count += 1;
+
+                state
+                    .metrics
+                    .tx_stats
+                    .set_txs_per_second(state.txs_count as f64 / elapsed_time.as_secs_f64());
+
+                state
+                    .metrics
+                    .tx_stats
+                    .set_bytes_per_second(state.chain_bytes as f64 / elapsed_time.as_secs_f64());
+                state
+                    .metrics
+                    .tx_stats
+                    .set_block_tx_count(state.txs_count as u64);
+
+                state
+                    .metrics
+                    .tx_stats
+                    .set_block_size(std::mem::size_of_val(&proposal.value.value) as u64);
+
+                // Persist cumulative metrics to database for crash recovery
+                state
+                    .store
+                    .store_cumulative_metrics(
+                        state.txs_count,
+                        state.chain_bytes,
+                        elapsed_time.as_secs(),
+                    )
+                    .await?;
             }
 
             // It may happen that our node is lagging behind its peers. In that case,
