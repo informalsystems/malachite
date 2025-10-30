@@ -12,7 +12,7 @@ use sha3::Digest;
 use tracing::{debug, error, info};
 
 use crate::config::Config;
-use crate::store::{DecidedValue, Store};
+use crate::store::Store;
 use crate::streaming::{PartStreamsMap, ProposalParts};
 use malachitebft_app_channel::app::consensus::{ProposedValue, Role};
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamId, StreamMessage};
@@ -20,6 +20,8 @@ use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
 use malachitebft_test::codec::proto::ProtobufCodec;
+use malachitebft_test::decided_value::DecidedValue;
+
 use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
     ProposalPart, TestContext, ValidatorSet, Value, ValueId,
@@ -268,7 +270,14 @@ impl State {
 
     /// Retrieves a decided block at the given height
     pub async fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
-        self.store.get_decided_value(height).await.ok().flatten()
+        let value = self.store.get_decided_value(height).await.ok().flatten();
+
+        // if middleware contains a value, return the middleware's value
+        if let Some(dv) = self.ctx.middleware().get_decided_value(height) {
+            return Some(dv);
+        }
+
+        value
     }
 
     /// Commits a value with the given certificate, updating internal state

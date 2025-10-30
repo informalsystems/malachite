@@ -49,7 +49,7 @@ pub struct TestRunner {
 fn temp_dir(id: NodeId) -> PathBuf {
     TempDir::with_prefix(format!("malachitebft-test-app-{id}-"))
         .unwrap()
-        .into_path()
+        .keep()
 }
 
 #[async_trait]
@@ -145,6 +145,7 @@ impl TestRunner {
             moniker: format!("node-{node}"),
             logging: LoggingConfig::default(),
             consensus: ConsensusConfig {
+                enabled: true,
                 value_payload: ValuePayload::PartsOnly,
                 queue_capacity: 100, // Deprecated, derived from `sync.parallel_requests`
                 timeouts: TimeoutConfig::default(),
@@ -233,6 +234,7 @@ fn apply_params(config: &mut Config, params: &TestParams) {
     config.value_sync.enabled = params.enable_value_sync;
     config.value_sync.parallel_requests = params.parallel_requests;
     config.value_sync.batch_size = params.batch_size;
+    config.value_sync.max_response_size = params.max_response_size;
     config.consensus.p2p.protocol = params.protocol;
     config.test.max_block_size = params.block_size;
     config.test.txs_per_part = params.txs_per_part;

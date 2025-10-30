@@ -20,7 +20,9 @@ members = [
   "crates/wal",
 
   # Signing scheme
+  "crates/signing",
   "crates/signing-ed25519",
+  "crates/signing-ecdsa",
 
   # Test
   "crates/test",
@@ -85,7 +87,9 @@ malachitebft-network            = { version = "0.6.0-pre", package = "informalsy
 malachitebft-metrics            = { version = "0.6.0-pre", package = "informalsystems-malachitebft-metrics", path = "crates/metrics" }
 malachitebft-peer               = { version = "0.6.0-pre", package = "informalsystems-malachitebft-peer", path = "crates/peer", default-features = false }
 malachitebft-proto              = { version = "0.6.0-pre", package = "informalsystems-malachitebft-proto", path = "crates/proto" }
+malachitebft-signing            = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing", path = "crates/signing" }
 malachitebft-signing-ed25519    = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing-ed25519", path = "crates/signing-ed25519" }
+malachitebft-signing-ecdsa      = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing-ecdsa", path = "crates/signing-ecdsa" }
 malachitebft-sync               = { version = "0.6.0-pre", package = "informalsystems-malachitebft-sync", path = "crates/sync" }
 malachitebft-wal                = { version = "0.6.0-pre", package = "informalsystems-malachitebft-wal", path = "crates/wal" }
 
@@ -125,7 +129,7 @@ config             = { version = "0.14", features = ["toml"], default-features =
 crc32fast          = "1.5.0"
 criterion          = "0.6.0"
 dashmap            = "6.1.0"
-derive-where       = "1.5.0"
+derive-where       = "1.6.0"
 directories        = "5.0.1"
 displaydoc         = { version = "0.2", default-features = false }
 ed25519-consensus  = "2.1.0"
@@ -157,21 +161,25 @@ protox             = "0.8.0"
 ractor             = { version = "0.14.6", default-features = false, features = ["async-trait", "tokio_runtime"] }
 rand               = { version = "0.8.5", features = ["std_rng", "small_rng"] }
 rand_chacha        = "0.3.1"
-redb               = "2.6.2"
+redb               = "2.6.3"
 seahash            = "4.1"
 serde              = { version = "1.0", default-features = false }
 serde_json         = "1.0"
 serde_with         = "3.9"
 sha3               = "0.10"
 signature          = "2.2.0"
-tempfile           = "3.19.1"
+k256               = { version = "0.13", default-features = false }
+p256               = { version = "0.13", default-features = false }
+p384               = { version = "0.13", default-features = false }
+ecdsa              = { version = "0.16", default-features = false }
+tempfile           = "3.21.0"
 testdir            = "0.9.1"
 thiserror          = { version = "2.0", default-features = false }
 tikv-jemallocator  = "0.6.0"
 time               = "0.3"
-tokio              = "1.46.1"
+tokio              = "1.47.1"
 tokio-stream       = "0.1"
 toml               = "0.8.21"
 tracing            = "0.1.41"
 tracing-appender   = "0.2.3"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }

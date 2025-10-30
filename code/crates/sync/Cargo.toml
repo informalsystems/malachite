@@ -37,6 +37,7 @@ tracing = { workspace = true }
 malachitebft-peer = { workspace = true, features = ["rand"] }
 arbtest = { workspace = true }
 tracing-subscriber = { workspace = true }
+rstest = "0.26.1"
 
 [lints]
 workspace = true

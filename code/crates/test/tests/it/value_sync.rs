@@ -1,10 +1,14 @@
 use crate::{TestBuilder, TestParams};
+use bytes::Bytes;
+use bytesize::ByteSize;
 use eyre::bail;
+use informalsystems_malachitebft_test::decided_value::DecidedValue;
 use informalsystems_malachitebft_test::middleware::{Middleware, RotateEpochValidators};
 use informalsystems_malachitebft_test::TestContext;
+use informalsystems_malachitebft_test::{Height, Value, ValueId};
 use malachitebft_config::ValuePayload;
 use malachitebft_core_consensus::ProposedValue;
-use malachitebft_core_types::CommitCertificate;
+use malachitebft_core_types::{CommitCertificate, Round};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -342,6 +346,47 @@ pub async fn start_late_rotate_epoch_validator_set() {
         .await
 }
 
+#[tokio::test]
+pub async fn sync_only_fullnode_without_consensus() {
+    const HEIGHT: u64 = 8;
+
+    let mut test = TestBuilder::<()>::new();
+
+    // First two nodes are normal validators that will drive consensus
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    // Third node is a sync-only full node (0 voting power, consensus disabled)
+    // It should be able to sync values but not participate in consensus
+    test.add_node()
+        .full_node()
+        .disable_consensus()
+        .start_after(1, Duration::from_secs(5)) // Start late to force syncing
+        .wait_until(HEIGHT)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(45),
+            // NOTE: consensus is enabled by default for other nodes
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
+                ..Default::default()
+            },
+        )
+        .await
+}
+
 #[derive(Debug)]
 struct ResetHeight {
     reset_height: u64,
@@ -410,6 +455,376 @@ pub async fn reset_height() {
                 enable_value_sync: true,
                 parallel_requests: 3,
                 batch_size: 2,
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn response_size_limit_exceeded() {
+    const HEIGHT: u64 = 5;
+
+    let mut test = TestBuilder::<()>::new();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    // Node 3 starts with 5 voting power, in parallel with node 1 and 2.
+    test.add_node()
+        .with_voting_power(5)
+        .start()
+        // Wait until the node reaches height 2...
+        .wait_until(2)
+        // ...and then kills it
+        .crash()
+        // Reset the database so that the node has to do Sync from height 1
+        .reset_db()
+        // After that, it waits 5 seconds before restarting the node
+        .restart_after(Duration::from_secs(5))
+        // Wait until the node reached the expected height
+        .wait_until(HEIGHT)
+        // Record a successful test for this node
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(60),
+            TestParams {
+                enable_value_sync: true,
+                // Values are around ~900 bytes, so this `max_response_size` in combination
+                // with a `batch_size` of 2 leads to having a syncing peer sending partial responses.
+                max_response_size: ByteSize::b(1000),
+                // Values are around ~900 bytes, so we canNOT have more than one value in a response.
+                // In other words, if `max_response_size` is not respected, node 3 would not have been
+                // able to sync in this test.
+                rpc_max_size: ByteSize::b(1000),
+                batch_size: 2,
+                parallel_requests: 1,
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[derive(Debug)]
+struct InvalidDecidedValue {
+    heights: Vec<Height>,
+}
+
+impl InvalidDecidedValue {
+    // returns invalid values for the provided heights
+    fn new(heights: Vec<Height>) -> Self {
+        Self { heights }
+    }
+}
+
+impl Middleware for InvalidDecidedValue {
+    fn get_decided_value(&self, height: Height) -> Option<DecidedValue> {
+        if self.heights.contains(&height) {
+            Some(DecidedValue {
+                value: Value {
+                    value: 1,
+                    extensions: Bytes::new(),
+                },
+                certificate: CommitCertificate::new(
+                    Height::new(1),
+                    Round::new(1),
+                    ValueId::new(1),
+                    vec![],
+                ),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[tokio::test]
+pub async fn invalid_values() {
+    const HEIGHT: u64 = 10;
+    let mut test = TestBuilder::<()>::new();
+
+    // simple helper function
+    fn numbers_to_heights(numbers: Vec<u64>) -> Vec<Height> {
+        numbers.into_iter().map(Height::new).collect()
+    }
+
+    // first node returns invalid values for heights 1, 3, ...
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(InvalidDecidedValue::new(numbers_to_heights(vec![
+            1, 3, 5, 7, 9,
+        ])))
+        .start()
+        .wait_until(HEIGHT)
+        .success();
+
+    // second node returns invalid values for heights 2, 4, ...
+    test.add_node()
+        .with_voting_power(10)
+        .with_middleware(InvalidDecidedValue::new(numbers_to_heights(vec![
+            2, 4, 6, 8, 10,
+        ])))
+        .start()
+        .wait_until(HEIGHT * 2)
+        .success();
+
+    // third node will restart after reaching height 10, and hence would need to sync the first
+    // 10 values from the first 2 nodes
+    test.add_node()
+        .with_voting_power(0)
+        .start()
+        // Wait until the node reaches height 10
+        .wait_until(HEIGHT)
+        // ...and then kill it
+        .crash()
+        // Reset the database so that the node has to do Sync from height 1
+        .reset_db()
+        // After that, it waits 5 seconds before restarting the node
+        .restart_after(Duration::from_secs(5))
+        // Wait until the node reached the expected height
+        .wait_until(HEIGHT * 2)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
+                enable_discovery: true,
+                exclude_from_persistent_peers: vec![4], // Node 4 is a new validator, others don't have it as persistent peer
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn validator_persistent_peer_reconnection_discovery_disabled() {
+    const HEIGHT: u64 = 10;
+
+    let mut test = TestBuilder::<()>::new();
+
+    // Node 1-3: validators that will restart
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    // Node 4: validator that that syncs and needs to reconnect after all validators have restarted
+    test.add_node()
+        .with_voting_power(5)
+        .start_after(1, Duration::from_secs(12))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
+                batch_size: 3,
+                enable_discovery: false,
+                exclude_from_persistent_peers: vec![4], // Node 4 is a new validator, others don't have it as persistent peer
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn full_node_persistent_peer_reconnection_discovery_enabled() {
+    const HEIGHT: u64 = 10;
+
+    let mut test = TestBuilder::<()>::new();
+
+    // Node 1-3: validators that will restart
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    // Node 4: full node that that syncs and needs to reconnect after all validators have restarted
+    test.add_node()
+        .full_node()
+        .start_after(1, Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
+                enable_discovery: true,
+                // Node 4 is a full node, other validators don't have it as persistent peer
+                exclude_from_persistent_peers: vec![4],
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn full_node_persistent_peer_reconnection_discovery_disabled() {
+    const HEIGHT: u64 = 10;
+
+    let mut test = TestBuilder::<()>::new();
+
+    // Node 1-3: validators that will restart
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    // Node 4: full node that syncs and needs to reconnect after all validators have restarted
+    test.add_node()
+        .full_node()
+        .start_after(1, Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
+                enable_discovery: false,
+                // Node 4 is a full node, other validators don't have it as persistent peer
+                exclude_from_persistent_peers: vec![4],
+                ..Default::default()
+            },
+        )
+        .await
+}
+
+#[tokio::test]
+pub async fn full_node_sync_after_all_persistent_peer_restart() {
+    const HEIGHT: u64 = 10;
+
+    let mut test = TestBuilder::<()>::new();
+
+    // Node 1-3: validators that will restart
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(4))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(4))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.add_node()
+        .with_voting_power(10)
+        .start()
+        .wait_until(HEIGHT)
+        .crash()
+        .restart_after(Duration::from_secs(4))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    // Node 4: full node that syncs and should resume syncing all validators have restarted
+    test.add_node()
+        .full_node()
+        .start_after(1, Duration::from_secs(3))
+        .wait_until(HEIGHT + 5)
+        .success();
+
+    test.build()
+        .run_with_params(
+            Duration::from_secs(30),
+            TestParams {
+                enable_value_sync: true,
+                parallel_requests: 3,
                 ..Default::default()
             },
         )

@@ -21,12 +21,7 @@ use keys::{HeightKey, UndecidedValueKey};
 
 use crate::store::keys::PendingValueKey;
 use crate::streaming::ProposalParts;
-
-#[derive(Clone, Debug)]
-pub struct DecidedValue {
-    pub value: Value,
-    pub certificate: CommitCertificate<TestContext>,
-}
+use malachitebft_test::decided_value::DecidedValue;
 
 fn decode_certificate(bytes: &[u8]) -> Result<CommitCertificate<TestContext>, ProtoError> {
     let proto = proto::CommitCertificate::decode(bytes)?;
