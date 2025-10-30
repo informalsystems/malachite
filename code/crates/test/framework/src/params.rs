@@ -35,7 +35,7 @@ impl Default for TestParams {
             protocol: PubSubProtocol::default(),
             rpc_max_size: ByteSize::mib(2),
             block_size: ByteSize::mib(1),
-            tx_size: ByteSize::b(1),
+            tx_size: ByteSize::kib(1),
             txs_per_part: 256,
             vote_extensions: None,
             value_payload: ValuePayload::ProposalAndParts,
