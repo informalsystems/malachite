@@ -77,6 +77,7 @@ pub async fn crash_restart_from_start_parts_only() {
 pub async fn crash_restart_from_start_proposal_only() {
     let params = TestParams {
         value_payload: ValuePayload::ProposalOnly,
+        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
@@ -87,6 +88,7 @@ pub async fn crash_restart_from_start_proposal_only() {
 pub async fn crash_restart_from_start_proposal_and_parts() {
     let params = TestParams {
         value_payload: ValuePayload::ProposalAndParts,
+        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
@@ -125,6 +127,7 @@ pub async fn crash_restart_from_latest() {
             Duration::from_secs(60),
             TestParams {
                 enable_value_sync: true,
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )
@@ -165,6 +168,7 @@ pub async fn aggressive_pruning() {
             TestParams {
                 enable_value_sync: true, // Enable Sync
                 max_retain_blocks: 10,   // Prune blocks older than 10
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )
@@ -200,6 +204,7 @@ pub async fn start_late() {
             Duration::from_secs(30),
             TestParams {
                 enable_value_sync: true,
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )
@@ -236,6 +241,7 @@ pub async fn start_late_parallel_requests() {
             TestParams {
                 enable_value_sync: true,
                 parallel_requests: 5,
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )
@@ -273,6 +279,7 @@ pub async fn start_late_parallel_requests_with_batching() {
                 enable_value_sync: true,
                 parallel_requests: 2,
                 batch_size: 2,
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )
@@ -340,6 +347,7 @@ pub async fn start_late_rotate_epoch_validator_set() {
             Duration::from_secs(30),
             TestParams {
                 enable_value_sync: true,
+                block_size: ByteSize::b(8),
                 ..Default::default()
             },
         )

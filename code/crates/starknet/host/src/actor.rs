@@ -211,7 +211,7 @@ async fn on_consensus_ready(
     state: &mut HostState,
     reply_to: RpcReplyPort<(Height, ValidatorSet)>,
 ) -> Result<(), ActorProcessingErr> {
-    let latest_block_height = state.block_store.last_height().await.unwrap_or_default();
+    let latest_block_height: Height = state.block_store.last_height().await.unwrap_or_default();
     let start_height = latest_block_height.increment();
 
     tokio::time::sleep(Duration::from_millis(200)).await;
