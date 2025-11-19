@@ -66,6 +66,7 @@ pub async fn crash_restart_from_start(params: TestParams) {
 pub async fn crash_restart_from_start_parts_only() {
     let params = TestParams {
         value_payload: ValuePayload::PartsOnly,
+        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
