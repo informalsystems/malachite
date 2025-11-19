@@ -41,7 +41,7 @@ impl Default for TestParams {
             value_payload: ValuePayload::ProposalAndParts,
             max_retain_blocks: 50,
             stable_block_times: true,
-            max_response_size: ByteSize::mib(1),
+            max_response_size: ByteSize::b(8), // Note that integration tests timeout when this is too big. For e2e thsi should be set in SPAWN
             enable_discovery: false,
             exclude_from_persistent_peers: Vec::new(),
         }
