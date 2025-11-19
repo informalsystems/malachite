@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use crate::TestBuilder;
-use bytesize::ByteSize;
 use malachitebft_test_framework::TestParams;
 
 #[tokio::test]

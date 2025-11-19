@@ -3,8 +3,8 @@ use std::time::Duration;
 use eyre::eyre;
 use malachitebft_app_channel::app::engine::host::Next;
 use tokio::time::sleep;
+use tokio::time::Instant;
 use tracing::{debug, error, info};
-
 // use malachitebft_app_channel::app::config::ValuePayload;
 use crate::state::{decode_value, encode_value, State};
 use malachitebft_app_channel::app::streaming::StreamContent;
@@ -58,6 +58,9 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 state.current_round = round;
                 state.current_proposer = Some(proposer);
 
+                if round == Round::ZERO {
+                    state.stats.block_time = Instant::now();
+                }
                 let pending_parts = state
                     .store
                     .get_pending_proposal_parts(height, round)
@@ -237,7 +240,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         }
                     }
                 }
-                sleep(Duration::from_millis(500)).await;
+
+                // sleep(Duration::from_millis(500)).await;
             }
 
             // It may happen that our node is lagging behind its peers. In that case,

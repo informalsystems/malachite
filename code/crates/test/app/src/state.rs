@@ -21,14 +21,28 @@ use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Valid
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
 use malachitebft_test::codec::proto::ProtobufCodec;
 use malachitebft_test::decided_value::DecidedValue;
-
 use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
     ProposalPart, TestContext, ValidatorSet, Value, ValueId,
 };
+use tokio::time::Instant;
 
 /// Number of historical values to keep in the store
 const HISTORY_LENGTH: u64 = 500;
+
+pub struct StateStats {
+    pub block_time: Instant,
+    pub block_size: u64,
+}
+
+impl StateStats {
+    pub fn new() -> Self {
+        Self {
+            block_time: Instant::now(),
+            block_size: 0,
+        }
+    }
+}
 
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
@@ -47,6 +61,7 @@ pub struct State {
     signing_provider: Ed25519Provider,
     streams_map: PartStreamsMap,
     rng: StdRng,
+    pub stats: StateStats,
 }
 
 /// Represents errors that can occur during the verification of a proposal's signature.
@@ -111,6 +126,7 @@ impl State {
             streams_map: PartStreamsMap::new(),
             rng: StdRng::from_entropy(),
             peers: HashSet::new(),
+            stats: StateStats::new(),
         }
     }
 
@@ -307,6 +323,8 @@ impl State {
         match middleware.on_commit(&self.ctx, &certificate, &proposal) {
             // Commit was successful, move to next height
             Ok(()) => {
+                // Calculate block size before moving the value
+                let block_size = proposal.value.size_bytes() as u64;
                 self.store
                     .store_decided_value(&certificate, proposal.value)
                     .await?;
@@ -318,7 +336,12 @@ impl State {
                 // Move to next height
                 self.current_height = self.current_height.increment();
                 self.current_round = Round::Nil;
-
+                self.stats.block_size = block_size;
+                info!(
+                    "stats: block_bytes {:?} , block_time {:?}",
+                    self.stats.block_size,
+                    Instant::now() - self.stats.block_time
+                );
                 Ok(())
             }
             // Commit failed, reset height

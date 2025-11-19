@@ -33,7 +33,7 @@ if [[ -z "$NODES_HOME" ]]; then
 fi
 
 if [[ -z "$APP_BINARY" ]]; then
-    APP_BINARY="informalsystems-malachitebft-starknet-app"
+    APP_BINARY="informalsystems-malachitebft-app-channel"
 fi
 
 # Environment variables
@@ -46,7 +46,7 @@ export MALACHITE__CONSENSUS__TIMEOUT_PRECOMMIT="1s"
 export MALACHITE__CONSENSUS__TIMEOUT_PRECOMMIT_DELTA="500ms"
 export MALACHITE__MEMPOOL__MAX_TX_COUNT="10000"
 export MALACHITE__MEMPOOL__GOSSIP_BATCH_SIZE=0
-export MALACHITE__TEST__MAX_BLOCK_SIZE="1024KiB"
+export MALACHITE__TEST__MAX_BLOCK_SIZE="2MiB"
 # Only use "parts-only" with starknet app for now, but for the channel app use "proposal-and-parts".
 # "proposal-and-parts" also works for starknet app
 export MALACHITE__TEST__VALUE_PAYLOAD="proposal-and-parts"
@@ -55,8 +55,8 @@ export MALACHITE__TEST__TXS_PER_PART=256
 export MALACHITE__TEST__TIME_ALLOWANCE_FACTOR=0.3
 export MALACHITE__TEST__EXEC_TIME_PER_TX="0ms"
 export MALACHITE__TEST__MAX_RETAIN_BLOCKS=10000
-export MALACHITE__TEST__VOTE_EXTENSIONS__ENABLED="false"
-export MALACHITE__TEST__VOTE_EXTENSIONS__SIZE="1KiB"
+export MALACHITE__TEST__VOTE_EXTENSIONS__ENABLED="true"
+export MALACHITE__TEST__VOTE_EXTENSIONS__SIZE="2MiB"
 export MALACHITE__VALUE_SYNC__ENABLED="true"
 export MALACHITE__VALUE_SYNC__STATUS_UPDATE_INTERVAL="10s" bv
 export MALACHITE__VALUE_SYNC__REQUEST_TIMEOUT="10s"
