@@ -22,7 +22,6 @@ async fn run_test(params: TestParams) {
 pub async fn parts_only() {
     let params = TestParams {
         value_payload: ValuePayload::PartsOnly,
-        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
@@ -33,7 +32,6 @@ pub async fn parts_only() {
 pub async fn proposal_and_parts() {
     let params = TestParams {
         value_payload: ValuePayload::ProposalAndParts,
-        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
@@ -45,7 +43,6 @@ pub async fn proposal_and_parts() {
 pub async fn proposal_only() {
     let params = TestParams {
         value_payload: ValuePayload::ProposalOnly,
-        block_size: ByteSize::b(8),
         ..Default::default()
     };
 
