@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use crate::{TestBuilder, TestParams};
-use bytesize::ByteSize;
 use malachitebft_config::ValuePayload;
 
 async fn run_test(params: TestParams) {
