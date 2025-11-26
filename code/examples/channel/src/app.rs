@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use eyre::eyre;
 use tokio::sync::mpsc;
-use tokio::time::sleep;
+use tokio::time::{sleep, Instant};
 use tracing::{error, info};
 
 use malachitebft_app_channel::app::engine::host::Next;
@@ -83,7 +83,9 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 info!(%height, %round, %proposer, ?role, "Started round");
 
                 reload_log_level(height, round);
-
+                if round == Round::ZERO {
+                    state.stats.block_time = Instant::now();
+                }
                 // We can use that opportunity to update our internal state
                 state.current_height = height;
                 state.current_round = round;
@@ -178,7 +180,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 // Now what's left to do is to break down the value to propose into parts,
                 // and send those parts over the network to our peers, for them to re-assemble the full value.
                 for stream_message in state.stream_proposal(proposal, pol_round) {
-                    info!(%height, %round, "Streaming proposal part: {stream_message:?}");
+                    info!(%height, %round, "Streaming proposal part: "); //{stream_message:?}");
 
                     channels
                         .network
@@ -252,8 +254,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 // When that happens, we store the decided value in our store
                 match state.commit(certificate, extensions).await {
                     Ok(_) => {
-                        // Sleep a bit to slow down the app.
-                        sleep(Duration::from_millis(500)).await;
+                        // // Sleep a bit to slow down the app.
+                        // sleep(Duration::from_millis(500)).await;
 
                         // And then we instruct consensus to start the next height
                         if reply

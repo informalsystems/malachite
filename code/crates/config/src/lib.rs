@@ -729,11 +729,11 @@ pub struct TestConfig {
 impl Default for TestConfig {
     fn default() -> Self {
         Self {
-            max_block_size: ByteSize::mib(1),
+            max_block_size: ByteSize::b(8),
             txs_per_part: 256,
             time_allowance_factor: 0.5,
             exec_time_per_tx: Duration::from_millis(1),
-            max_retain_blocks: 1000,
+            max_retain_blocks: 10,
             vote_extensions: VoteExtensionsConfig::default(),
             stable_block_times: false,
         }

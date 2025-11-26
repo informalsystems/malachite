@@ -3,19 +3,16 @@ use std::time::Duration;
 use eyre::eyre;
 use malachitebft_app_channel::app::engine::host::Next;
 use tokio::time::sleep;
+use tokio::time::Instant;
 use tracing::{debug, error, info};
-
 // use malachitebft_app_channel::app::config::ValuePayload;
+use crate::state::{decode_value, encode_value, State};
 use malachitebft_app_channel::app::streaming::StreamContent;
-use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{Round, Validity};
 use malachitebft_app_channel::app::types::sync::RawDecidedValue;
 use malachitebft_app_channel::app::types::{LocallyProposedValue, ProposedValue};
 use malachitebft_app_channel::{AppMsg, Channels, NetworkMsg};
-use malachitebft_test::codec::json::JsonCodec;
 use malachitebft_test::{Height, TestContext};
-
-use crate::state::{decode_value, State};
 
 pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyre::Result<()> {
     while let Some(msg) = channels.consensus.recv().await {
@@ -61,6 +58,9 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 state.current_round = round;
                 state.current_proposer = Some(proposer);
 
+                if round == Round::ZERO {
+                    state.stats.block_time = Instant::now();
+                }
                 let pending_parts = state
                     .store
                     .get_pending_proposal_parts(height, round)
@@ -161,7 +161,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                 // Now what's left to do is to break down the value to propose into parts,
                 // and send those parts over the network to our peers, for them to re-assemble the full value.
                 for stream_message in state.stream_proposal(proposal, pol_round) {
-                    debug!(%height, %round, "Streaming proposal part: {stream_message:?}");
+                    debug!(%height, %round, "Streaming proposal part:"); // {stream_message:?}");
 
                     channels
                         .network
@@ -240,7 +240,8 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
                         }
                     }
                 }
-                sleep(Duration::from_millis(500)).await;
+
+                // sleep(Duration::from_millis(500)).await;
             }
 
             // It may happen that our node is lagging behind its peers. In that case,
@@ -295,7 +296,7 @@ pub async fn run(state: &mut State, channels: &mut Channels<TestContext>) -> eyr
 
                 let raw_decided_value = decided_value.map(|decided_value| RawDecidedValue {
                     certificate: decided_value.certificate,
-                    value_bytes: JsonCodec.encode(&decided_value.value).unwrap(), // FIXME: unwrap
+                    value_bytes: encode_value(&decided_value.value),
                 });
 
                 if reply.send(raw_decided_value).is_err() {

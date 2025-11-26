@@ -67,10 +67,11 @@ pub struct Value {
 
 impl Value {
     pub fn new(value: u64) -> Self {
-        Self {
-            value,
-            extensions: Bytes::new(),
-        }
+        Self::with_extensions(value, Default::default())
+    }
+
+    pub fn with_extensions(value: u64, extensions: Bytes) -> Self {
+        Self { value, extensions }
     }
 
     pub fn id(&self) -> ValueId {

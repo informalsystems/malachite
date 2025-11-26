@@ -17,13 +17,13 @@ export MALACHITE__MEMPOOL__LOAD__INTERVAL="1ms"
 # export MALACHITE__MEMPOOL__LOAD__COUNT=1000 # For some reason this fails to parse?
 export MALACHITE__MEMPOOL__LOAD__SIZE="1 KiB"
 
-export MALACHITE__TEST__MAX_BLOCK_SIZE="5 MiB"
+export MALACHITE__TEST__MAX_BLOCK_SIZE="2 MiB"
 export MALACHITE__TEST__TXS_PER_PART=1024
 export MALACHITE__TEST__TIME_ALLOWANCE_FACTOR=0.5
 export MALACHITE__TEST__EXEC_TIME_PER_TX="0ms"
 export MALACHITE__TEST__MAX_RETAIN_BLOCKS=10000
-export MALACHITE__TEST__VOTE_EXTENSIONS__ENABLED=false
-export MALACHITE__TEST__VOTE_EXTENSIONS__SIZE="1KiB"
+export MALACHITE__TEST__VOTE_EXTENSIONS__ENABLED=true
+export MALACHITE__TEST__VOTE_EXTENSIONS__SIZE="2MiB"
 
 export MALACHITE__VALUE_SYNC__ENABLED="true"
 export MALACHITE__VALUE_SYNC__STATUS_UPDATE_INTERVAL="5s"
@@ -106,7 +106,7 @@ if [ -z "$NODES_COUNT" ] || [ -z "$NODES_HOME" ]; then
 fi
 
 # Set defaults
-app_name=${app_name:-"informalsystems-malachitebft-starknet-app"}
+app_name=${app_name:-"informalsystems-malachitebft-app-channel"}
 profile=${profile:-false}
 debug=${debug:-false}
 lldb=${lldb:-false}

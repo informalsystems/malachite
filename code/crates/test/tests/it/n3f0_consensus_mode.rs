@@ -1,8 +1,7 @@
 use std::time::Duration;
 
-use malachitebft_config::ValuePayload;
-
 use crate::{TestBuilder, TestParams};
+use malachitebft_config::ValuePayload;
 
 async fn run_test(params: TestParams) {
     const HEIGHT: u64 = 5;

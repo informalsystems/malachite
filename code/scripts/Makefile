@@ -8,7 +8,7 @@ NODES_COUNT?=5
 NODES_HOME?=$(HOME)/.malachite
 
 # Binary name
-APP_BINARY?=informalsystems-malachitebft-starknet-app
+APP_BINARY?=informalsystems-malachitebft-example-channel
 
 # Is this a RELEASE build?
 ifeq ($(strip $(RELEASE)),)

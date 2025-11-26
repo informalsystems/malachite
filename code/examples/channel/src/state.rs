@@ -3,16 +3,9 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 use eyre::eyre;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use sha3::Digest;
-use tokio::time::sleep;
-use tracing::{debug, error, info};
-
 use malachitebft_app_channel::app::consensus::ProposedValue;
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
@@ -25,6 +18,12 @@ use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
     ProposalPart, TestContext, ValidatorSet, Value,
 };
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use sha3::Digest;
+
+use tokio::time::Instant;
+use tracing::{debug, error, info};
 
 use crate::store::{DecidedValue, Store};
 use crate::streaming::{PartStreamsMap, ProposalParts};
@@ -48,6 +47,7 @@ pub struct State {
     pub current_height: Height,
     pub current_round: Round,
     pub current_proposer: Option<Address>,
+    pub stats: StateStats,
 }
 
 /// Represents errors that can occur during the verification of a proposal's signature.
@@ -101,6 +101,20 @@ fn seed_from_address(address: &Address, instance_id: u64) -> u64 {
     addr_seed.wrapping_add(instance_id)
 }
 
+pub struct StateStats {
+    pub block_time: Instant,
+    pub block_size: u64,
+}
+
+impl StateStats {
+    pub fn new() -> Self {
+        Self {
+            block_time: Instant::now(),
+            block_size: 0,
+        }
+    }
+}
+
 impl State {
     /// Creates a new State instance with the given validator address and starting height
     pub fn new(
@@ -123,6 +137,7 @@ impl State {
             vote_extensions: HashMap::new(),
             streams_map: PartStreamsMap::new(),
             rng: StdRng::seed_from_u64(seed_from_address(&address, std::process::id() as u64)),
+            stats: StateStats::new(),
         }
     }
 
@@ -297,9 +312,16 @@ impl State {
             ));
         };
 
+        let block_size = proposal.value.size_bytes() as u64;
         self.store
             .store_decided_value(&certificate, proposal.value)
             .await?;
+        self.stats.block_size = block_size;
+        info!(
+            "stats: block_bytes {:?} , block_time {:?}",
+            self.stats.block_size,
+            Instant::now() - self.stats.block_time
+        );
 
         // Prune the store, keep the last HISTORY_LENGTH decided values, remove all undecided proposals for the decided height
         let retain_height = Height::new(height.as_u64().saturating_sub(HISTORY_LENGTH));
@@ -349,8 +371,8 @@ impl State {
         // We create a new value.
         let value = self.make_value(height, round);
 
-        // Simulate some processing time
-        sleep(Duration::from_millis(500)).await;
+        // // Simulate some processing time
+        // sleep(Duration::from_millis(500)).await;
 
         let proposal = ProposedValue {
             height,
@@ -373,22 +395,27 @@ impl State {
     /// A real application would have a more complex logic here,
     /// typically reaping transactions from a mempool and executing them against its state,
     /// before computing the merkle root of the new app state.
-    fn make_value(&mut self, height: Height, _round: Round) -> Value {
+    fn make_value(&mut self, _height: Height, _round: Round) -> Value {
         let value = self.rng.gen_range(100..=100000);
 
+        // generate random bytes to add as `extensions` to the value, so that value contains `max_block_size` bytes
+        let block_size = (2 * 1024 * 1024) - size_of::<u64>() as u64;
+        let mut rng = rand::thread_rng();
+        let data: Vec<u8> = (0..block_size).map(|_| rng.gen()).collect();
+        let extensions = Bytes::from(data);
         // TODO: Where should we verify signatures?
-        let extensions = self
-            .vote_extensions
-            .remove(&height)
-            .unwrap_or_default()
-            .extensions
-            .into_iter()
-            .map(|(_, e)| e.message)
-            .fold(BytesMut::new(), |mut acc, e| {
-                acc.extend_from_slice(&e);
-                acc
-            })
-            .freeze();
+        // let extensions = self
+        //     .vote_extensions
+        //     .remove(&height)
+        //     .unwrap_or_default()
+        //     .extensions
+        //     .into_iter()
+        //     .map(|(_, e)| e.message)
+        //     .fold(BytesMut::new(), |mut acc, e| {
+        //         acc.extend_from_slice(&e);
+        //         acc
+        //     })
+        //     .freeze();
 
         Value { value, extensions }
     }
@@ -472,9 +499,13 @@ impl State {
         // Data
         // Include each prime factor of the value as a separate proposal part
         {
-            for factor in factor_value(value.value) {
-                parts.push(ProposalPart::Data(ProposalData::new(factor)));
+            // for factor in factor_value(value.value) {
+            //     parts.push(ProposalPart::Data(ProposalData::new(factor.0, factor.1));
 
+            //     hasher.update(factor.to_be_bytes().as_slice());
+            // }
+            for (factor, extension) in factor_value(value.value) {
+                parts.push(ProposalPart::Data(ProposalData::new(factor, extension)));
                 hasher.update(factor.to_be_bytes().as_slice());
             }
         }
@@ -527,12 +558,23 @@ impl State {
             .filter_map(|part| part.as_data())
             .fold(1, |acc, data| acc * data.factor);
 
+        // merge all the parts' extensions in order
+        let extensions: Bytes = parts
+            .parts
+            .iter()
+            .filter_map(|part| part.as_data())
+            .fold(BytesMut::new(), |mut acc, data| {
+                acc.extend_from_slice(&data.extension);
+                acc
+            })
+            .freeze();
+
         Ok(ProposedValue {
             height: parts.height,
             round: parts.round,
             valid_round: init.pol_round,
             proposer: parts.proposer,
-            value: Value::new(value),
+            value: Value::with_extensions(value, extensions),
             validity: Validity::Valid,
         })
     }
@@ -548,12 +590,30 @@ pub fn decode_value(bytes: Bytes) -> Option<Value> {
     ProtobufCodec.decode(bytes).ok()
 }
 
+/// Split `bytes` into `n` roughly-equal chunks
+fn split_bytes(mut bytes: Bytes, chunks: usize) -> Vec<Bytes> {
+    let total = bytes.len();
+    let chunk_len = total.div_ceil(chunks); // number of bytes a chunk can have
+
+    let mut out = Vec::with_capacity(chunks);
+    while out.len() < chunks {
+        if bytes.len() >= chunk_len {
+            out.push(bytes.split_to(chunk_len));
+        } else if !bytes.is_empty() {
+            out.push(bytes.split_to(bytes.len()));
+        } else {
+            out.push(Bytes::new());
+        }
+    }
+    out
+}
+
 /// Returns the list of prime factors of the given value
 ///
 /// In a real application, this would typically split transactions
 /// into chunks ino order to reduce bandwidth requirements due
 /// to duplication of gossip messages.
-fn factor_value(value: Value) -> Vec<u64> {
+fn factor_value(value: Value) -> Vec<(u64, Bytes)> {
     let mut factors = Vec::new();
     let mut n = value.value;
 
@@ -571,5 +631,9 @@ fn factor_value(value: Value) -> Vec<u64> {
         factors.push(n);
     }
 
+    let total_factors = factors.len();
     factors
+        .into_iter()
+        .zip(split_bytes(value.extensions, total_factors))
+        .collect()
 }

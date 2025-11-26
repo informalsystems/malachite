@@ -4,31 +4,45 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use eyre::eyre;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use sha3::Digest;
 use tracing::{debug, error, info};
 
+use crate::config::Config;
+use crate::store::Store;
+use crate::streaming::{PartStreamsMap, ProposalParts};
 use malachitebft_app_channel::app::consensus::{ProposedValue, Role};
 use malachitebft_app_channel::app::streaming::{StreamContent, StreamId, StreamMessage};
 use malachitebft_app_channel::app::types::codec::Codec;
 use malachitebft_app_channel::app::types::core::{CommitCertificate, Round, Validity};
 use malachitebft_app_channel::app::types::{LocallyProposedValue, PeerId};
-use malachitebft_test::codec::json::JsonCodec;
+use malachitebft_test::codec::proto::ProtobufCodec;
+use malachitebft_test::decided_value::DecidedValue;
 use malachitebft_test::{
     Address, Ed25519Provider, Genesis, Height, ProposalData, ProposalFin, ProposalInit,
     ProposalPart, TestContext, ValidatorSet, Value, ValueId,
 };
-
-use crate::config::Config;
-use crate::store::Store;
-use crate::streaming::{PartStreamsMap, ProposalParts};
-use malachitebft_test::decided_value::DecidedValue;
+use tokio::time::Instant;
 
 /// Number of historical values to keep in the store
 const HISTORY_LENGTH: u64 = 500;
+
+pub struct StateStats {
+    pub block_time: Instant,
+    pub block_size: u64,
+}
+
+impl StateStats {
+    pub fn new() -> Self {
+        Self {
+            block_time: Instant::now(),
+            block_size: 0,
+        }
+    }
+}
 
 /// Represents the internal state of the application node
 /// Contains information about current height, round, proposals and blocks
@@ -47,6 +61,7 @@ pub struct State {
     signing_provider: Ed25519Provider,
     streams_map: PartStreamsMap,
     rng: StdRng,
+    pub stats: StateStats,
 }
 
 /// Represents errors that can occur during the verification of a proposal's signature.
@@ -111,6 +126,7 @@ impl State {
             streams_map: PartStreamsMap::new(),
             rng: StdRng::from_entropy(),
             peers: HashSet::new(),
+            stats: StateStats::new(),
         }
     }
 
@@ -307,6 +323,8 @@ impl State {
         match middleware.on_commit(&self.ctx, &certificate, &proposal) {
             // Commit was successful, move to next height
             Ok(()) => {
+                // Calculate block size before moving the value
+                let block_size = proposal.value.size_bytes() as u64;
                 self.store
                     .store_decided_value(&certificate, proposal.value)
                     .await?;
@@ -318,7 +336,12 @@ impl State {
                 // Move to next height
                 self.current_height = self.current_height.increment();
                 self.current_round = Round::Nil;
-
+                self.stats.block_size = block_size;
+                info!(
+                    "stats: block_bytes {:?} , block_time {:?}",
+                    self.stats.block_size,
+                    Instant::now() - self.stats.block_time
+                );
                 Ok(())
             }
             // Commit failed, reset height
@@ -396,8 +419,18 @@ impl State {
     /// typically reaping transactions from a mempool and executing them against its state,
     /// before computing the merkle root of the new app state.
     fn make_value(&mut self) -> Value {
-        let value = self.rng.gen_range(100..=100000);
-        Value::new(value)
+        let number = self.rng.gen_range(100..=100000);
+
+        let mut value = Value::new(number);
+
+        // generate random bytes to add as `extensions` to the value, so that value contains `max_block_size` bytes
+        let block_size = self.config.test.max_block_size.as_u64() - size_of::<u64>() as u64;
+        let mut rng = rand::thread_rng();
+        let data: Vec<u8> = (0..block_size).map(|_| rng.gen()).collect();
+        let extensions = Bytes::from(data);
+
+        value.extensions = extensions;
+        value
     }
 
     pub async fn get_proposal(
@@ -493,9 +526,8 @@ impl State {
         // Data
         // Include each prime factor of the value as a separate proposal part
         {
-            for factor in factor_value(value.value) {
-                parts.push(ProposalPart::Data(ProposalData::new(factor)));
-
+            for (factor, extension) in factor_value(value.value) {
+                parts.push(ProposalPart::Data(ProposalData::new(factor, extension)));
                 hasher.update(factor.to_be_bytes().as_slice());
             }
         }
@@ -528,12 +560,23 @@ impl State {
             .filter_map(|part| part.as_data())
             .fold(1, |acc, data| acc * data.factor);
 
+        // merge all the parts' extensions in order
+        let extensions: Bytes = parts
+            .parts
+            .iter()
+            .filter_map(|part| part.as_data())
+            .fold(BytesMut::new(), |mut acc, data| {
+                acc.extend_from_slice(&data.extension);
+                acc
+            })
+            .freeze();
+
         Ok(ProposedValue {
             height: parts.height,
             round: parts.round,
             valid_round: init.pol_round,
             proposer: parts.proposer,
-            value: Value::new(value),
+            value: Value::with_extensions(value, extensions),
             validity: Validity::Valid,
         })
     }
@@ -541,20 +584,40 @@ impl State {
 
 /// Encode a value to its byte representation
 pub fn encode_value(value: &Value) -> Bytes {
-    JsonCodec.encode(value).unwrap()
+    ProtobufCodec.encode(value).unwrap() // FIXME: unwrap
 }
 
 /// Decodes a Value from its byte representation
 pub fn decode_value(bytes: Bytes) -> Option<Value> {
-    JsonCodec.decode(bytes).ok()
+    ProtobufCodec.decode(bytes).ok()
 }
 
-/// Returns the list of prime factors of the given value
+/// Split `bytes` into `n` roughly-equal chunks
+fn split_bytes(mut bytes: Bytes, chunks: usize) -> Vec<Bytes> {
+    let total = bytes.len();
+    let chunk_len = total.div_ceil(chunks); // number of bytes a chunk can have
+
+    let mut out = Vec::with_capacity(chunks);
+    while out.len() < chunks {
+        if bytes.len() >= chunk_len {
+            out.push(bytes.split_to(chunk_len));
+        } else if !bytes.is_empty() {
+            out.push(bytes.split_to(bytes.len()));
+        } else {
+            out.push(Bytes::new());
+        }
+    }
+    out
+}
+
+/// Factorizes the input value into its prime factors, and pairs each factor with a chunk of the value's `extensions`.
+/// The returned list of factors multiplied together always reconstructs the original numeric value,
+/// and the returned chunks of bytes, when merged in order, always reconstruct the original `extensions`.
 ///
 /// In a real application, this would typically split transactions
-/// into chunks ino order to reduce bandwidth requirements due
+/// into chunks in order to reduce bandwidth requirements due
 /// to duplication of gossip messages.
-fn factor_value(value: Value) -> Vec<u64> {
+fn factor_value(value: Value) -> Vec<(u64, Bytes)> {
     let mut factors = Vec::new();
     let mut n = value.value;
 
@@ -572,5 +635,75 @@ fn factor_value(value: Value) -> Vec<u64> {
         factors.push(n);
     }
 
+    let total_factors = factors.len();
     factors
+        .into_iter()
+        .zip(split_bytes(value.extensions, total_factors))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+
+    #[test]
+    fn factor_value_even_extensions_with_factors() {
+        let extensions = Bytes::from_static(b"abcdefgh"); // len = 8
+
+        let number = 9699690;
+        let factors = vec![2, 3, 5, 7, 11, 13, 17, 19]; // len = 8 (same as that of extensions)
+
+        let results = factor_value(Value::with_extensions(number, extensions.clone()));
+        assert_eq!(factors.len(), results.len());
+        assert_eq!(factors, results.iter().map(|x| x.0).collect::<Vec<u64>>());
+
+        let merged = Bytes::from_iter(results.iter().flat_map(|(_, b)| b.clone()));
+        assert_eq!(extensions, merged);
+    }
+
+    #[test]
+    fn factor_value_less_extensions_than_factors() {
+        let extensions = Bytes::from_static(b"abc"); // len = 3
+
+        let number = 9699690;
+        let factors = vec![2, 3, 5, 7, 11, 13, 17, 19]; // len = 8
+
+        let results = factor_value(Value::with_extensions(number, extensions.clone()));
+        assert_eq!(factors.len(), results.len());
+        assert_eq!(factors, results.iter().map(|x| x.0).collect::<Vec<u64>>());
+
+        let merged = Bytes::from_iter(results.iter().flat_map(|(_, b)| b.clone()));
+        assert_eq!(extensions, merged);
+    }
+
+    #[test]
+    fn factor_value_more_extensions_than_factors() {
+        let extensions = Bytes::from_static(b"abcdefghijklmnopqrstuvwxyz"); // len > 8
+
+        let number = 9699690;
+        let factors = vec![2, 3, 5, 7, 11, 13, 17, 19]; // len = 8
+
+        let results = factor_value(Value::with_extensions(number, extensions.clone()));
+        assert_eq!(factors.len(), results.len());
+        assert_eq!(factors, results.iter().map(|x| x.0).collect::<Vec<u64>>());
+
+        let merged = Bytes::from_iter(results.iter().flat_map(|(_, b)| b.clone()));
+        assert_eq!(extensions, merged);
+    }
+
+    #[test]
+    fn factor_value_no_extensions() {
+        let extensions = Bytes::new();
+
+        let number = 9699690;
+        let factors = vec![2, 3, 5, 7, 11, 13, 17, 19]; // len = 8
+
+        let results = factor_value(Value::with_extensions(number, extensions.clone()));
+        assert_eq!(factors.len(), results.len());
+        assert_eq!(factors, results.iter().map(|x| x.0).collect::<Vec<u64>>());
+
+        let merged = Bytes::from_iter(results.iter().flat_map(|(_, b)| b.clone()));
+        assert_eq!(extensions, merged);
+    }
 }
