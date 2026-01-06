@@ -23,6 +23,7 @@ members = [
   "crates/signing",
   "crates/signing-ed25519",
   "crates/signing-ecdsa",
+  "crates/signing-remote",
 
   # Test
   "crates/test",
@@ -90,6 +91,7 @@ malachitebft-proto              = { version = "0.6.0-pre", package = "informalsy
 malachitebft-signing            = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing", path = "crates/signing" }
 malachitebft-signing-ed25519    = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing-ed25519", path = "crates/signing-ed25519" }
 malachitebft-signing-ecdsa      = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing-ecdsa", path = "crates/signing-ecdsa" }
+malachitebft-signing-remote     = { version = "0.6.0-pre", package = "informalsystems-malachitebft-signing-remote", path = "crates/signing-remote" }
 malachitebft-sync               = { version = "0.6.0-pre", package = "informalsystems-malachitebft-sync", path = "crates/sync" }
 malachitebft-wal                = { version = "0.6.0-pre", package = "informalsystems-malachitebft-wal", path = "crates/wal" }
 
